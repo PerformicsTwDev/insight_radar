@@ -11,7 +11,11 @@ export class AdsClientAdapter implements AdsClient {
   constructor(private readonly customer: Customer) {}
 
   async generateKeywordIdeas(req: GenerateKeywordIdeasRequest): Promise<KeywordIdeaResult[]> {
+    // req 結構與套件的 IGenerateKeywordIdeasRequest 相容（camelCase），但套件型別較寬，故 cast。
     const results = await this.customer.keywordPlanIdeas.generateKeywordIdeas(req as never);
+    // ⚠ 套件把回傳「誤宣告」成物件（GenerateKeywordIdeaResponse），但 Opteo 由 gapic tuple 解構出
+    //   first element，**執行期實為陣列**（套件原始碼於該呼叫點亦標 `@ts-expect-error Response is an
+    //   array type`）。故雙重 cast 為陣列——勿改成 `.results` 存取（會 runtime 壞）。
     return results as unknown as KeywordIdeaResult[];
   }
 }
