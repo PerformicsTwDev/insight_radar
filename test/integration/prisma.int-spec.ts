@@ -1,16 +1,13 @@
 import type { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import { PrismaModule, PrismaService } from 'src/prisma';
+import type { PrismaService } from 'src/prisma';
+import { createPrismaTestApp } from '../utils';
 
 describe('PrismaService (integration · Testcontainers Postgres)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [PrismaModule] }).compile();
-    app = moduleRef.createNestApplication();
-    await app.init(); // onModuleInit → $connect to the Testcontainers DB
-    prisma = app.get(PrismaService);
+    ({ app, prisma } = await createPrismaTestApp());
   });
 
   afterAll(async () => {
