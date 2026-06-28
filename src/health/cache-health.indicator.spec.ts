@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { HealthIndicatorService } from '@nestjs/terminus';
 import type { CacheService } from '../cache';
 import { CacheHealthIndicator } from './cache-health.indicator';
@@ -17,6 +18,11 @@ function makeIndicator(cache: CacheMock): CacheHealthIndicator {
 }
 
 describe('CacheHealthIndicator', () => {
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  });
+
   it('reports up when the cache probe round-trips', async () => {
     const store = new Map<string, unknown>();
     const result = await makeIndicator({
