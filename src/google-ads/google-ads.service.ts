@@ -1,4 +1,6 @@
+import { Inject, Injectable } from '@nestjs/common';
 import { buildGenerateKeywordIdeasRequest } from './ads-request.builder';
+import { ADS_CLIENT } from './ads-client.port';
 import type { AdsClient, RawKeywordIdeaMetrics } from './ads-client.port';
 import type { Keyword, KeywordCandidate, KeywordMetrics } from './keyword.types';
 import { mapCompetition, mapCompetitionIndex } from './mapping/map-competition';
@@ -35,8 +37,9 @@ function noMetrics() {
  * - 拓展字與指標來自**同一回應**（`keywordIdeaMetrics`），**不**為拓展字另發 historical metrics。
  * - 外部 client 經 `AdsClient` Port 注入（DI 可 mock；完整 Adapter 見 T1.8）。
  */
+@Injectable()
 export class GoogleAdsService {
-  constructor(private readonly client: AdsClient) {}
+  constructor(@Inject(ADS_CLIENT) private readonly client: AdsClient) {}
 
   async expand(seeds: string[], params: ExpandParams): Promise<Keyword[]> {
     const seedKeys = new Set(seeds.map(normalizeText));
