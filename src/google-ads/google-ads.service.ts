@@ -1,4 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
+import { googleAdsConfig } from '../config/google-ads.config';
 import {
   buildGenerateKeywordIdeasRequest,
   buildHistoricalMetricsRequest,
@@ -18,12 +20,12 @@ export interface ExpandParams {
   currencyCode: string;
   network?: 'GOOGLE_SEARCH' | 'GOOGLE_SEARCH_AND_PARTNERS';
   includeAdult?: boolean;
-}
-
-/** 指定模式參數（同 ExpandParams + 可調 batchSize）。 */
-export interface HistoricalParams extends ExpandParams {
+  /** 每批大小；省略 → config（GOOGLE_ADS_SEED/HISTORICAL_BATCH_SIZE）→ chunk 預設。 */
   batchSize?: number;
 }
+
+/** 指定模式參數（同 ExpandParams）。 */
+export type HistoricalParams = ExpandParams;
 
 /** 缺指標時的攤平預設值（cpc/competition/avg 全 null、monthlyVolumes 空）。每列回傳新物件，避免共享 `[]`。 */
 function noMetrics() {
@@ -47,14 +49,20 @@ function noMetrics() {
  */
 @Injectable()
 export class GoogleAdsService {
-  constructor(@Inject(ADS_CLIENT) private readonly client: AdsClient) {}
+  constructor(
+    @Inject(ADS_CLIENT) private readonly client: AdsClient,
+    @Optional()
+    @Inject(googleAdsConfig.KEY)
+    private readonly config?: ConfigType<typeof googleAdsConfig>,
+  ) {}
 
   async expand(seeds: string[], params: ExpandParams): Promise<Keyword[]> {
     const seedKeys = new Set(seeds.map(normalizeText));
     // 使用者原字一律納入（source=seed）。
     const candidates: KeywordCandidate[] = seeds.map((text) => ({ text, source: 'seed' }));
 
-    for (const batch of chunkSeeds(seeds)) {
+    const batchSize = params.batchSize ?? this.config?.seedBatchSize;
+    for (const batch of chunkSeeds(seeds, batchSize)) {
       const req = buildGenerateKeywordIdeasRequest(batch, params);
       const results = await this.client.generateKeywordIdeas(req);
       const batchOrigins = batch.map(normalizeText);
@@ -87,7 +95,8 @@ export class GoogleAdsService {
     const candidates: KeywordCandidate[] = [];
     const covered = new Set<string>();
 
-    for (const batch of chunkHistorical(keywords, params.batchSize)) {
+    const batchSize = params.batchSize ?? this.config?.historicalBatchSize;
+    for (const batch of chunkHistorical(keywords, batchSize)) {
       const req = buildHistoricalMetricsRequest(batch, params);
       const results = await this.client.generateKeywordHistoricalMetrics(req);
       const batchKeys = batch.map(normalizeText);
