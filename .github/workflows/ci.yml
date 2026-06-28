@@ -33,7 +33,7 @@ jobs:
     outputs:
       app: ${{ steps.detect.outputs.app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: detect
         run: |
           if [ -f package.json ]; then
@@ -50,9 +50,9 @@ jobs:
     needs: guard
     if: ${{ needs.guard.outputs.app == 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # 須在 setup-node 前；pnpm 版本取自 package.json 的 "packageManager" 欄位
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # 須在 setup-node 前；pnpm 版本取自 package.json 的 "packageManager" 欄位
+      - uses: actions/setup-node@v6
         with:
           node-version: 22.x
           cache: pnpm # 以 pnpm-lock.yaml hash 為 cache key
@@ -73,9 +73,9 @@ jobs:
       matrix:
         node: ['22.x', '24.x'] # 政策：追兩條現役 LTS；EOL 即下架（Node 20 於 2026-04 EOL）
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -87,7 +87,7 @@ jobs:
         run: pnpm test:cov --ci --runInBand
       - name: Upload coverage report (single node，避免重複計數)
         if: ${{ matrix.node == '22.x' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/
