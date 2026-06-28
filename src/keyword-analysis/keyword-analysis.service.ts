@@ -57,35 +57,58 @@ export class KeywordAnalysisService {
     const hash = computeIdempotencyKey(input.seeds, input.params);
     const idempKey = this.cache.buildKey(CacheNamespace.IDEMP, hash);
 
-    const existing = await this.cache.get<string>(idempKey);
-    if (existing !== undefined) {
-      return { analysisId: existing };
+    // 快路徑：idemp 快取命中 → 回舊 id。
+    const cached = await this.cache.get<string>(idempKey);
+    if (cached !== undefined) {
+      return { analysisId: cached };
     }
 
     const analysisId = randomUUID();
-    const progress = { phase: 'queued', percent: 0 };
 
-    await this.prisma.keywordAnalysis.create({
-      data: {
-        id: analysisId,
-        status: 'queued',
-        seeds: input.seeds,
-        params: input.params as Prisma.InputJsonValue,
-        progress,
-        idempotencyKey: hash,
-      },
-    });
+    // 慢路徑：以 DB `idempotencyKey @unique` 為「最終仲裁」。並發的相同提交可能都未命中快取、
+    // 各自 mint 不同 uuid，但只有一個 create 成功；落敗者得 P2002 → 改回查既有列回其 analysisId
+    // （NFR-8 並發下仍 idempotent，不對 client 拋 500）。
+    try {
+      await this.prisma.keywordAnalysis.create({
+        data: {
+          id: analysisId,
+          status: 'queued',
+          seeds: input.seeds,
+          params: input.params as Prisma.InputJsonValue,
+          progress: { phase: 'queued', percent: 0 },
+          idempotencyKey: hash,
+        },
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        const winner = await this.prisma.keywordAnalysis.findUnique({
+          where: { idempotencyKey: hash },
+        });
+        if (winner) {
+          await this.cache.set(idempKey, winner.id, this.config.idempTtlMs);
+          return { analysisId: winner.id };
+        }
+      }
+      throw error;
+    }
 
+    // 入列。失敗（如 Redis 短暫不可用）必須補償刪除剛建立的列，否則留下無對應 job 的
+    // `queued` 孤兒列：永不被處理，且重試會撞 P2002 而永久卡死。
     const payload: AnalysisJobPayload = {
       analysisId,
       seeds: input.seeds,
       params: input.params,
     };
-    await this.queue.add(KEYWORD_ANALYSIS_QUEUE, payload, {
-      jobId: analysisId,
-      attempts: this.config.jobAttempts,
-      backoff: { type: 'exponential', delay: this.config.jobBackoffMs },
-    });
+    try {
+      await this.queue.add(KEYWORD_ANALYSIS_QUEUE, payload, {
+        jobId: analysisId,
+        attempts: this.config.jobAttempts,
+        backoff: { type: 'exponential', delay: this.config.jobBackoffMs },
+      });
+    } catch (error) {
+      await this.prisma.keywordAnalysis.delete({ where: { id: analysisId } });
+      throw error;
+    }
 
     const summary: JobSummary = { status: 'queued', progress: { phase: 'queued', percent: 0 } };
     await this.cache.set(
@@ -97,4 +120,9 @@ export class KeywordAnalysisService {
 
     return { analysisId };
   }
+}
+
+/** Prisma 唯一鍵衝突（P2002）判定。 */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
