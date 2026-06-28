@@ -1,4 +1,5 @@
 import { enums } from 'google-ads-api';
+import { parseCount } from './parse-count';
 
 /** Google Ads `MonthlySearchVolume` 原始形狀（**snake_case**；month 為名稱字串（gax enums:String），int64 為字串）。 */
 export interface RawMonthlySearchVolume {
@@ -42,15 +43,6 @@ function resolveMonth(month: string | number): number | null {
   return name ? (MONTH_NAME_TO_NUMBER[name] ?? null) : null;
 }
 
-/** 把原始搜量解析為 number；缺值或非數值 → null（不補 0、不外漏 NaN）。 */
-function resolveSearches(searches: number | string | null | undefined): number | null {
-  if (searches === null || searches === undefined) {
-    return null;
-  }
-  const n = Number(searches);
-  return Number.isFinite(n) ? n : null;
-}
-
 /**
  * 映射逐月搜量為趨勢資料（FR-5、TC-5）。
  *
@@ -67,14 +59,12 @@ export function mapMonthlyVolumes(
   const out: MonthlySearchVolume[] = [];
   for (const entry of raw) {
     const month = resolveMonth(entry.month);
-    if (month === null) {
+    const year = parseCount(entry.year);
+    // 月份無法辨識、或 year 非有限（畸形）→ 略過該條目（不外漏 NaN/0）。
+    if (month === null || year === null) {
       continue;
     }
-    out.push({
-      year: Number(entry.year),
-      month,
-      searches: resolveSearches(entry.monthly_searches),
-    });
+    out.push({ year, month, searches: parseCount(entry.monthly_searches) });
   }
   return out;
 }

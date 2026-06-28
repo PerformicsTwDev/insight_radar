@@ -83,6 +83,24 @@ describe('mapMonthlyVolumes (TC-5)', () => {
     expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 6, searches: null }]);
   });
 
+  it('maps an empty / whitespace monthly_searches to null, NOT 0 (M1-R2, null≠0)', () => {
+    expect(mapMonthlyVolumes([{ year: 2025, month: 'JUNE', monthly_searches: '' }])).toEqual([
+      { year: 2025, month: 6, searches: null },
+    ]);
+    expect(mapMonthlyVolumes([{ year: 2025, month: 'JUNE', monthly_searches: '   ' }])).toEqual([
+      { year: 2025, month: 6, searches: null },
+    ]);
+  });
+
+  it('skips an entry with a non-finite year (M1-R2; never emits year NaN/0)', () => {
+    const raw: RawMonthlySearchVolume[] = [
+      { year: 'abc', month: 'JUNE', monthly_searches: 5 },
+      { year: '', month: 'JULY', monthly_searches: 5 },
+      { year: '2025', month: 'AUGUST', monthly_searches: 5 },
+    ];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 8, searches: 5 }]);
+  });
+
   it('returns an empty array for empty / undefined input', () => {
     expect(mapMonthlyVolumes([])).toEqual([]);
     expect(mapMonthlyVolumes(undefined)).toEqual([]);
