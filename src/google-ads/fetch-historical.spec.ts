@@ -100,6 +100,17 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
     expect(out).toHaveLength(1);
   });
 
+  it('drops a result that maps to no submitted input (output only user inputs)', async () => {
+    // 上游回了一筆 text 不在輸入、closeVariants 也對不到的列 → 不得出現在輸出（AC-13.2）。
+    const fake = new FakeAdsClient(() => [
+      { text: 'unsolicited keyword', keywordMetrics: metrics(1) },
+      { text: 'coffee', keywordMetrics: metrics(2) },
+    ]);
+    const service = new GoogleAdsService(fake);
+    const out = await service.fetchHistoricalMetrics(['coffee'], PARAMS);
+    expect(out.map((k) => k.normalizedText)).toEqual(['coffee']);
+  });
+
   it('marks an input with no returned data as a no-data seed row', async () => {
     // 只回 car 的資料；cars 無對應 → 仍須有一列（無指標）對應 cars。
     const fake = new FakeAdsClient(() => [{ text: 'car', keywordMetrics: metrics(5000) }]);

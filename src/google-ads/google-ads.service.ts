@@ -95,15 +95,18 @@ export class GoogleAdsService {
         // 把此列對回它涵蓋的原始輸入（text 自身 + closeVariants），限定在本批輸入內。
         const variantKeys = [result.text, ...(result.closeVariants ?? [])].map(normalizeText);
         const origins = batchKeys.filter((k) => variantKeys.includes(k));
-        const seedOrigins = origins.length > 0 ? origins : undefined;
-        for (const key of origins.length > 0 ? origins : [normalizeText(result.text)]) {
+        // 對不到任何使用者輸入的列直接略過（輸出只含使用者輸入，AC-13.2）。
+        if (origins.length === 0) {
+          continue;
+        }
+        for (const key of origins) {
           covered.add(key);
         }
         candidates.push({
           text: result.text,
           source: 'seed', // 指定模式所有列皆 seed
           metrics: this.toMetrics(result.keywordMetrics, params.currencyCode),
-          seedOrigins,
+          seedOrigins: origins,
         });
       }
     }
