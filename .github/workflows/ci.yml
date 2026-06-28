@@ -21,13 +21,34 @@ env:
   FORCE_COLOR: '1'
 
 jobs:
+  # —— Bootstrap 守門 ——
+  # T0.1 引入 package.json 之前（seed / Dependabot 階段）沒有可建置的應用程式。
+  # 不能用 job-level `if: hashFiles(...)`：job 條件在 checkout 之前求值、workspace 為空，
+  # GitHub 會判為 Invalid workflow file（startup failure）。故改用一個先 checkout 再偵測的
+  # 守門 job 輸出布林，quality/test 以 `needs` + `if` 乾淨地 skip（中性，不紅）。
+  # T0.1 之後 package.json 恆存在 → 兩個 job 永遠執行，本守門自動失效。
+  guard:
+    name: detect app
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::尚未有 package.json（T0.1 之前）— 跳過 Node 建置/測試 job。"
+          fi
+
   # —— 第 1 段：lint / typecheck / build（與 Node 版本無關，單一 LTS）——
   quality:
     name: lint · typecheck · build
     runs-on: ubuntu-latest
-    # Bootstrap 守門：T0.1 引入 package.json 之前（seed / Dependabot 階段）跳過 Node 步驟，
-    # 避免「無應用程式可建置」的紅燈。T0.1 之後 package.json 恆存在 → 本守門自動失效、永遠執行。
-    if: ${{ hashFiles('package.json') != '' }}
+    needs: guard
+    if: ${{ needs.guard.outputs.app == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4 # 須在 setup-node 前；pnpm 版本取自 package.json 的 "packageManager" 欄位
@@ -45,7 +66,8 @@ jobs:
   test:
     name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest # GitHub-hosted runner 內建 Docker daemon → Testcontainers OK
-    if: ${{ hashFiles('package.json') != '' }} # 同上：T0.1 前跳過，避免空專案紅燈
+    needs: guard
+    if: ${{ needs.guard.outputs.app == 'true' }}
     strategy:
       fail-fast: false
       matrix:
