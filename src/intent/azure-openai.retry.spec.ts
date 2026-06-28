@@ -11,17 +11,20 @@ const CONFIG: AzureConfig = {
   maxRetries: 5,
 };
 
-/** A 429 response carrying Retry-After, then a 200 — to prove the SDK retries + honours Retry-After. */
-function makeFlakyFetch(failures: number) {
-  let calls = 0;
-  const retryAfterSeconds: number[] = [];
+/**
+ * A 429 carrying `retry-after`, then a 200 — to prove the SDK retries AND honours Retry-After.
+ * Captures the wall-clock timestamp of each call so the test can assert the backoff gap
+ * matches the header (not the SDK's default exponential backoff).
+ */
+function makeFlakyFetch(failures: number, retryAfter = '0') {
+  const callTimes: number[] = [];
   const fetchImpl = (_url: string | URL, init?: RequestInit): Promise<Response> => {
-    calls += 1;
-    if (calls <= failures) {
+    callTimes.push(Date.now());
+    if (callTimes.length <= failures) {
       return Promise.resolve(
         new Response('{"error":{"message":"rate limited"}}', {
           status: 429,
-          headers: { 'retry-after': '0', 'content-type': 'application/json' },
+          headers: { 'retry-after': retryAfter, 'content-type': 'application/json' },
         }),
       );
     }
@@ -48,9 +51,12 @@ function makeFlakyFetch(failures: number) {
   return {
     fetch: fetchImpl,
     get calls() {
-      return calls;
+      return callTimes.length;
     },
-    retryAfterSeconds,
+    /** ms gaps between consecutive calls (i.e. how long each retry waited). */
+    gaps(): number[] {
+      return callTimes.slice(1).map((t, i) => t - callTimes[i]);
+    },
   };
 }
 
@@ -59,26 +65,44 @@ describe('AzureOpenAI SDK retry (TC-32)', () => {
     expect(AZURE_OPENAI_MAX_RETRIES).toBe(5);
   });
 
-  it('retries a 429 (honouring Retry-After) and then succeeds within maxRetries', async () => {
+  it('retries a 429 and then succeeds within maxRetries', async () => {
     const flaky = makeFlakyFetch(2); // fail twice, succeed on the 3rd
     const client = createAzureOpenAiClient(CONFIG, undefined, flaky.fetch);
 
-    const completion = await client.chat.completions.parse({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hi' }],
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'x', strict: true, schema: { type: 'object' } },
-      },
-    });
+    const completion = await client.chat.completions.parse(parseArgs());
 
     expect(flaky.calls).toBe(3); // 1 initial + 2 retries
     expect((completion as { choices: unknown[] }).choices).toHaveLength(1);
   });
 
-  it('honours the configured maxRetries from config', () => {
-    // maxRetries flows from AZURE_OPENAI_MAX_RETRIES into the client; default path covered above.
-    const client = createAzureOpenAiClient(CONFIG, undefined, makeFlakyFetch(0).fetch);
-    expect(client).toBeDefined();
+  it('honours the Retry-After header for the backoff delay', async () => {
+    // retry-after:1 → the SDK must wait ~1s before retrying (vs its ~0.5s default first backoff).
+    const flaky = makeFlakyFetch(1, '1');
+    const client = createAzureOpenAiClient(CONFIG, undefined, flaky.fetch);
+
+    await client.chat.completions.parse(parseArgs());
+
+    expect(flaky.calls).toBe(2);
+    // the single retry gap should reflect the 1s Retry-After (allow scheduler slack).
+    expect(flaky.gaps()[0]).toBeGreaterThanOrEqual(900);
+  });
+
+  it('does not retry when maxRetries is configured to 0 (preserves intentional 0)', async () => {
+    const flaky = makeFlakyFetch(1); // would succeed on retry, but retries are disabled
+    const client = createAzureOpenAiClient({ ...CONFIG, maxRetries: 0 }, undefined, flaky.fetch);
+
+    await expect(client.chat.completions.parse(parseArgs())).rejects.toBeDefined();
+    expect(flaky.calls).toBe(1); // no retry
   });
 });
+
+function parseArgs() {
+  return {
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user' as const, content: 'hi' }],
+    response_format: {
+      type: 'json_schema' as const,
+      json_schema: { name: 'x', strict: true, schema: { type: 'object' } },
+    },
+  };
+}
