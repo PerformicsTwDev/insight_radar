@@ -6,7 +6,7 @@ import { GoogleAdsService } from './google-ads.service';
 
 class FakeAdsClient implements AdsClient {
   generateKeywordIdeas(): Promise<KeywordIdeaResult[]> {
-    return Promise.resolve([{ text: 'fake idea', keywordIdeaMetrics: null }]);
+    return Promise.resolve([{ text: 'fake idea', keyword_idea_metrics: null }]);
   }
   generateKeywordHistoricalMetrics(): Promise<never[]> {
     return Promise.resolve([]);

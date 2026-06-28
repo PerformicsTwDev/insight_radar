@@ -33,7 +33,7 @@ const PARAMS = {
 
 describe('GenerateKeywordIdeas contract (TC-14)', () => {
   it('pins the fixture version against the installed package (re-record on bump)', () => {
-    expect(fixture._meta.fixtureVersion).toBe(1);
+    expect(fixture._meta.fixtureVersion).toBe(2);
     // 對照「實際安裝」的版本，而非自我斷言；套件升版未重錄 fixture 即轉紅。
     const installed = JSON.parse(
       readFileSync(

@@ -64,7 +64,7 @@ export class GoogleAdsService {
         candidates.push({
           text: result.text,
           source: isSeed ? 'seed' : 'expanded',
-          metrics: this.toMetrics(result.keywordIdeaMetrics, params.currencyCode),
+          metrics: this.toMetrics(result.keyword_idea_metrics, params.currencyCode),
           // 拓展字記 seedOrigins = 產生它的那批 seeds（跨批由 dedupeMerge union）。
           seedOrigins: isSeed ? undefined : batchOrigins,
         });
@@ -93,7 +93,7 @@ export class GoogleAdsService {
       const batchKeys = batch.map(normalizeText);
       for (const result of results) {
         // 把此列對回它涵蓋的原始輸入（text 自身 + closeVariants），限定在本批輸入內。
-        const variantKeys = [result.text, ...(result.closeVariants ?? [])].map(normalizeText);
+        const variantKeys = [result.text, ...(result.close_variants ?? [])].map(normalizeText);
         const origins = batchKeys.filter((k) => variantKeys.includes(k));
         // 對不到任何使用者輸入的列直接略過（輸出只含使用者輸入，AC-13.2）。
         if (origins.length === 0) {
@@ -105,7 +105,7 @@ export class GoogleAdsService {
         candidates.push({
           text: result.text,
           source: 'seed', // 指定模式所有列皆 seed
-          metrics: this.toMetrics(result.keywordMetrics, params.currencyCode),
+          metrics: this.toMetrics(result.keyword_metrics, params.currencyCode),
           seedOrigins: origins,
         });
       }
@@ -133,8 +133,8 @@ export class GoogleAdsService {
     return {
       ...metrics,
       competition: mapCompetition(raw.competition),
-      competitionIndex: mapCompetitionIndex(raw.competitionIndex),
-      monthlyVolumes: mapMonthlyVolumes(raw.monthlySearchVolumes),
+      competitionIndex: mapCompetitionIndex(raw.competition_index),
+      monthlyVolumes: mapMonthlyVolumes(raw.monthly_search_volumes),
     };
   }
 
