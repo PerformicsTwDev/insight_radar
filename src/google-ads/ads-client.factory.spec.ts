@@ -10,6 +10,8 @@ const CONFIG: GoogleAdsConfig = {
   developerToken: 'DTOKEN',
   loginCustomerId: '1112223333',
   customerId: '4445556666',
+  seedBatchSize: 15,
+  historicalBatchSize: 1000,
 };
 
 describe('createAdsClient (T1.8)', () => {
