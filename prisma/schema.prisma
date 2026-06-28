@@ -1,0 +1,92 @@
+// 資料模型單一真實來源（Design §5.2）。表結構由 `prisma migrate` 產生；
+// `pg_trgm` extension 與 GIN/trgm 索引為手動補進 migration（Prisma 不自動產生）。
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+enum JobStatus {
+  queued
+  running
+  completed
+  partial
+  failed
+  canceled
+}
+
+model KeywordAnalysis {
+  id               String          @id @default(uuid()) @db.Uuid
+  status           JobStatus
+  seeds            Json
+  params           Json
+  progress         Json
+  idempotencyKey   String          @unique @map("idempotency_key")
+  resultSnapshot   ResultSnapshot? @relation(fields: [resultSnapshotId], references: [id])
+  resultSnapshotId String?         @map("result_snapshot_id") @db.Uuid
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  startedAt        DateTime?       @map("started_at") @db.Timestamptz
+  finishedAt       DateTime?       @map("finished_at") @db.Timestamptz
+  error            String?
+
+  @@index([status])
+  @@map("keyword_analyses")
+}
+
+model ResultSnapshot {
+  id           String            @id @default(uuid()) @db.Uuid
+  analysisId   String            @map("keyword_analysis_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  keywordCount Int               @map("keyword_count")
+  checksum     String
+  rows         SnapshotRow[]
+  analyses     KeywordAnalysis[]
+
+  @@index([analysisId])
+  @@map("result_snapshots")
+}
+
+model Keyword {
+  normalizedText     String   @map("normalized_text")
+  geo                String
+  language           String
+  text               String
+  avgMonthlySearches Int?     @map("avg_monthly_searches")
+  competition        String?
+  competitionIndex   Int?     @map("competition_index")
+  cpcLowMicros       BigInt?  @map("cpc_low_micros")
+  cpcHighMicros      BigInt?  @map("cpc_high_micros")
+  monthlyVolumes     Json     @default("[]") @map("monthly_volumes")
+  currencyCode       String?  @map("currency_code")
+  metricsFetchedAt   DateTime @default(now()) @map("metrics_fetched_at") @db.Timestamptz
+
+  @@id([geo, language, normalizedText])
+  @@map("keywords")
+}
+
+model KeywordIntent {
+  normalizedText String   @map("normalized_text")
+  modelVersion   String   @map("model_version")
+  labels         Json
+  labeledAt      DateTime @default(now()) @map("labeled_at") @db.Timestamptz
+
+  @@id([normalizedText, modelVersion])
+  @@map("keyword_intents")
+}
+
+model SnapshotRow {
+  snapshot   ResultSnapshot @relation(fields: [snapshotId], references: [id])
+  snapshotId String         @map("snapshot_id") @db.Uuid
+  analysisId String         @map("keyword_analysis_id") @db.Uuid
+  rowIndex   Int            @map("row_index")
+  data       Json
+
+  @@id([snapshotId, rowIndex])
+  @@index([analysisId])
+  @@map("snapshot_rows")
+}

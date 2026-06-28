@@ -57,11 +57,18 @@ const config: Config = {
     },
     {
       // e2e：Supertest 啟動完整 Nest app（in-process，無 DB）。
-      // integration project（Testcontainers Postgres，`test/integration/**/*.int-spec.ts`
-      // + setup-testcontainers globalSetup）於 **T0.9** 補上。
       ...projectBase,
       displayName: 'e2e',
       testMatch: ['<rootDir>/test/e2e/**/*.e2e-spec.ts'],
+      collectCoverageFrom,
+    },
+    {
+      // integration：Testcontainers Postgres（真實 DB，非 SQLite）；以 --runInBand 跑（test:integration / CI）。
+      ...projectBase,
+      displayName: 'integration',
+      testMatch: ['<rootDir>/test/integration/**/*.int-spec.ts'],
+      globalSetup: '<rootDir>/test/setup-testcontainers.ts',
+      globalTeardown: '<rootDir>/test/teardown-testcontainers.ts',
       collectCoverageFrom,
     },
   ],
