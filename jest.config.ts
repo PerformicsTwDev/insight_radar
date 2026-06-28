@@ -21,6 +21,10 @@ const projectBase = {
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: { '^src/(.*)$': '<rootDir>/src/$1' },
   transform,
+  // ★ 必須 per-project：在 projects 模式下，放在根層的 coveragePathIgnorePatterns 不會套到各 project，
+  //   被測試「執行到」的 *.module.ts / main.ts / *.dto.ts 仍會混進覆蓋率（collectCoverageFrom 的負向
+  //   glob 只控「未執行檔是否補 0」，擋不掉已執行檔）。在此排除，與 collectCoverageFrom 一致。
+  coveragePathIgnorePatterns: ['/node_modules/', '\\.module\\.ts$', 'main\\.ts$', '\\.dto\\.ts$'],
 };
 
 // core（correctness-critical）門檻：純函式目錄要求 ≥90%（glob 對齊 DevelopmentRules §10.4）。
