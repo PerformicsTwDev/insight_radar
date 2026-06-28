@@ -1,3 +1,5 @@
+import { stdSerializers as pinoStdSerializers } from 'pino';
+
 /** 遮蔽後的取代值。 */
 export const REDACT_CENSOR = '[Redacted]';
 
@@ -56,6 +58,56 @@ export const REDACT_PATHS: string[] = [
   'headers.authorization',
 ];
 
-// ⚠ pino redact 邊界（已知限制；後續以 custom `serializers.err` follow-up 補強）：
+// ⚠ pino redact 邊界（已知限制）：
 //   1) `*.field` 只涵蓋巢狀 1 層——深 ≥2 層或陣列元素內的祕密欄位不會被遮蔽（祕密請記在已知淺路徑）。
-//   2) 只能依 key 遮蔽「整個值」，無法遮蔽 message / err.message / err.stack 字串內嵌的祕密子字串。
+//   2) redact 只能依 key 遮蔽「整個值」，無法處理 message / err.message / err.stack 內嵌的祕密子字串。
+//      → 由下方 scrubSecrets / errSerializer 補強（M0-R3）。
+
+/**
+ * 自由字串內嵌祕密的遮罩規則（M0-R3）。pino `redact` 無法處理錯誤訊息／stack 內嵌的連線字串密碼
+ * 或 bearer token，故對任意字串再做一道 regex 遮罩。
+ *  - 連線字串憑證：`scheme://user:PASSWORD@host` → 只遮 `:PASSWORD`（保留 user/host/db 便於除錯）。
+ *  - Authorization bearer：`Bearer <token>` → 遮 token。
+ */
+const SCRUB_RULES: { pattern: RegExp; replacement: string }[] = [
+  // scheme://user:password@  →  scheme://user:[Redacted]@
+  {
+    pattern: /\b([a-z][a-z0-9+.-]*:\/\/[^:/?#@\s]+:)[^@/\s]+@/gi,
+    replacement: `$1${REDACT_CENSOR}@`,
+  },
+  // Bearer <token>
+  { pattern: /\b(Bearer\s+)[\w.~+/=-]+/gi, replacement: `$1${REDACT_CENSOR}` },
+];
+
+/** 對單一字串套用 {@link SCRUB_RULES}；非字串原樣回傳。 */
+export function scrubSecrets<T>(value: T): T {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  let out: string = value;
+  for (const { pattern, replacement } of SCRUB_RULES) {
+    out = out.replace(pattern, replacement);
+  }
+  return out as T;
+}
+
+/** pino `err` 序列化的最小形狀（避免把 pino 型別擴散到此純函式模組）。 */
+interface SerializedError {
+  type: string;
+  message: string;
+  stack?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * pino `serializers.err`（M0-R3）：先做標準錯誤序列化，再把 message / stack 內嵌祕密遮掉。
+ * 保留 error type 與其餘欄位，只清洗會夾帶連線字串/憑證的自由字串。
+ */
+export function errSerializer(err: Error): SerializedError {
+  const serialized = pinoStdSerializers.err(err) as unknown as SerializedError;
+  serialized.message = scrubSecrets(serialized.message);
+  if (typeof serialized.stack === 'string') {
+    serialized.stack = scrubSecrets(serialized.stack);
+  }
+  return serialized;
+}
