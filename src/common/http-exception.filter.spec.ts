@@ -84,6 +84,23 @@ describe('HttpExceptionFilter', () => {
     );
   });
 
+  // —— M0-R2：array-form message（NestJS 預設 ValidationPipe / BadRequestException([...])）——
+  it('surfaces an array-form HttpException message on a 4xx (not the generic 500 text)', () => {
+    const { host, status, json } = mockHost();
+    filter.catch(new BadRequestException(['a must be an integer', 'b is required']), host);
+
+    expect(status).toHaveBeenCalledWith(400);
+    const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
+    expect(body.statusCode).toBe(400);
+    expect(body.code).toBe('BAD_REQUEST');
+    // 不得退回通用 500 文字
+    expect(body.message).not.toBe('Internal server error');
+    // 陣列中每筆訊息都要可見（join 或 fields 任一）
+    const serialised = JSON.stringify(body);
+    expect(serialised).toContain('a must be an integer');
+    expect(serialised).toContain('b is required');
+  });
+
   it('does not leak internals for a non-HttpException (generic 500)', () => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const { host, status, json } = mockHost();
