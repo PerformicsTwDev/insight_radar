@@ -54,4 +54,58 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(error).toBeUndefined();
     }
   });
+
+  // —— M0-R7：運維可調參數納入 Joi（收斂 allowUnknown 的靜默放行）——
+  describe('operational tunables (M0-R7)', () => {
+    /** Joi `.validate().value` 型別為 `any`；以已知欄位形狀讀取避免 unsafe-access lint。 */
+    const validatedValue = (env: Record<string, string>): Record<string, unknown> =>
+      validationSchema.validate(env, { abortEarly: false }).value as Record<string, unknown>;
+
+    it('applies documented defaults when the tunables are omitted', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv);
+      expect(error).toBeUndefined();
+      expect(value.GOOGLE_ADS_SEED_BATCH_SIZE).toBe(15);
+      expect(value.GOOGLE_ADS_QPS).toBe(1);
+      expect(value.CACHE_TTL_METRICS_MS).toBe(1814400000);
+      expect(value.WORKER_CONCURRENCY).toBe(5);
+      expect(value.LOG_LEVEL).toBe('info');
+    });
+
+    it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, GOOGLE_ADS_SEED_BATCH_SIZE: '21' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('GOOGLE_ADS_SEED_BATCH_SIZE');
+    });
+
+    it('enforces the historical-batch hard cap of 10000', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, GOOGLE_ADS_HISTORICAL_BATCH_SIZE: '10001' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('GOOGLE_ADS_HISTORICAL_BATCH_SIZE');
+    });
+
+    it('rejects a non-numeric tunable instead of silently passing it through', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, WORKER_CONCURRENCY: 'lots' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('WORKER_CONCURRENCY');
+    });
+
+    it('coerces numeric strings (env always arrives as strings)', () => {
+      const env = { ...validEnv, GOOGLE_ADS_SEED_BATCH_SIZE: '10', LLM_BATCH_SIZE: '30' };
+      const { error } = validationSchema.validate(env, { abortEarly: false });
+      const value = validatedValue(env);
+      expect(error).toBeUndefined();
+      expect(value.GOOGLE_ADS_SEED_BATCH_SIZE).toBe(10);
+      expect(value.LLM_BATCH_SIZE).toBe(30);
+    });
+  });
 });
