@@ -69,6 +69,20 @@ describe('mapMonthlyVolumes (TC-5)', () => {
     expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 6, searches: 3 }]);
   });
 
+  it('skips proto-integer UNSPECIFIED (0) and UNKNOWN (1) months', () => {
+    const raw: RawMonthlySearchVolume[] = [
+      { year: 2025, month: enums.MonthOfYear.UNSPECIFIED, monthlySearches: 1 }, // proto 0
+      { year: 2025, month: enums.MonthOfYear.UNKNOWN, monthlySearches: 2 }, // proto 1
+      { year: 2025, month: enums.MonthOfYear.MAY, monthlySearches: 3 }, // proto 6 -> month 5
+    ];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 5, searches: 3 }]);
+  });
+
+  it('maps a non-numeric monthlySearches to null (never NaN)', () => {
+    const raw: RawMonthlySearchVolume[] = [{ year: 2025, month: 'JUNE', monthlySearches: 'abc' }];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 6, searches: null }]);
+  });
+
   it('returns an empty array for empty / undefined input', () => {
     expect(mapMonthlyVolumes([])).toEqual([]);
     expect(mapMonthlyVolumes(undefined)).toEqual([]);

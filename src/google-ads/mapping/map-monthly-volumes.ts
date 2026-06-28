@@ -42,9 +42,13 @@ function resolveMonth(month: string | number): number | null {
   return name ? (MONTH_NAME_TO_NUMBER[name] ?? null) : null;
 }
 
-/** 把原始搜量解析為 number；缺值 → null（不補 0）。 */
+/** 把原始搜量解析為 number；缺值或非數值 → null（不補 0、不外漏 NaN）。 */
 function resolveSearches(searches: number | string | null | undefined): number | null {
-  return searches === null || searches === undefined ? null : Number(searches);
+  if (searches === null || searches === undefined) {
+    return null;
+  }
+  const n = Number(searches);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
