@@ -35,7 +35,7 @@ export const intentBatchSchema = z.object({
 export type IntentBatch = z.infer<typeof intentBatchSchema>;
 
 /** 固定重用的 structured-outputs response_format（避免每批重建 schema 的預處理延遲）。 */
-const RESPONSE_FORMAT = zodResponseFormat(intentBatchSchema, 'intent_labeling');
+const RESPONSE_FORMAT = Object.freeze(zodResponseFormat(intentBatchSchema, 'intent_labeling'));
 
 /** 回傳固定的 intent `json_schema` response format（strict）。 */
 export function intentResponseFormat(): typeof RESPONSE_FORMAT {

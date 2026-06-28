@@ -1,4 +1,4 @@
-import { INTENT_LABELS, INTENT_SCHEMA_VERSION, intentResponseFormat } from './intent-schema';
+import { INTENT_LABELS, INTENT_SCHEMA_VERSION, intentResponseFormat } from './intent.schema';
 
 /** 遞迴數出整份 JSON schema 的 object property 總數（structured-outputs 上限 100）。 */
 function countProperties(node: unknown): number {
@@ -103,6 +103,32 @@ describe('intent json_schema (T2.2 / TC-15 部分)', () => {
   it('stays well within the structured-outputs limits (≤100 props, ≤5 deep)', () => {
     expect(countProperties(schema)).toBeLessThanOrEqual(100);
     expect(schemaDepth(schema)).toBeLessThanOrEqual(5);
+  });
+
+  it('emits NO structured-outputs-unsupported keywords (Azure rejects these)', () => {
+    // Design §4.2：array 的 minItems/maxItems/uniqueItems、string 的 pattern/format/minLength/maxLength
+    // 皆不支援。zod 的 .min()/.regex()/.email() 會生這些 → Azure 直接拒絕（單元測物件抓不到，故顯式守門）。
+    const FORBIDDEN = [
+      'minItems',
+      'maxItems',
+      'uniqueItems',
+      'pattern',
+      'format',
+      'minLength',
+      'maxLength',
+      'minimum',
+      'maximum',
+    ];
+    const offenders: string[] = [];
+    const walk = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (FORBIDDEN.includes(k)) offenders.push(k);
+        walk(v);
+      }
+    };
+    walk(schema);
+    expect(offenders).toEqual([]);
   });
 
   it('exposes a schema version for cache namespacing', () => {
