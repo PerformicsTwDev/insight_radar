@@ -87,6 +87,13 @@ describe('IntentService.labelBatch (T2.3)', () => {
     expect(fake.calls.map((c) => extractKeywords(c).length)).toEqual([30, 1]);
   });
 
+  it('falls back to the default when batchSize floors below 1 (no infinite loop)', async () => {
+    const fake = new FakeLabeler();
+    const service = new IntentService(fake, config(0.5)); // floor 0 → default 30, must not hang
+    await service.labelBatch(Array.from({ length: 31 }, (_, i) => `k${i}`));
+    expect(fake.calls.map((c) => extractKeywords(c).length)).toEqual([30, 1]);
+  });
+
   it('returns an empty array for no keywords (no LLM call)', async () => {
     const fake = new FakeLabeler();
     const service = new IntentService(fake, config(30));
