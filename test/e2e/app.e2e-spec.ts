@@ -14,12 +14,8 @@ describe('App bootstrap (e2e harness)', () => {
     await app.close();
   });
 
-  it('boots the full Nest app and serves GET /health → 200 { status: ok }', async () => {
-    const res = await request(app.getHttpServer()).get('/health');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
-  });
+  // GET /health 的 200 + 內容驗證移到 integration（terminus 探真實 DB；見 test/integration/health.int-spec.ts）。
+  // e2e 僅驗 app 啟動（lazy Prisma，無 DB 也能 boot）+ 前綴/錯誤格式（不觸發 DB 探針）。
 
   it('applies the /api/v1 global prefix with /health excluded (GET /api/v1/health → 404)', async () => {
     const res = await request(app.getHttpServer()).get('/api/v1/health');

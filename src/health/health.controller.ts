@@ -1,18 +1,34 @@
 import { Controller, Get } from '@nestjs/common';
+import {
+  HealthCheck,
+  HealthCheckResult,
+  HealthCheckService,
+  PrismaHealthIndicator,
+} from '@nestjs/terminus';
 import { Public } from '../common/public.decorator';
+import { PrismaService } from '../prisma';
+import { CacheHealthIndicator } from './cache-health.indicator';
 
 /**
- * Liveness placeholder（T0.1）。
- *
- * 掛在 `GET /health`（排除於 `/api/v1` 全域前綴之外——NFR-10）。
- * `@Public()`：全域 ApiKeyGuard 放行（免 `x-api-key`，T0.5）。
- * 真正的 readiness/liveness（`@nestjs/terminus`：DB/Redis/外部依賴探針）於 **T0.7** 取代本實作。
+ * 健康檢查（T0.7）。掛在 `GET /health`（排除於 `/api/v1` 前綴外，NFR-10）、`@Public`（免認證，TC-25）。
+ * 回報 DB（Prisma `SELECT 1`）與 Cache（Redis/Keyv probe）狀態；任一 down → terminus 回 503。
  */
 @Controller('health')
 export class HealthController {
+  constructor(
+    private readonly health: HealthCheckService,
+    private readonly prismaIndicator: PrismaHealthIndicator,
+    private readonly prisma: PrismaService,
+    private readonly cacheIndicator: CacheHealthIndicator,
+  ) {}
+
   @Public()
   @Get()
-  check(): { status: string } {
-    return { status: 'ok' };
+  @HealthCheck()
+  check(): Promise<HealthCheckResult> {
+    return this.health.check([
+      () => this.prismaIndicator.pingCheck('database', this.prisma),
+      () => this.cacheIndicator.isHealthy('cache'),
+    ]);
   }
 }

@@ -3,13 +3,12 @@ import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
+import { PrismaModule } from './prisma';
 import { configNamespaces, validationSchema } from './config';
 
 /**
- * 應用根模組。
- *
- * M0 起逐步掛上功能模組（CacheModule/PrismaModule…）。
- * 目前：全域 ConfigModule（Joi fail-fast 驗證，T0.4）+ HealthModule（liveness placeholder，T0.1）。
+ * 應用根模組。全域 ConfigModule（Joi fail-fast，T0.4）+ CommonModule（ApiKeyGuard/filter/pipe，T0.5/T0.6）
+ * + CacheModule（T0.8）+ PrismaModule（lazy connect，T0.9/T0.7）+ HealthModule（terminus 探 DB/Cache，T0.7）。
  */
 @Module({
   imports: [
@@ -24,6 +23,7 @@ import { configNamespaces, validationSchema } from './config';
     }),
     CommonModule,
     CacheModule,
+    PrismaModule,
     HealthModule,
   ],
 })
