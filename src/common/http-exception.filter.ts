@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ErrorResponse } from './dto/error-response';
+import { scrubSecrets } from '../logger/redaction';
 
 interface HttpResponseLike {
   status(code: number): { json(body: unknown): void };
@@ -60,9 +61,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     } else {
       // 不洩漏細節：完整錯誤只進 server log，回應給通用訊息。
+      // stack 以 scrubSecrets 清洗內嵌的連線字串密碼／bearer token（M0-R3；此處走原始字串
+      // log，不經 pino serializers.err，故須自行遮罩）。
       this.logger.error(
         'Unhandled exception',
-        exception instanceof Error ? exception.stack : String(exception),
+        scrubSecrets(exception instanceof Error ? exception.stack : String(exception)),
       );
     }
 
