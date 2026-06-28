@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # —— Node 應用相依（package-ecosystem: npm 同時支援 pnpm-lock.yaml）——
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Taipei
+    open-pull-requests-limit: 10
+    versioning-strategy: increase # 跟著 lockfile 升
+    groups: # grouped updates 降噪（version updates 2023-08 GA / security updates 2024-03 GA）
+      prod-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+      dev-all:
+        dependency-type: development
+    commit-message:
+      prefix: "fix" # 生產相依 → patch，反映安全修補
+      prefix-development: "chore" # 開發相依 → 不發版
+      include: scope
+    labels: ["dependencies"]
+
+  # —— GitHub Actions 自身版本（供應鏈）——
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      gha:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    labels: ["area:ci", "dependencies"] # 用既有的 area:ci（裸 ci 標籤不存在會被靜默忽略）；dependencies 由 Dependabot 自動建
