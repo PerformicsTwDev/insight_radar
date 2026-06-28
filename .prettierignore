@@ -1,0 +1,6 @@
+# 產生物 / 鎖檔：勿讓 prettier 重排（pnpm-lock.yaml 一旦被改格式，CI --frozen-lockfile 會失敗）
+pnpm-lock.yaml
+CHANGELOG.md
+dist/
+coverage/
+node_modules/
