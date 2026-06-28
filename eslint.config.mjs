@@ -16,6 +16,8 @@ export default tseslint.config(
       'jest.config.ts',
       'commitlint.config.js',
       'config/**',
+      '.claude/**', // Claude Code 工具設定/工作流（gitignored，非應用程式碼）
+      '.kiro/**',
     ],
   },
   eslint.configs.recommended,
