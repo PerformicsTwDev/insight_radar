@@ -3,30 +3,34 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Cache } from 'cache-manager';
 
 /**
- * T0.8 red stub：方法皆未實作（回固定/空值），讓 namespacing / round-trip / TTL 測試轉紅。
- * green 階段委派給注入的 cache-manager v6 `Cache`（TTL 以**毫秒**）。
+ * 快取存取封裝（T0.8）。委派給 cache-manager **v6**（Keyv-based，**非**舊 cache-manager-redis-store）。
+ * 所有 TTL 一律**毫秒**（cache-manager v6 / Keyv 原生單位）。
  */
 @Injectable()
 export class CacheService {
-  constructor(@Inject(CACHE_MANAGER) _cache: Cache) {}
+  constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
 
-  buildKey(_namespace: string, ..._parts: (string | number)[]): string {
-    return 'stub';
+  /** 以 `:` 串接 namespace 與片段作為 cache key（如 `metrics:cid:hash`）。 */
+  buildKey(namespace: string, ...parts: (string | number)[]): string {
+    return [namespace, ...parts].join(':');
   }
 
-  get<T>(_key: string): Promise<T | undefined> {
-    return Promise.resolve(undefined);
+  async get<T>(key: string): Promise<T | undefined> {
+    return (await this.cache.get<T>(key)) ?? undefined;
   }
 
-  set<T>(_key: string, _value: T, _ttlMs?: number): Promise<void> {
-    return Promise.resolve();
+  /** 寫入快取；`ttlMs` 為**毫秒**（省略則不過期）。 */
+  async set<T>(key: string, value: T, ttlMs?: number): Promise<void> {
+    await this.cache.set(key, value, ttlMs);
   }
 
-  mget<T>(_keys: string[]): Promise<(T | undefined)[]> {
-    return Promise.resolve([]);
+  /** 批次取值，回傳與 `keys` 對齊的陣列（未命中為 `undefined`）。 */
+  async mget<T>(keys: string[]): Promise<(T | undefined)[]> {
+    const values = await this.cache.mget<T>(keys);
+    return values.map((value) => value ?? undefined);
   }
 
-  del(_key: string): Promise<void> {
-    return Promise.resolve();
+  async del(key: string): Promise<void> {
+    await this.cache.del(key);
   }
 }

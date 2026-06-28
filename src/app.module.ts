@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
 import { configNamespaces, validationSchema } from './config';
@@ -22,6 +23,7 @@ import { configNamespaces, validationSchema } from './config';
       validationOptions: { allowUnknown: true, abortEarly: false },
     }),
     CommonModule,
+    CacheModule,
     HealthModule,
   ],
 })
