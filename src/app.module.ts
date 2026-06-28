@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './health';
-import { validationSchema } from './config/env.validation';
+import { configNamespaces, validationSchema } from './config';
 
 /**
  * 應用根模組。
@@ -16,6 +16,7 @@ import { validationSchema } from './config/env.validation';
       cache: true,
       // 測試載入 .env.test（dummy 合法值，通過 Joi/allowlist）；其餘載入 .env。
       envFilePath: process.env.NODE_ENV === 'test' ? ['.env.test'] : ['.env'],
+      load: configNamespaces,
       validationSchema,
       validationOptions: { allowUnknown: true, abortEarly: false },
     }),
