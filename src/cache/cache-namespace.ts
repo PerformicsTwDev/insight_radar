@@ -5,6 +5,8 @@
 export const CacheNamespace = {
   METRICS: 'metrics',
   INTENT: 'intent',
+  SNAPSHOT: 'snapshot',
+  JOB: 'job',
   IDEMP: 'idemp',
 } as const;
 
