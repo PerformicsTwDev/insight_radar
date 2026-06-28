@@ -16,6 +16,9 @@ export const validationSchema = Joi.object({
   PORT: Joi.number().port().default(3000),
   API_PREFIX: Joi.string().default('api/v1'),
   API_KEY: Joi.string().required(),
+  LOG_LEVEL: Joi.string()
+    .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
+    .default('info'),
 
   // —— Google Ads（六項憑證）——
   GOOGLE_ADS_CLIENT_ID: Joi.string().required(),

@@ -56,4 +56,30 @@ describe('log redaction (TC-29)', () => {
     expect(output).not.toContain('HEADER_API_SECRET');
     expect(output).not.toContain('TOKEN_SECRET');
   });
+
+  it('redacts config-namespace shapes, connection-string passwords, and OAuth access tokens', () => {
+    const output = captureLog(
+      {
+        googleAds: { developerToken: 'NS_DEV_SECRET', clientSecret: 'NS_CLIENT_SECRET' },
+        azure: { apiKey: 'NS_AZURE_SECRET' },
+        app: { apiKey: 'NS_APP_SECRET' },
+        database: { url: 'postgresql://user:DB_PW_SECRET@host:5432/db' },
+        redis: { url: 'redis://user:REDIS_PW_SECRET@host:6379' },
+        tokens: { access_token: 'ACCESS_TOKEN_SECRET' },
+      },
+      'config',
+    );
+
+    for (const secret of [
+      'NS_DEV_SECRET',
+      'NS_CLIENT_SECRET',
+      'NS_AZURE_SECRET',
+      'NS_APP_SECRET',
+      'DB_PW_SECRET',
+      'REDIS_PW_SECRET',
+      'ACCESS_TOKEN_SECRET',
+    ]) {
+      expect(output).not.toContain(secret);
+    }
+  });
 });

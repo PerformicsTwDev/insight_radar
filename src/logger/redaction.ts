@@ -16,10 +16,12 @@ const SECRET_FIELDS = [
   'API_KEY',
   'azureApiKey',
   'AZURE_OPENAI_API_KEY',
-  // OAuth refresh token
+  // OAuth tokens（refresh + 短期 access）
   'refreshToken',
   'refresh_token',
   'GOOGLE_ADS_REFRESH_TOKEN',
+  'accessToken',
+  'access_token',
   // client secret
   'clientSecret',
   'client_secret',
@@ -42,9 +44,18 @@ export const REDACT_PATHS: string[] = [
   'googleAds.clientSecret',
   'azure.apiKey',
   'app.apiKey',
+  // 連線字串（含 user:password@host）—— 整段遮蔽，避免密碼隨連線錯誤外洩。
+  'database.url',
+  'redis.url',
+  'DATABASE_URL',
+  'REDIS_URL',
   // HTTP headers（pino-http 的 req/res 序列化）
   'req.headers["x-api-key"]',
   'req.headers.authorization',
   'headers["x-api-key"]',
   'headers.authorization',
 ];
+
+// ⚠ pino redact 邊界（已知限制；後續以 custom `serializers.err` follow-up 補強）：
+//   1) `*.field` 只涵蓋巢狀 1 層——深 ≥2 層或陣列元素內的祕密欄位不會被遮蔽（祕密請記在已知淺路徑）。
+//   2) 只能依 key 遮蔽「整個值」，無法遮蔽 message / err.message / err.stack 字串內嵌的祕密子字串。
