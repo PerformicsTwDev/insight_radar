@@ -9,6 +9,7 @@ const CONFIG: AzureConfig = {
   apiVersion: '2024-10-21',
   llmBatchSize: 30,
   llmConcurrency: 6,
+  maxRetries: 5,
 };
 
 describe('createAzureOpenAiClient (T2.1)', () => {
@@ -31,6 +32,20 @@ describe('createAzureOpenAiClient (T2.1)', () => {
       },
     ]);
     expect(AZURE_OPENAI_MAX_RETRIES).toBe(5);
+  });
+
+  it('uses the config maxRetries when valid, else falls back to the default', () => {
+    const captured: Array<{ maxRetries: number }> = [];
+    const FakeCtor = function (this: unknown, o: { maxRetries: number }) {
+      captured.push(o);
+      return { chat: { completions: { parse: () => Promise.resolve({}) } } };
+    } as unknown as AzureOpenAICtor;
+
+    createAzureOpenAiClient({ ...CONFIG, maxRetries: 3 }, FakeCtor);
+    createAzureOpenAiClient({ ...CONFIG, maxRetries: Number.NaN }, FakeCtor); // invalid → default
+
+    expect(captured[0].maxRetries).toBe(3);
+    expect(captured[1].maxRetries).toBe(AZURE_OPENAI_MAX_RETRIES); // 5
   });
 
   it('defaults to the real AzureOpenAI constructor (lazy; no network at build)', () => {

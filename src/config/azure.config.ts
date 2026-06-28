@@ -10,6 +10,8 @@ export interface AzureConfig {
   llmBatchSize: number;
   /** intent 貼標並發上限（已 Joi 驗證 min1，預設 6；Design §14 LLM_CONCURRENCY）。 */
   llmConcurrency: number;
+  /** SDK 自動重試次數（已 Joi 驗證 min0，預設 5；Design §14 AZURE_OPENAI_MAX_RETRIES）。 */
+  maxRetries: number;
 }
 
 /** Azure OpenAI 設定（apiVersion 已由 Joi allowlist 驗證，故可安全斷言為聯合型別）。 */
@@ -20,4 +22,5 @@ export const azureConfig = registerAs('azure', (): AzureConfig => ({
   apiVersion: process.env.AZURE_OPENAI_API_VERSION as AzureOpenAiApiVersion,
   llmBatchSize: Number(process.env.LLM_BATCH_SIZE),
   llmConcurrency: Number(process.env.LLM_CONCURRENCY),
+  maxRetries: Number(process.env.AZURE_OPENAI_MAX_RETRIES),
 }));
