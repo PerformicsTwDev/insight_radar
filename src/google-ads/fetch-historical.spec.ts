@@ -82,6 +82,9 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
       cpcHigh: 1.5,
       currencyCode: 'TWD',
       monthlyVolumes: [{ year: 2025, month: 1, searches: 120 }],
+      // exact-mode rows also carry geo/language (M1-R4, canonical key)
+      geo: 'geoTargetConstants/2158',
+      language: 'languageConstants/1018',
     });
   });
 
