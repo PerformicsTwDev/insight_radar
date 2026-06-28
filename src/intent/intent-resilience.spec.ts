@@ -155,4 +155,23 @@ describe('IntentService.labelKeywords resilience (T2.5 / TC-8)', () => {
     expect(out.map((r) => r.keyword)).toEqual(['a', 'b']);
     for (const r of out) expect(r.labels).toEqual(['informational']); // safe fallback, no throw
   });
+
+  it('treats results:null as malformed (fallback, no crash)', async () => {
+    const labeler = new ScriptedLabeler(() => ({
+      parsed: { results: null } as unknown as IntentBatch,
+      refusal: null,
+    }));
+    const service = new IntentService(labeler, { batchSize: 4 });
+    const out = await service.labelKeywords(['a']);
+    expect(out).toEqual([{ keyword: 'a', labels: ['informational'] }]);
+  });
+
+  it('passes a valid empty results array through (postProcess fills inputs as fallback)', async () => {
+    // results:[] is a VALID array → pushed to collected, not treated as malformed; postProcess
+    // then maps the input to fallback (no result row for it).
+    const labeler = new ScriptedLabeler(() => ({ parsed: { results: [] }, refusal: null }));
+    const service = new IntentService(labeler, { batchSize: 4 });
+    const out = await service.labelKeywords(['a']);
+    expect(out).toEqual([{ keyword: 'a', labels: ['informational'] }]);
+  });
 });
