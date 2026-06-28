@@ -1,4 +1,4 @@
-import { LengthFinishReasonError, ContentFilterFinishReasonError } from 'openai/error';
+import { LengthFinishReasonError, ContentFilterFinishReasonError } from 'openai/core/error';
 import { IntentService } from './intent.service';
 import type { IntentLabeler, ParseChatParams, ParseChatResult } from './intent-labeler.port';
 import type { IntentBatch } from './intent.schema';

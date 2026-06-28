@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ContentFilterFinishReasonError, LengthFinishReasonError } from 'openai/error';
+import { ContentFilterFinishReasonError, LengthFinishReasonError } from 'openai/core/error';
 import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
 import { type IntentBatch, intentResponseFormat } from './intent.schema';
 import { buildIntentMessages } from './intent.prompt';
@@ -37,7 +37,9 @@ export class IntentService {
     @Inject(INTENT_LABELER) private readonly labeler: IntentLabeler,
     @Inject('INTENT_SERVICE_CONFIG') config: IntentServiceConfig,
   ) {
-    this.batchSize = config.batchSize > 0 ? Math.floor(config.batchSize) : DEFAULT_BATCH_SIZE;
+    // floor 後須 ≥1，否則迴圈 i += 0 會無限迴圈（分數 batchSize 如 0.5 會 floor 成 0）。
+    const floored = Math.floor(config.batchSize);
+    this.batchSize = Number.isFinite(floored) && floored >= 1 ? floored : DEFAULT_BATCH_SIZE;
   }
 
   /** 低階：切批呼叫 LLM，回各批原始結果（不處理 length/filter；T2.3）。 */
