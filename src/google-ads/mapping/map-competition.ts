@@ -1,4 +1,5 @@
 import { enums } from 'google-ads-api';
+import { parseCount } from './parse-count';
 
 /** 競爭度等級（原樣保留套件 enum 名稱）。 */
 export type CompetitionLevel = 'UNSPECIFIED' | 'UNKNOWN' | 'LOW' | 'MEDIUM' | 'HIGH';
@@ -28,12 +29,5 @@ export function mapCompetition(raw: string | number | null | undefined): Competi
 
 /** 映射競爭指數（0–100）；缺值/空白/非有限 → null（不補 0）。int64 runtime 可能為字串（gax longs:String）。 */
 export function mapCompetitionIndex(raw: number | string | null | undefined): number | null {
-  if (raw === null || raw === undefined) {
-    return null;
-  }
-  if (typeof raw === 'string' && raw.trim() === '') {
-    return null;
-  }
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+  return parseCount(raw);
 }

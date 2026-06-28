@@ -1,4 +1,5 @@
 import { microsToAmount, parseMicros } from './micros';
+import { parseCount } from './parse-count';
 
 /**
  * Google Ads `keyword_idea_metrics`（= `KeywordPlanHistoricalMetrics`）的原始指標子集。
@@ -25,18 +26,6 @@ function toMicrosString(micros: string | number | null | undefined): string | nu
   return parseMicros(micros)?.toString() ?? null;
 }
 
-/** 解析 int64-as-string 的計數（搜量）；未設值/空白/非有限 → null（不補 0）。 */
-function toCount(value: number | string | null | undefined): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value === 'string' && value.trim() === '') {
-    return null;
-  }
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
 /**
  * 映射搜量 / CPC 指標（FR-3、TC-3）。
  *
@@ -47,7 +36,7 @@ function toCount(value: number | string | null | undefined): number | null {
  */
 export function mapMetrics(raw: RawKeywordMetrics, currencyCode: string): MappedMetrics {
   return {
-    avgMonthlySearches: toCount(raw.avg_monthly_searches),
+    avgMonthlySearches: parseCount(raw.avg_monthly_searches),
     cpcLow: microsToAmount(raw.low_top_of_page_bid_micros),
     cpcHigh: microsToAmount(raw.high_top_of_page_bid_micros),
     cpcLowMicros: toMicrosString(raw.low_top_of_page_bid_micros),
