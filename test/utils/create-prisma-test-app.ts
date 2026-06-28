@@ -4,7 +4,8 @@ import { PrismaModule, PrismaService } from 'src/prisma';
 
 /**
  * 為 integration 測試啟動含 `PrismaModule` 的 Nest app（連 Testcontainers Postgres）。
- * `app.init()` 觸發 `PrismaService.onModuleInit`（$connect）；回傳已連線的 PrismaService。
+ * **Lazy connect**：`app.init()` 不連線；PrismaService 於首次查詢時才 `$connect`
+ * （連到 globalSetup 注入的容器 `DATABASE_URL`）。
  *
  * 呼叫端負責在 `afterAll` 收掉 `await app.close()`（onModuleDestroy → $disconnect，避免 Jest hang）。
  */
