@@ -50,8 +50,13 @@ export class KeywordAnalysisProcessor extends WorkerHost {
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {
     const { seeds, params } = job.data;
 
-    // phase 1：取數（依 mode 分流；指標同回應夾帶）。
-    const keywords = await FETCH_STRATEGIES[params.mode](this.ads, seeds, toExpandParams(params));
+    // phase 1：取數（依 mode 分流；指標同回應夾帶）。job.data 為反序列化 JSON、非型別保證，
+    // 故顯式守 unknown mode（拋非重試性錯誤，避免 FETCH_STRATEGIES[undefined] 變 TypeError 而耗盡 attempts）。
+    const fetchStrategy = FETCH_STRATEGIES[params.mode];
+    if (!fetchStrategy) {
+      throw new Error(`Unknown analysis mode: ${String(params.mode)}`);
+    }
+    const keywords = await fetchStrategy(this.ads, seeds, toExpandParams(params));
     await this.report(job, 'fetch', keywords.length);
 
     // phase 2：指標（兩模式皆已隨取數回應帶回，無額外 Ads 呼叫）。

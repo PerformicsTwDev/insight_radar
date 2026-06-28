@@ -60,13 +60,11 @@ function buildHarness(): Harness {
   const fetchHistorical = jest
     .fn()
     .mockResolvedValue([keyword('running shoes', { source: 'seed' })]);
-  const labelKeywords = jest.fn().mockResolvedValue({
-    labeled: [
-      { keyword: 'running shoes', labels: ['commercial'] },
-      { keyword: 'trail shoes', labels: ['informational'] },
-    ],
-    needsReview: [],
-  });
+  // Matches the real IntentService.labelKeywords contract → LabeledKeyword[].
+  const labelKeywords = jest.fn().mockResolvedValue([
+    { keyword: 'running shoes', labels: ['commercial'] },
+    { keyword: 'trail shoes', labels: ['informational'] },
+  ]);
 
   const ads = { expand, fetchHistoricalMetrics: fetchHistorical } as unknown as GoogleAdsService;
   const intent = { labelKeywords } as unknown as IntentService;
@@ -152,5 +150,18 @@ describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
     const job = fakeJob(buildPayload());
 
     expect(() => processor.onFailed(job as never, new Error('boom'))).not.toThrow();
+  });
+
+  it('throws a clear error for an unknown mode (malformed payload, no TypeError loop)', async () => {
+    const { processor, expand, fetchHistorical } = buildHarness();
+    const payload = buildPayload({
+      params: { geo: 'g', language: 'l', mode: 'bogus' as never, includeAdult: false },
+    });
+
+    await expect(processor.process(fakeJob(payload) as never)).rejects.toThrow(
+      /Unknown analysis mode: bogus/,
+    );
+    expect(expand).not.toHaveBeenCalled();
+    expect(fetchHistorical).not.toHaveBeenCalled();
   });
 });

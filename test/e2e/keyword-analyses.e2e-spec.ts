@@ -1,6 +1,7 @@
 import { getQueueToken } from '@nestjs/bullmq';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import RedisMock from 'ioredis-mock';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { configureApp } from 'src/bootstrap';
@@ -34,9 +35,11 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     })
       .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
       .useValue({ add: queueAdd, getJob: queueGetJob })
-      // ioredis-mock so BullModule's forRoot connection has no real socket (no Jest hang).
+      // Real in-memory ioredis-mock: the @Processor's auto-created BullMQ Worker needs a
+      // usable client (duplicate()/blocking cmds). A bare {quit} stub makes the Worker fall
+      // back to a real Redis (ECONNREFUSED on CI). ioredis-mock keeps it fully in-memory.
       .overrideProvider(BULL_CONNECTION)
-      .useValue({ quit: jest.fn().mockResolvedValue(undefined) })
+      .useValue(new RedisMock())
       .overrideProvider(PrismaService)
       .useValue({
         keywordAnalysis: { create: prismaCreate, findUnique: prismaFindUnique, delete: jest.fn() },
