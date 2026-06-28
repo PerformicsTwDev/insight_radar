@@ -20,11 +20,13 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
   let queueAdd: jest.Mock;
   let queueGetJob: jest.Mock;
   let prismaCreate: jest.Mock;
+  let prismaFindUnique: jest.Mock;
 
   beforeAll(async () => {
     queueAdd = jest.fn().mockResolvedValue({ id: 'job-1' });
     queueGetJob = jest.fn();
     prismaCreate = jest.fn((args: { data: { id: string } }) => Promise.resolve(args.data));
+    prismaFindUnique = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -36,7 +38,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       .useValue({ quit: jest.fn().mockResolvedValue(undefined) })
       .overrideProvider(PrismaService)
       .useValue({
-        keywordAnalysis: { create: prismaCreate, findUnique: jest.fn(), delete: jest.fn() },
+        keywordAnalysis: { create: prismaCreate, findUnique: prismaFindUnique, delete: jest.fn() },
       })
       .compile();
 
@@ -151,12 +153,13 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     expect(elapsedMs).toBeLessThan(300);
   });
 
-  describe('GET /keyword-analyses/:id (TC-22)', () => {
+  describe('GET /keyword-analyses/:id (TC-22) — DB source of truth', () => {
     it('returns 200 with status/progress/result for a running job', async () => {
-      queueGetJob.mockResolvedValueOnce({
-        getState: jest.fn().mockResolvedValue('active'),
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'some-id',
+        status: 'running',
         progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
-        returnvalue: null,
+        resultSnapshot: null,
       });
 
       const res = await request(app.getHttpServer())
@@ -172,10 +175,11 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     });
 
     it('returns the completed result snapshot id + count', async () => {
-      queueGetJob.mockResolvedValueOnce({
-        getState: jest.fn().mockResolvedValue('completed'),
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'some-id',
+        status: 'completed',
         progress: { phase: 'done', percent: 100 },
-        returnvalue: { resultSnapshotId: 'snap-9', count: 1980 },
+        resultSnapshot: { id: 'snap-9', keywordCount: 1980 },
       });
 
       const res = await request(app.getHttpServer())
@@ -189,8 +193,24 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       });
     });
 
+    it('surfaces a partial status (queue state cannot express it)', async () => {
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'some-id',
+        status: 'partial',
+        progress: { phase: 'intent', percent: 100 },
+        resultSnapshot: { id: 'snap-p', keywordCount: 800 },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/some-id')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(200);
+      expect((res.body as { status: string }).status).toBe('partial');
+    });
+
     it('returns 404 for an unknown analysisId', async () => {
-      queueGetJob.mockResolvedValueOnce(undefined);
+      prismaFindUnique.mockResolvedValueOnce(null);
 
       const res = await request(app.getHttpServer())
         .get('/api/v1/keyword-analyses/missing')

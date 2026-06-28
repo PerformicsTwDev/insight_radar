@@ -53,8 +53,13 @@ class FakePrisma {
       this.rows.push(args.data);
       return Promise.resolve(args.data);
     }),
-    findUnique: jest.fn((args: { where: { idempotencyKey?: string } }) => {
-      const row = this.rows.find((r) => r.idempotencyKey === args.where.idempotencyKey);
+    findUnique: jest.fn((args: { where: { idempotencyKey?: string; id?: string } }) => {
+      const row = this.rows.find(
+        (r) =>
+          (args.where.idempotencyKey !== undefined &&
+            r.idempotencyKey === args.where.idempotencyKey) ||
+          (args.where.id !== undefined && r.id === args.where.id),
+      );
       return Promise.resolve(row ?? null);
     }),
     delete: jest.fn((args: { where: { id: string } }) => {
@@ -233,32 +238,41 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
   });
 });
 
-function fakeJob(overrides: { state: string; progress?: unknown; returnvalue?: unknown }): {
-  getState: jest.Mock;
-  progress: unknown;
-  returnvalue: unknown;
-} {
-  return {
-    getState: jest.fn().mockResolvedValue(overrides.state),
-    progress: overrides.progress ?? {},
-    returnvalue: overrides.returnvalue ?? null,
-  };
+/** 在 FakePrisma 注入一筆可被 `findUnique({where:{id},include:{resultSnapshot}})` 命中的列。 */
+function seedRow(
+  prisma: FakePrisma,
+  row: {
+    id: string;
+    status: string;
+    progress?: unknown;
+    resultSnapshotId?: string | null;
+    resultSnapshot?: { id: string; keywordCount: number } | null;
+  },
+): void {
+  prisma.rows.push({
+    id: row.id,
+    idempotencyKey: `idem-${row.id}`,
+    status: row.status,
+    progress: row.progress ?? { phase: 'queued', percent: 0 },
+    resultSnapshotId: row.resultSnapshotId ?? null,
+    resultSnapshot: row.resultSnapshot ?? null,
+  });
 }
 
-describe('KeywordAnalysisService.getStatus (T3.4, TC-22)', () => {
+describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of truth', () => {
   it('throws NotFound for an unknown analysisId', async () => {
-    const { service, queueGetJob } = await buildHarness();
-    queueGetJob.mockResolvedValue(undefined);
+    const { service, prisma } = await buildHarness();
 
     await expect(service.getStatus('missing-id')).rejects.toBeInstanceOf(NotFoundException);
-    expect(queueGetJob).toHaveBeenCalledWith('missing-id');
+    expect(prisma.keywordAnalysis.findUnique).toHaveBeenCalledWith({
+      where: { id: 'missing-id' },
+      include: { resultSnapshot: true },
+    });
   });
 
-  it('maps a waiting job to status=queued with its progress', async () => {
-    const { service, queueGetJob } = await buildHarness();
-    queueGetJob.mockResolvedValue(
-      fakeJob({ state: 'waiting', progress: { phase: 'queued', percent: 0 } }),
-    );
+  it('returns status=queued with progress from the DB row', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'queued', progress: { phase: 'queued', percent: 0 } });
 
     const res = await service.getStatus('id-1');
 
@@ -269,14 +283,13 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22)', () => {
     });
   });
 
-  it('maps an active job to status=running with phase progress', async () => {
-    const { service, queueGetJob } = await buildHarness();
-    queueGetJob.mockResolvedValue(
-      fakeJob({
-        state: 'active',
-        progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
-      }),
-    );
+  it('returns status=running with phase progress', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'running',
+      progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
+    });
 
     const res = await service.getStatus('id-1');
 
@@ -291,15 +304,15 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22)', () => {
     expect(res.result).toEqual({ resultSnapshotId: null, count: null });
   });
 
-  it('maps a completed job to status=completed with resultSnapshotId + count from returnvalue', async () => {
-    const { service, queueGetJob } = await buildHarness();
-    queueGetJob.mockResolvedValue(
-      fakeJob({
-        state: 'completed',
-        progress: { phase: 'done', percent: 100 },
-        returnvalue: { resultSnapshotId: 'snap-1', count: 1980 },
-      }),
-    );
+  it('returns status=completed with resultSnapshotId + count from the snapshot (AC-8.4)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'completed',
+      progress: { phase: 'done', percent: 100 },
+      resultSnapshotId: 'snap-1',
+      resultSnapshot: { id: 'snap-1', keywordCount: 1980 },
+    });
 
     const res = await service.getStatus('id-1');
 
@@ -307,11 +320,35 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22)', () => {
     expect(res.result).toEqual({ resultSnapshotId: 'snap-1', count: 1980 });
   });
 
-  it('maps a failed job to status=failed', async () => {
-    const { service, queueGetJob } = await buildHarness();
-    queueGetJob.mockResolvedValue(
-      fakeJob({ state: 'failed', progress: { phase: 'fetch', percent: 40 } }),
-    );
+  it('surfaces status=partial (BullMQ state cannot express this — AC-8.3)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'partial',
+      progress: { phase: 'intent', percent: 100 },
+      resultSnapshotId: 'snap-2',
+      resultSnapshot: { id: 'snap-2', keywordCount: 800 },
+    });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('partial');
+    expect(res.result).toEqual({ resultSnapshotId: 'snap-2', count: 800 });
+  });
+
+  it('surfaces status=canceled (set by DELETE — AC-8.3)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'canceled', progress: { phase: 'fetch', percent: 20 } });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('canceled');
+    expect(res.result).toEqual({ resultSnapshotId: null, count: null });
+  });
+
+  it('returns status=failed with null result', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'failed', progress: { phase: 'fetch', percent: 40 } });
 
     const res = await service.getStatus('id-1');
 
@@ -319,13 +356,12 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22)', () => {
     expect(res.result).toEqual({ resultSnapshotId: null, count: null });
   });
 
-  it('defaults progress to a queued shape when the job has none yet', async () => {
-    const { service, queueGetJob } = await buildHarness();
-    queueGetJob.mockResolvedValue(fakeJob({ state: 'delayed', progress: undefined }));
+  it('defaults progress to a queued shape when the row has malformed/empty progress', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'queued', progress: null });
 
     const res = await service.getStatus('id-1');
 
-    expect(res.status).toBe('queued');
     expect(res.progress).toEqual({ phase: 'queued', percent: 0 });
   });
 });

@@ -3,7 +3,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import type { JobState, Queue } from 'bullmq';
+import type { JobStatus } from '@prisma/client';
+import type { Queue } from 'bullmq';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { queueConfig } from '../config/queue.config';
@@ -39,8 +40,8 @@ interface JobSummary {
   progress: { phase: 'queued'; percent: 0 };
 }
 
-/** 對外輪詢狀態（Design §6.2）。BullMQ 細粒度 state 收斂到這四個對外值。 */
-export type AnalysisStatus = 'queued' | 'running' | 'completed' | 'failed';
+/** 對外輪詢狀態（Design §6.2 / §6.8 狀態機）= DB `KeywordAnalysis.status` enum（6 值）。 */
+export type AnalysisStatus = JobStatus;
 
 /** 進度（與 processor `updateProgress` 對齊；phase/percent 必有，其餘階段性欄位 optional）。 */
 export interface AnalysisProgress {
@@ -59,21 +60,6 @@ export interface AnalysisStatusResponse {
 }
 
 const DEFAULT_PROGRESS: AnalysisProgress = { phase: 'queued', percent: 0 };
-
-/** BullMQ JobState → 對外 AnalysisStatus（active→running；completed/failed 同名；其餘視為 queued）。 */
-function toAnalysisStatus(state: JobState | 'unknown'): AnalysisStatus {
-  switch (state) {
-    case 'active':
-      return 'running';
-    case 'completed':
-      return 'completed';
-    case 'failed':
-      return 'failed';
-    default:
-      // waiting / waiting-children / delayed / prioritized / unknown → 尚未開跑，對外為 queued。
-      return 'queued';
-  }
-}
 
 /**
  * KeywordAnalysisService（T3.2，FR-1）。`create` 負責：算 idempotency key → 命中即回舊
@@ -158,24 +144,25 @@ export class KeywordAnalysisService {
   }
 
   /**
-   * 輪詢狀態（T3.4，FR-8）。`jobId=analysisId`（見 create），故直接 `queue.getJob(id)`：
-   * 不存在 → 404；否則由 `getState()` 收斂對外 status、`progress` 對齊 processor、completed
-   * 時自 `returnvalue` 取 `resultSnapshotId`+`count`。
+   * 輪詢狀態（T3.4，FR-8）。**DB `KeywordAnalysis` 為真實來源**（§6.8 狀態機含 `partial`/`canceled`，
+   * BullMQ `JobState` 無此語意，且 job 可能在 retention 後被逐出 → 不可僅讀 queue）。
+   * 不存在 → 404；completed/partial 時自關聯 `ResultSnapshot` 取 `resultSnapshotId`+`count`（AC-8.4）。
    */
   async getStatus(analysisId: string): Promise<AnalysisStatusResponse> {
-    const job = await this.queue.getJob(analysisId);
-    if (!job) {
+    const row = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      include: { resultSnapshot: true },
+    });
+    if (!row) {
       throw new NotFoundException(`Analysis ${analysisId} not found`);
     }
 
-    const status = toAnalysisStatus(await job.getState());
-    const progress = isProgress(job.progress) ? job.progress : DEFAULT_PROGRESS;
-    const result =
-      status === 'completed' && isResult(job.returnvalue)
-        ? { resultSnapshotId: job.returnvalue.resultSnapshotId, count: job.returnvalue.count }
-        : { resultSnapshotId: null, count: null };
+    const progress = isProgress(row.progress) ? row.progress : DEFAULT_PROGRESS;
+    const result = row.resultSnapshot
+      ? { resultSnapshotId: row.resultSnapshot.id, count: row.resultSnapshot.keywordCount }
+      : { resultSnapshotId: null, count: null };
 
-    return { status, progress, result };
+    return { status: row.status, progress, result };
   }
 }
 
@@ -184,22 +171,12 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
-/** job.progress 是否為我們的進度結構（phase+percent）。 */
+/** DB progress（Json 欄位）是否為我們的進度結構（phase+percent）。 */
 function isProgress(value: unknown): value is AnalysisProgress {
   return (
     typeof value === 'object' &&
     value !== null &&
     typeof (value as AnalysisProgress).phase === 'string' &&
     typeof (value as AnalysisProgress).percent === 'number'
-  );
-}
-
-/** job.returnvalue 是否帶 resultSnapshotId+count。 */
-function isResult(value: unknown): value is { resultSnapshotId: string; count: number } {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { resultSnapshotId?: unknown }).resultSnapshotId === 'string' &&
-    typeof (value as { count?: unknown }).count === 'number'
   );
 }
