@@ -21,6 +21,8 @@ const ENV: Record<string, string> = {
   AZURE_OPENAI_API_KEY: 'akey',
   AZURE_OPENAI_DEPLOYMENT: 'gpt-4o-mini',
   AZURE_OPENAI_API_VERSION: '2024-10-21',
+  LLM_BATCH_SIZE: '30',
+  LLM_CONCURRENCY: '6',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
 };
@@ -58,12 +60,14 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('azureConfig maps azure env', () => {
+  it('azureConfig maps azure env + LLM batch/concurrency (coerced to number)', () => {
     expect(azureConfig()).toEqual({
       endpoint: 'https://x.openai.azure.com',
       apiKey: 'akey',
       deployment: 'gpt-4o-mini',
       apiVersion: '2024-10-21',
+      llmBatchSize: 30,
+      llmConcurrency: 6,
     });
   });
 

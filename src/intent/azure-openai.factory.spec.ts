@@ -7,6 +7,8 @@ const CONFIG: AzureConfig = {
   apiKey: 'AKEY',
   deployment: 'gpt-4o-mini',
   apiVersion: '2024-10-21',
+  llmBatchSize: 30,
+  llmConcurrency: 6,
 };
 
 describe('createAzureOpenAiClient (T2.1)', () => {

@@ -5,6 +5,8 @@
 export const AZURE_OPENAI_CLIENT = Symbol('AZURE_OPENAI_CLIENT');
 /** DI token for the deployment name string（避免 magic-string 在多處重複、typo 只在 runtime 才爆）。 */
 export const AZURE_OPENAI_DEPLOYMENT = Symbol('AZURE_OPENAI_DEPLOYMENT');
+/** DI token for the IntentLabeler port（讓 consumer 依賴介面、不綁具體 AzureOpenAiService）。 */
+export const INTENT_LABELER = Symbol('INTENT_LABELER');
 
 /** 對話訊息（openai chat 子集）。 */
 export interface ChatMessage {
@@ -23,6 +25,8 @@ export interface ParseChatParams {
   messages: ChatMessage[];
   jsonSchema: JsonSchemaSpec;
   temperature?: number;
+  /** `max_completion_tokens` 上限（避免 `finish_reason=length` 截斷）。 */
+  maxCompletionTokens?: number;
 }
 
 /** `parseChat` 結果：解析後 payload（或 refusal）。 */

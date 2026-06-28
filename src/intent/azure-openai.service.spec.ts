@@ -66,14 +66,27 @@ describe('AzureOpenAiService.parseChat (T2.1 / TC-15 部分)', () => {
     expect(result.refusal).toBe('I cannot help with that');
   });
 
-  it('forwards temperature and max-completion params when provided', async () => {
+  it('forwards temperature and max_completion_tokens when provided', async () => {
     const client = new FakeChatClient({
       choices: [{ message: { parsed: { ok: true }, refusal: null } }],
     });
     const service = new AzureOpenAiService(client, 'gpt-4o-mini');
 
-    await service.parseChat({ ...baseParams, temperature: 0 });
-    const sent = client.calls[0] as { temperature?: number };
+    await service.parseChat({ ...baseParams, temperature: 0, maxCompletionTokens: 4000 });
+    const sent = client.calls[0] as { temperature?: number; max_completion_tokens?: number };
     expect(sent.temperature).toBe(0);
+    expect(sent.max_completion_tokens).toBe(4000);
+  });
+
+  it('omits temperature / max_completion_tokens when not provided', async () => {
+    const client = new FakeChatClient({
+      choices: [{ message: { parsed: { ok: true }, refusal: null } }],
+    });
+    const service = new AzureOpenAiService(client, 'gpt-4o-mini');
+
+    await service.parseChat(baseParams);
+    const sent = client.calls[0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('temperature');
+    expect(sent).not.toHaveProperty('max_completion_tokens');
   });
 });
