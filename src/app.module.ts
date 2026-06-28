@@ -3,13 +3,15 @@ import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
+import { KeywordAnalysisModule } from './keyword-analysis';
 import { LoggerModule } from './logger';
 import { PrismaModule } from './prisma';
 import { configNamespaces, validationSchema } from './config';
 
 /**
  * 應用根模組。全域 ConfigModule（Joi fail-fast，T0.4）+ CommonModule（ApiKeyGuard/filter/pipe，T0.5/T0.6）
- * + CacheModule（T0.8）+ PrismaModule（lazy connect，T0.9/T0.7）+ HealthModule（terminus 探 DB/Cache，T0.7）。
+ * + CacheModule（T0.8）+ PrismaModule（lazy connect，T0.9/T0.7）+ HealthModule（terminus 探 DB/Cache，T0.7）
+ * + KeywordAnalysisModule（POST/GET keyword-analyses，T3.3+）。
  */
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { configNamespaces, validationSchema } from './config';
     CacheModule,
     PrismaModule,
     HealthModule,
+    KeywordAnalysisModule,
   ],
 })
 export class AppModule {}
