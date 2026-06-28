@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "description": "Golden fixture: recorded shape of customer.keywordPlanIdeas.generateKeywordIdeas (Opteo google-ads-api, camelCase). No secrets. Used by the T1.7 contract test (TC-14) to detect upstream schema drift.",
+    "package": "google-ads-api",
+    "packageVersion": "24.1.0",
+    "fixtureVersion": 1,
+    "recordedFor": "expand mode (GenerateKeywordIdeas), seeds=[\"coffee\"]"
+  },
+  "results": [
+    {
+      "text": "coffee",
+      "keywordIdeaMetrics": {
+        "avgMonthlySearches": 110000,
+        "competition": "LOW",
+        "competitionIndex": 12,
+        "lowTopOfPageBidMicros": "1230000",
+        "highTopOfPageBidMicros": "4560000",
+        "monthlySearchVolumes": [
+          {
+            "year": 2024,
+            "month": "DECEMBER",
+            "monthlySearches": 100000
+          },
+          {
+            "year": 2025,
+            "month": "JANUARY",
+            "monthlySearches": 110000
+          },
+          {
+            "year": 2025,
+            "month": "FEBRUARY",
+            "monthlySearches": null
+          }
+        ]
+      }
+    },
+    {
+      "text": "coffee machine",
+      "keywordIdeaMetrics": {
+        "avgMonthlySearches": 27000,
+        "competition": "HIGH",
+        "competitionIndex": 88,
+        "lowTopOfPageBidMicros": "3000000",
+        "highTopOfPageBidMicros": "9500000",
+        "monthlySearchVolumes": [
+          {
+            "year": 2025,
+            "month": "JANUARY",
+            "monthlySearches": 27000
+          }
+        ]
+      }
+    },
+    {
+      "text": "low volume keyword",
+      "keywordIdeaMetrics": {
+        "avgMonthlySearches": null,
+        "competition": "UNKNOWN",
+        "competitionIndex": null,
+        "lowTopOfPageBidMicros": null,
+        "highTopOfPageBidMicros": null,
+        "monthlySearchVolumes": []
+      }
+    }
+  ]
+}
