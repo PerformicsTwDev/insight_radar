@@ -1,12 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { buildGenerateKeywordIdeasRequest } from './ads-request.builder';
+import {
+  buildGenerateKeywordIdeasRequest,
+  buildHistoricalMetricsRequest,
+} from './ads-request.builder';
 import { ADS_CLIENT } from './ads-client.port';
 import type { AdsClient, RawKeywordIdeaMetrics } from './ads-client.port';
 import type { Keyword, KeywordCandidate, KeywordMetrics } from './keyword.types';
 import { mapCompetition, mapCompetitionIndex } from './mapping/map-competition';
 import { mapMetrics } from './mapping/map-metrics';
 import { mapMonthlyVolumes } from './mapping/map-monthly-volumes';
-import { chunkSeeds } from './chunk';
+import { chunkHistorical, chunkSeeds } from './chunk';
 import { dedupeMerge, normalizeText } from './normalize';
 
 export interface ExpandParams {
@@ -15,6 +18,11 @@ export interface ExpandParams {
   currencyCode: string;
   network?: 'GOOGLE_SEARCH' | 'GOOGLE_SEARCH_AND_PARTNERS';
   includeAdult?: boolean;
+}
+
+/** 指定模式參數（同 ExpandParams + 可調 batchSize）。 */
+export interface HistoricalParams extends ExpandParams {
+  batchSize?: number;
 }
 
 /** 缺指標時的攤平預設值（cpc/competition/avg 全 null、monthlyVolumes 空）。每列回傳新物件，避免共享 `[]`。 */
@@ -66,7 +74,51 @@ export class GoogleAdsService {
     return dedupeMerge(candidates).map((kw) => this.flatten(kw));
   }
 
-  /** 把原始 keywordIdeaMetrics 映射為 KeywordMetrics；缺指標回 undefined。 */
+  /**
+   * 指定模式（FR-13，TC-34）：對使用者指定關鍵字取歷史指標，**不拓展**，輸出全部 `source='seed'`。
+   *
+   * - 批次 ≤ `GOOGLE_ADS_HISTORICAL_BATCH_SIZE`（預設 1000，硬上限 10,000）。
+   * - 上游 near-exact 聚合 close variants（輸入↔輸出非 1:1）：以 `text` + `closeVariants` 的
+   *   normalizedText 把結果對回**每個**原始輸入，並記於 `seedOrigins`。
+   * - 找不到對應資料的輸入 → 仍輸出一列（無指標 seed 列，不漏輸入）。
+   * - 指標映射與 expand **共用同一 mapper**（micros/competition/monthlyVolumes）。
+   */
+  async fetchHistoricalMetrics(keywords: string[], params: HistoricalParams): Promise<Keyword[]> {
+    const candidates: KeywordCandidate[] = [];
+    const covered = new Set<string>();
+
+    for (const batch of chunkHistorical(keywords, params.batchSize)) {
+      const req = buildHistoricalMetricsRequest(batch, params);
+      const results = await this.client.generateKeywordHistoricalMetrics(req);
+      const batchKeys = batch.map(normalizeText);
+      for (const result of results) {
+        // 把此列對回它涵蓋的原始輸入（text 自身 + closeVariants），限定在本批輸入內。
+        const variantKeys = [result.text, ...(result.closeVariants ?? [])].map(normalizeText);
+        const origins = batchKeys.filter((k) => variantKeys.includes(k));
+        const seedOrigins = origins.length > 0 ? origins : undefined;
+        for (const key of origins.length > 0 ? origins : [normalizeText(result.text)]) {
+          covered.add(key);
+        }
+        candidates.push({
+          text: result.text,
+          source: 'seed', // 指定模式所有列皆 seed
+          metrics: this.toMetrics(result.keywordMetrics, params.currencyCode),
+          seedOrigins,
+        });
+      }
+    }
+
+    // 無對應資料的輸入 → 補無指標 seed 列（不漏輸入）。
+    for (const keyword of keywords) {
+      if (!covered.has(normalizeText(keyword))) {
+        candidates.push({ text: keyword, source: 'seed' });
+      }
+    }
+
+    return dedupeMerge(candidates).map((kw) => this.flatten(kw));
+  }
+
+  /** 把原始 keyword(Idea)Metrics 映射為 KeywordMetrics；缺指標回 undefined。 */
   private toMetrics(
     raw: RawKeywordIdeaMetrics | null | undefined,
     currencyCode: string,

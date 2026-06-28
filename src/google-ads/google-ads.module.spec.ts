@@ -8,6 +8,9 @@ class FakeAdsClient implements AdsClient {
   generateKeywordIdeas(): Promise<KeywordIdeaResult[]> {
     return Promise.resolve([{ text: 'fake idea', keywordIdeaMetrics: null }]);
   }
+  generateKeywordHistoricalMetrics(): Promise<never[]> {
+    return Promise.resolve([]);
+  }
 }
 
 describe('GoogleAdsModule (T1.8 Port/Adapter DI)', () => {

@@ -1,5 +1,11 @@
 import type { Customer } from 'google-ads-api';
-import type { AdsClient, GenerateKeywordIdeasRequest, KeywordIdeaResult } from './ads-client.port';
+import type {
+  AdsClient,
+  GenerateKeywordHistoricalMetricsRequest,
+  GenerateKeywordIdeasRequest,
+  KeywordHistoricalResult,
+  KeywordIdeaResult,
+} from './ads-client.port';
 
 /**
  * Opteo `Customer` 的 Adapter（NFR-8）：把具體 google-ads-api client 收斂到 `AdsClient` Port，
@@ -17,5 +23,15 @@ export class AdsClientAdapter implements AdsClient {
     //   first element，**執行期實為陣列**（套件原始碼於該呼叫點亦標 `@ts-expect-error Response is an
     //   array type`）。故雙重 cast 為陣列——勿改成 `.results` 存取（會 runtime 壞）。
     return results as unknown as KeywordIdeaResult[];
+  }
+
+  async generateKeywordHistoricalMetrics(
+    req: GenerateKeywordHistoricalMetricsRequest,
+  ): Promise<KeywordHistoricalResult[]> {
+    const results = await this.customer.keywordPlanIdeas.generateKeywordHistoricalMetrics(
+      req as never,
+    );
+    // 同 generateKeywordIdeas：套件型別較寬，執行期為陣列結果。
+    return results as unknown as KeywordHistoricalResult[];
   }
 }

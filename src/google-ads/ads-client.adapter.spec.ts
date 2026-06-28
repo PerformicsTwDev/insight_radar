@@ -5,6 +5,7 @@ import type { GenerateKeywordIdeasRequest } from './ads-client.port';
 interface FakeCustomer {
   keywordPlanIdeas: {
     generateKeywordIdeas: (req: unknown) => Promise<unknown>;
+    generateKeywordHistoricalMetrics: (req: unknown) => Promise<unknown>;
   };
 }
 
@@ -25,11 +26,31 @@ describe('AdsClientAdapter (T1.8)', () => {
           calls.push(req);
           return Promise.resolve(results);
         },
+        generateKeywordHistoricalMetrics: () => Promise.resolve([]),
       },
     };
     const adapter = new AdsClientAdapter(customer as never);
 
     const out = await adapter.generateKeywordIdeas(REQ);
+    expect(out).toEqual(results);
+    expect(calls).toEqual([REQ]);
+  });
+
+  it('delegates generateKeywordHistoricalMetrics to the wrapped customer', async () => {
+    const results = [{ text: 'car', closeVariants: ['cars'], keywordMetrics: null }];
+    const calls: unknown[] = [];
+    const customer: FakeCustomer = {
+      keywordPlanIdeas: {
+        generateKeywordIdeas: () => Promise.resolve([]),
+        generateKeywordHistoricalMetrics: (req) => {
+          calls.push(req);
+          return Promise.resolve(results);
+        },
+      },
+    };
+    const adapter = new AdsClientAdapter(customer as never);
+
+    const out = await adapter.generateKeywordHistoricalMetrics(REQ);
     expect(out).toEqual(results);
     expect(calls).toEqual([REQ]);
   });
