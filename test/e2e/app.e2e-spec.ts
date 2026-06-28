@@ -26,4 +26,17 @@ describe('App bootstrap (e2e harness)', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('formats errors via the global HttpExceptionFilter (404 → uniform ErrorResponse)', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/does-not-exist');
+    const body = res.body as { statusCode: number; code: string; path: string; timestamp: string };
+
+    expect(res.status).toBe(404);
+    expect(body).toMatchObject({
+      statusCode: 404,
+      code: 'NOT_FOUND',
+      path: '/api/v1/does-not-exist',
+    });
+    expect(typeof body.timestamp).toBe('string');
+  });
 });

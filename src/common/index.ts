@@ -1,5 +1,8 @@
-// common 模組 barrel：guard / decorator / module / util 的單一對外介面。
+// common 模組 barrel：guard / decorator / filter / pipe / module / util / dto 的單一對外介面。
 export * from './public.decorator';
 export * from './api-key.guard';
+export * from './http-exception.filter';
+export * from './validation.pipe';
 export * from './common.module';
 export * from './timing-safe-equal';
+export * from './dto/error-response';
