@@ -23,6 +23,7 @@ const ENV: Record<string, string> = {
   AZURE_OPENAI_API_VERSION: '2024-10-21',
   LLM_BATCH_SIZE: '30',
   LLM_CONCURRENCY: '6',
+  AZURE_OPENAI_MAX_RETRIES: '5',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
 };
@@ -68,6 +69,7 @@ describe('config namespaces (registerAs, typed)', () => {
       apiVersion: '2024-10-21',
       llmBatchSize: 30,
       llmConcurrency: 6,
+      maxRetries: 5,
     });
   });
 
