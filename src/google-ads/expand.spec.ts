@@ -103,6 +103,17 @@ describe('GoogleAdsService.expand (T1.6)', () => {
     expect(kw?.currencyCode).toBeUndefined();
   });
 
+  it('stamps every output row with the request geo/language (Design §5.1 canonical key)', async () => {
+    const fake = new FakeAdsClient(() => [idea('coffee beans', 9)]);
+    const service = new GoogleAdsService(fake);
+    const out = await service.expand(['coffee'], PARAMS);
+    expect(out.length).toBeGreaterThan(0);
+    for (const kw of out) {
+      expect(kw.geo).toBe('geoTargetConstants/2158');
+      expect(kw.language).toBe('languageConstants/1018');
+    }
+  });
+
   it('records seedOrigins on expansions and builds requests with geo/language/network', async () => {
     const fake = new FakeAdsClient(() => [idea('coffee beans', 9)]);
     const service = new GoogleAdsService(fake);

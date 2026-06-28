@@ -49,6 +49,9 @@ export interface Keyword {
   normalizedText: string;
   source: KeywordSource;
   seedOrigins?: string[];
+  /** 完整 resource name；與 normalizedText 共同構成 canonical/cache key（Design §5.1）。 */
+  geo: string;
+  language: string;
   avgMonthlySearches: number | null;
   competition: CompetitionLevel;
   competitionIndex: number | null;

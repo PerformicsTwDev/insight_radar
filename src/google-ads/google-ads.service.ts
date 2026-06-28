@@ -79,7 +79,7 @@ export class GoogleAdsService {
       }
     }
 
-    return dedupeMerge(candidates).map((kw) => this.flatten(kw));
+    return dedupeMerge(candidates).map((kw) => this.flatten(kw, params));
   }
 
   /**
@@ -127,7 +127,7 @@ export class GoogleAdsService {
       }
     }
 
-    return dedupeMerge(candidates).map((kw) => this.flatten(kw));
+    return dedupeMerge(candidates).map((kw) => this.flatten(kw, params));
   }
 
   /** 把原始 keyword(Idea)Metrics 映射為 KeywordMetrics；缺指標回 undefined。 */
@@ -147,13 +147,15 @@ export class GoogleAdsService {
     };
   }
 
-  /** 攤平 DedupedKeyword（nested metrics）為最終 Keyword。 */
-  private flatten(kw: ReturnType<typeof dedupeMerge>[number]): Keyword {
+  /** 攤平 DedupedKeyword（nested metrics）為最終 Keyword；從 params 蓋上 geo/language（canonical key）。 */
+  private flatten(kw: ReturnType<typeof dedupeMerge>[number], params: ExpandParams): Keyword {
     const m = kw.metrics;
     return {
       text: kw.text,
       normalizedText: kw.normalizedText,
       source: kw.source,
+      geo: params.geo,
+      language: params.language,
       ...(kw.seedOrigins ? { seedOrigins: kw.seedOrigins } : {}),
       ...(m
         ? {
