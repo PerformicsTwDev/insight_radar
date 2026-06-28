@@ -52,4 +52,28 @@ describe('CacheService', () => {
     await sleep(20);
     expect(await service.get('long')).toBe('v');
   });
+
+  // —— M0-R1：區分「故意快取的 null」與「miss」（負快取正確性） ——
+  it('distinguishes a cached null from a miss on get', async () => {
+    const service = makeService();
+    await service.set<number | null>('explicit-null', null);
+    expect(await service.get<number | null>('explicit-null')).toBeNull();
+    expect(await service.get('never-set')).toBeUndefined();
+  });
+
+  it('distinguishes a cached null from a miss on mget', async () => {
+    const service = makeService();
+    await service.set<number | null>('n', null);
+    await service.set('v', 7);
+    expect(await service.mget<number | null>(['n', 'missing', 'v'])).toEqual([null, undefined, 7]);
+  });
+
+  // —— M0-R1：ttlMs <= 0 不得「永久快取」（Keyv 視 0 為 no-expiry）——
+  it('does not cache forever when ttlMs is 0 (treats <=0 as no-cache)', async () => {
+    const service = makeService();
+    await service.set('zero', 'v', 0);
+    expect(await service.get('zero')).toBeUndefined();
+    await service.set('neg', 'v', -1);
+    expect(await service.get('neg')).toBeUndefined();
+  });
 });
