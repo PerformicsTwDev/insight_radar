@@ -3,6 +3,8 @@
  * `AzureOpenAiService` 不直接讓上層依賴 openai SDK 型別。
  */
 export const AZURE_OPENAI_CLIENT = Symbol('AZURE_OPENAI_CLIENT');
+/** DI token for the deployment name string（避免 magic-string 在多處重複、typo 只在 runtime 才爆）。 */
+export const AZURE_OPENAI_DEPLOYMENT = Symbol('AZURE_OPENAI_DEPLOYMENT');
 
 /** 對話訊息（openai chat 子集）。 */
 export interface ChatMessage {

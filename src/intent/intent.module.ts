@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { azureConfig } from '../config/azure.config';
 import { AzureOpenAiService } from './azure-openai.service';
 import { createAzureOpenAiClient } from './azure-openai.factory';
-import { AZURE_OPENAI_CLIENT } from './intent-labeler.port';
+import { AZURE_OPENAI_CLIENT, AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
 
 /**
  * Intent 模組（T2.1）。由 azure config 建構 `AzureOpenAI` client（maxRetries=5），
@@ -21,7 +21,7 @@ import { AZURE_OPENAI_CLIENT } from './intent-labeler.port';
       inject: [azureConfig.KEY],
     },
     {
-      provide: 'AZURE_OPENAI_DEPLOYMENT',
+      provide: AZURE_OPENAI_DEPLOYMENT,
       useFactory: (config: Parameters<typeof createAzureOpenAiClient>[0]) => config.deployment,
       inject: [azureConfig.KEY],
     },
