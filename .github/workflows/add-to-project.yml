@@ -12,6 +12,10 @@ on:
 jobs:
   add-to-project:
     runs-on: ubuntu-latest
+    # Dependabot 觸發的 run 取得唯讀 token 且無法存取 repo secrets（含 ADD_TO_PROJECT_PAT），
+    # 對 dependabot[bot] 跳過此 job，避免每個 Dependabot PR 都在此卡紅燈。
+    # Dependabot PR 屬例行相依升級、非 Task 工作項，不需自動進專案看板。
+    if: ${{ github.actor != 'dependabot[bot]' }}
     steps:
       - uses: actions/add-to-project@v2
         with:
