@@ -22,17 +22,29 @@ describe('normalizeText (TC-1)', () => {
   });
 });
 
+const STUB_METRICS: KeywordCandidate['metrics'] = {
+  avgMonthlySearches: 100,
+  competition: 'LOW',
+  competitionIndex: 10,
+  cpcLow: 1,
+  cpcHigh: 2,
+  cpcLowMicros: '1000000',
+  cpcHighMicros: '2000000',
+  currencyCode: 'TWD',
+  monthlyVolumes: [],
+};
+
 describe('dedupeMerge (TC-1)', () => {
   const seed = (text: string, hasMetrics = false): KeywordCandidate => ({
     text,
     source: 'seed',
-    hasMetrics,
+    ...(hasMetrics ? { metrics: STUB_METRICS } : {}),
   });
   const expanded = (text: string, seedOrigins: string[], hasMetrics = true): KeywordCandidate => ({
     text,
     source: 'expanded',
     seedOrigins,
-    hasMetrics,
+    ...(hasMetrics ? { metrics: STUB_METRICS } : {}),
   });
 
   it('produces no duplicate normalizedText', () => {
@@ -53,7 +65,7 @@ describe('dedupeMerge (TC-1)', () => {
 
   it('prefers the entry carrying metrics when merging duplicates', () => {
     const out = dedupeMerge([seed('Coffee', false), expanded('coffee', ['espresso'], true)]);
-    expect(out[0].hasMetrics).toBe(true);
+    expect(out[0].metrics).toBeDefined();
   });
 
   it('always includes every seed, even with no matching expansion', () => {
@@ -80,7 +92,7 @@ describe('dedupeMerge (TC-1)', () => {
       expanded('Cold Brew', ['espresso'], true),
     ]);
     expect(out).toHaveLength(1);
-    expect(out[0].hasMetrics).toBe(true);
+    expect(out[0].metrics).toBeDefined();
     expect(out[0].text).toBe('Cold Brew'); // 帶指標者的原字成為代表
     expect(out[0].seedOrigins).toEqual(['coffee', 'espresso']);
   });
@@ -132,6 +144,6 @@ describe('dedupeMerge (TC-1)', () => {
     expect(out).toHaveLength(1);
     expect(out[0].text).toBe('COFFEE');
     expect(out[0].source).toBe('seed');
-    expect(out[0].hasMetrics).toBe(true);
+    expect(out[0].metrics).toBeDefined();
   });
 });

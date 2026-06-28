@@ -15,7 +15,7 @@ export function normalizeText(text: string): string {
 
 /**
  * 跨批 + 與使用者輸入合併去重（FR-2）。以 `normalizedText` 為 key：
- * - 同字重複時**優先保留含指標（`hasMetrics`）的那筆**。
+ * - 同字重複時**優先保留含指標（`metrics`）的那筆**。
  * - seed 一律納入：seed 與 expanded 撞字時保留 `source='seed'` 與 seed 原字 `text`。
  * - 合併 `seedOrigins`（去重、保持首見順序）。
  * - 輸出保持各 key **首見順序**。
@@ -50,8 +50,8 @@ function mergeInto(
 ): DedupedKeyword {
   return {
     ...pickRepresentative(existing, incoming, normalizedText),
-    // 任一筆帶指標即視為有指標（偏好保留含 keyword_idea_metrics 者）。
-    hasMetrics: Boolean(existing.hasMetrics) || Boolean(incoming.hasMetrics),
+    // 偏好保留含 keyword_idea_metrics 者（任一筆帶指標即帶上）。
+    metrics: existing.metrics ?? incoming.metrics,
     seedOrigins: mergeSeedOrigins(existing.seedOrigins, incoming.seedOrigins),
   };
 }
@@ -73,7 +73,7 @@ function pickRepresentative(
     return incomingIsSeed ? { ...incoming, normalizedText } : existing;
   }
   // 同源（皆 seed 或皆 expanded）：incoming 帶指標而 existing 沒有 → 改用 incoming 為代表。
-  if (incoming.hasMetrics && !existing.hasMetrics) {
+  if (incoming.metrics && !existing.metrics) {
     return { ...incoming, normalizedText };
   }
   return existing;
