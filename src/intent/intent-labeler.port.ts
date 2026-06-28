@@ -23,6 +23,8 @@ export interface ParseChatParams {
   messages: ChatMessage[];
   jsonSchema: JsonSchemaSpec;
   temperature?: number;
+  /** `max_completion_tokens` 上限（避免 `finish_reason=length` 截斷）。 */
+  maxCompletionTokens?: number;
 }
 
 /** `parseChat` 結果：解析後 payload（或 refusal）。 */

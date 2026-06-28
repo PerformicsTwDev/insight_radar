@@ -46,6 +46,9 @@ export class AzureOpenAiService implements IntentLabeler {
     if (params.temperature !== undefined) {
       request.temperature = params.temperature;
     }
+    if (params.maxCompletionTokens !== undefined) {
+      request.max_completion_tokens = params.maxCompletionTokens;
+    }
 
     const completion = (await this.client.chat.completions.parse(request)) as ParsedCompletion<T>;
     const message = completion.choices?.[0]?.message;
