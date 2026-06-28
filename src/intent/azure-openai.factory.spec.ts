@@ -62,12 +62,16 @@ describe('createAzureOpenAiClient (T2.1)', () => {
   });
 
   it('accepts every allowlisted apiVersion (preview / GA / v1)', () => {
+    let constructed = 0;
     const FakeCtor = function (this: unknown) {
+      constructed += 1;
       return { chat: { completions: { parse: () => Promise.resolve({}) } } };
     } as unknown as AzureOpenAICtor;
-    for (const apiVersion of ['2024-08-01-preview', '2024-10-21', 'v1'] as const) {
+    const versions = ['2024-08-01-preview', '2024-10-21', 'v1'] as const;
+    for (const apiVersion of versions) {
       expect(() => createAzureOpenAiClient({ ...CONFIG, apiVersion }, FakeCtor)).not.toThrow();
     }
+    expect(constructed).toBe(versions.length); // each allowlisted version built a client
   });
 
   it('defaults to the real AzureOpenAI constructor (lazy; no network at build)', () => {
