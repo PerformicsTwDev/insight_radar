@@ -2,6 +2,7 @@ import { appConfig } from './app.config';
 import { azureConfig } from './azure.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
+import { queueConfig } from './queue.config';
 import { redisConfig } from './redis.config';
 
 const ENV: Record<string, string> = {
@@ -26,6 +27,11 @@ const ENV: Record<string, string> = {
   AZURE_OPENAI_MAX_RETRIES: '5',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+  WORKER_CONCURRENCY: '5',
+  JOB_ATTEMPTS: '5',
+  JOB_BACKOFF_MS: '3000',
+  IDEMP_TTL_MS: '86400000',
+  JOB_TTL_MS: '259200000',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -76,5 +82,15 @@ describe('config namespaces (registerAs, typed)', () => {
   it('redisConfig and databaseConfig map their urls', () => {
     expect(redisConfig()).toEqual({ url: 'redis://localhost:6379' });
     expect(databaseConfig()).toEqual({ url: 'postgresql://u:p@localhost:5432/db' });
+  });
+
+  it('queueConfig maps worker/retry/ttl env (coerced to number)', () => {
+    expect(queueConfig()).toEqual({
+      workerConcurrency: 5,
+      jobAttempts: 5,
+      jobBackoffMs: 3000,
+      idempTtlMs: 86400000,
+      jobTtlMs: 259200000,
+    });
   });
 });

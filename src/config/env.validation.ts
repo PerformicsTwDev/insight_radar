@@ -59,7 +59,9 @@ export const validationSchema = Joi.object({
   CACHE_TTL_INTENT_MS: Joi.number().integer().min(0).default(5184000000),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
+  JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),
   IDEMP_TTL_MS: Joi.number().integer().min(0).default(86400000),
+  JOB_TTL_MS: Joi.number().integer().min(0).default(259200000),
   AGG_MAX_BUCKETS: Joi.number().integer().min(1).default(200),
   AGG_MAX_GROUPS: Joi.number().integer().min(1).max(5000).default(1000),
 });
