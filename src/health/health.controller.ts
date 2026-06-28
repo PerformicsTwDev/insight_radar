@@ -8,6 +8,7 @@ import {
 import { Public } from '../common/public.decorator';
 import { PrismaService } from '../prisma';
 import { CacheHealthIndicator } from './cache-health.indicator';
+import { HealthIndicatorKey } from './health.constants';
 
 /**
  * 健康檢查（T0.7）。掛在 `GET /health`（排除於 `/api/v1` 前綴外，NFR-10）、`@Public`（免認證，TC-25）。
@@ -27,8 +28,8 @@ export class HealthController {
   @HealthCheck()
   check(): Promise<HealthCheckResult> {
     return this.health.check([
-      () => this.prismaIndicator.pingCheck('database', this.prisma),
-      () => this.cacheIndicator.isHealthy('cache'),
+      () => this.prismaIndicator.pingCheck(HealthIndicatorKey.DATABASE, this.prisma),
+      () => this.cacheIndicator.isHealthy(HealthIndicatorKey.CACHE),
     ]);
   }
 }
