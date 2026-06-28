@@ -49,6 +49,16 @@ describe('mapMetrics (TC-3)', () => {
     expect(mapMetrics({ lowTopOfPageBidMicros: '1000000' }, CURRENCY).currencyCode).toBe('TWD');
   });
 
+  it('treats an empty-string bid as null cpc and null micros (not 0)', () => {
+    const out = mapMetrics(
+      { lowTopOfPageBidMicros: '', highTopOfPageBidMicros: '4000000' },
+      CURRENCY,
+    );
+    expect(out.cpcLow).toBeNull();
+    expect(out.cpcLowMicros).toBeNull();
+    expect(out.cpcHigh).toBe(4);
+  });
+
   it('yields all-null cpc fields when both bids are absent', () => {
     const out = mapMetrics({ avgMonthlySearches: 10 }, CURRENCY);
     expect(out.cpcLow).toBeNull();

@@ -26,4 +26,9 @@ describe('microsToAmount (TC-3)', () => {
     expect(microsToAmount('0')).toBe(0);
     expect(microsToAmount(0)).toBe(0);
   });
+
+  it('treats empty / whitespace micros as null (never 0 — guards the null≠0 single-point)', () => {
+    expect(microsToAmount('')).toBeNull();
+    expect(microsToAmount('   ')).toBeNull();
+  });
 });

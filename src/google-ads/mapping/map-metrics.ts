@@ -1,4 +1,4 @@
-import { microsToAmount } from './micros';
+import { microsToAmount, parseMicros } from './micros';
 
 /**
  * Google Ads `keyword_idea_metrics`（= `KeywordPlanHistoricalMetrics`）的原始指標子集（Opteo camelCase）。
@@ -20,9 +20,9 @@ export interface MappedMetrics {
   currencyCode: string;
 }
 
-/** 將 micros 正規化為 bigint-as-string（保留原值）；缺值 → null。 */
+/** 將 micros 正規化為 bigint-as-string（保留原值）；未設值 → null（與 microsToAmount 同一解析）。 */
 function toMicrosString(micros: string | number | null | undefined): string | null {
-  return micros === null || micros === undefined ? null : BigInt(micros).toString();
+  return parseMicros(micros)?.toString() ?? null;
 }
 
 /**
