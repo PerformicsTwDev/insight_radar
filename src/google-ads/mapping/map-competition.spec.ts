@@ -22,6 +22,12 @@ describe('mapCompetition (TC-4)', () => {
     expect(mapCompetition(999)).toBe('UNSPECIFIED');
   });
 
+  it('maps an invalid or wrong-case string to UNSPECIFIED (only exact enum names pass through)', () => {
+    expect(mapCompetition('low')).toBe('UNSPECIFIED'); // 大小寫須完全相符
+    expect(mapCompetition('foo')).toBe('UNSPECIFIED');
+    expect(mapCompetition('')).toBe('UNSPECIFIED');
+  });
+
   it('never depends on a hardcoded integer literal: LOW resolves to whatever the package assigns', () => {
     // 若套件改了整數值，本測試仍綠（因為用 enums 反查），但硬編 2→LOW 的實作會紅。
     const lowInt = enums.KeywordPlanCompetitionLevel.LOW;
