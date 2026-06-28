@@ -1,6 +1,9 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import RedisMock from 'ioredis-mock';
 import { AppModule } from './app.module';
+import { KeywordAnalysisProcessor } from './keyword-analysis/keyword-analysis.processor';
+import { BULL_CONNECTION } from './queue/queue.constants';
 
 describe('AppModule (smoke)', () => {
   let app: INestApplication;
@@ -12,7 +15,15 @@ describe('AppModule (smoke)', () => {
   it('compiles and initialises the application context', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // Hermetic boot with no real Redis: in-memory connection + stub the processor so the
+      // @nestjs/bullmq explorer does not spin up a real Worker (which would poll Redis and
+      // emit async ECONNREFUSED after the test — a CI race, seen on node 22).
+      .overrideProvider(BULL_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .compile();
 
     app = moduleRef.createNestApplication();
     await app.init();
