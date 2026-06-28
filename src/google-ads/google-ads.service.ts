@@ -15,17 +15,19 @@ export interface ExpandParams {
   includeAdult?: boolean;
 }
 
-/** 缺指標時的攤平預設值（cpc/competition/avg 全 null、monthlyVolumes 空）。 */
-const NO_METRICS = {
-  avgMonthlySearches: null,
-  competition: 'UNSPECIFIED' as const,
-  competitionIndex: null,
-  cpcLow: null,
-  cpcHigh: null,
-  cpcLowMicros: null,
-  cpcHighMicros: null,
-  monthlyVolumes: [],
-};
+/** 缺指標時的攤平預設值（cpc/competition/avg 全 null、monthlyVolumes 空）。每列回傳新物件，避免共享 `[]`。 */
+function noMetrics() {
+  return {
+    avgMonthlySearches: null,
+    competition: 'UNSPECIFIED' as const,
+    competitionIndex: null,
+    cpcLow: null,
+    cpcHigh: null,
+    cpcLowMicros: null,
+    cpcHighMicros: null,
+    monthlyVolumes: [],
+  };
+}
 
 /**
  * Google Ads 服務（拓展模式編排，FR-2）。串接 chunk → generateKeywordIdeas → map → dedupeMerge。
@@ -97,7 +99,7 @@ export class GoogleAdsService {
             cpcHighMicros: m.cpcHighMicros,
             monthlyVolumes: m.monthlyVolumes,
           }
-        : NO_METRICS),
+        : noMetrics()),
       currencyCode: m?.currencyCode,
     };
   }
