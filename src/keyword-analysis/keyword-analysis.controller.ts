@@ -1,7 +1,7 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { CreateKeywordAnalysisDto } from './dto/create-keyword-analysis.dto';
 import { KeywordAnalysisService } from './keyword-analysis.service';
-import type { AnalysisParams } from './keyword-analysis.service';
+import type { AnalysisParams, AnalysisStatusResponse } from './keyword-analysis.service';
 
 /**
  * KeywordAnalysis HTTP 入口（T3.3，FR-1）。掛 `/api/v1/keyword-analyses`（全域前綴）。
@@ -23,5 +23,11 @@ export class KeywordAnalysisController {
       network: dto.network ?? 'GOOGLE_SEARCH',
     };
     return this.service.create({ seeds: dto.seeds, params });
+  }
+
+  /** 輪詢分析狀態（T3.4，FR-8）。不存在的 id → 404（service 拋 NotFoundException）。 */
+  @Get(':id')
+  getStatus(@Param('id') id: string): Promise<AnalysisStatusResponse> {
+    return this.service.getStatus(id);
   }
 }

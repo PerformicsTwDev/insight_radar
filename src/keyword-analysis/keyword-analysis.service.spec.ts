@@ -1,4 +1,5 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
@@ -78,24 +79,32 @@ interface Harness {
   cache: FakeCache;
   prisma: FakePrisma;
   queueAdd: jest.Mock;
+  queueGetJob: jest.Mock;
 }
 
 async function buildHarness(queueAdd?: jest.Mock): Promise<Harness> {
   const cache = new FakeCache();
   const prisma = new FakePrisma();
   const add = queueAdd ?? jest.fn().mockResolvedValue({ id: 'job-1' });
+  const getJob = jest.fn();
 
   const moduleRef = await Test.createTestingModule({
     providers: [
       KeywordAnalysisService,
-      { provide: getQueueToken(KEYWORD_ANALYSIS_QUEUE), useValue: { add } },
+      { provide: getQueueToken(KEYWORD_ANALYSIS_QUEUE), useValue: { add, getJob } },
       { provide: CacheService, useValue: cache },
       { provide: PrismaService, useValue: prisma },
       { provide: queueConfig.KEY, useValue: QUEUE_CONFIG },
     ],
   }).compile();
 
-  return { service: moduleRef.get(KeywordAnalysisService), cache, prisma, queueAdd: add };
+  return {
+    service: moduleRef.get(KeywordAnalysisService),
+    cache,
+    prisma,
+    queueAdd: add,
+    queueGetJob: getJob,
+  };
 }
 
 const baseInput: CreateAnalysisInput = {
@@ -221,5 +230,102 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
     });
 
     expect(b.analysisId).not.toBe(a.analysisId);
+  });
+});
+
+function fakeJob(overrides: { state: string; progress?: unknown; returnvalue?: unknown }): {
+  getState: jest.Mock;
+  progress: unknown;
+  returnvalue: unknown;
+} {
+  return {
+    getState: jest.fn().mockResolvedValue(overrides.state),
+    progress: overrides.progress ?? {},
+    returnvalue: overrides.returnvalue ?? null,
+  };
+}
+
+describe('KeywordAnalysisService.getStatus (T3.4, TC-22)', () => {
+  it('throws NotFound for an unknown analysisId', async () => {
+    const { service, queueGetJob } = await buildHarness();
+    queueGetJob.mockResolvedValue(undefined);
+
+    await expect(service.getStatus('missing-id')).rejects.toBeInstanceOf(NotFoundException);
+    expect(queueGetJob).toHaveBeenCalledWith('missing-id');
+  });
+
+  it('maps a waiting job to status=queued with its progress', async () => {
+    const { service, queueGetJob } = await buildHarness();
+    queueGetJob.mockResolvedValue(
+      fakeJob({ state: 'waiting', progress: { phase: 'queued', percent: 0 } }),
+    );
+
+    const res = await service.getStatus('id-1');
+
+    expect(res).toEqual({
+      status: 'queued',
+      progress: { phase: 'queued', percent: 0 },
+      result: { resultSnapshotId: null, count: null },
+    });
+  });
+
+  it('maps an active job to status=running with phase progress', async () => {
+    const { service, queueGetJob } = await buildHarness();
+    queueGetJob.mockResolvedValue(
+      fakeJob({
+        state: 'active',
+        progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
+      }),
+    );
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('running');
+    expect(res.progress).toEqual({
+      phase: 'intent',
+      percent: 72,
+      expanded: 1980,
+      labeled: 1420,
+      total: 1980,
+    });
+    expect(res.result).toEqual({ resultSnapshotId: null, count: null });
+  });
+
+  it('maps a completed job to status=completed with resultSnapshotId + count from returnvalue', async () => {
+    const { service, queueGetJob } = await buildHarness();
+    queueGetJob.mockResolvedValue(
+      fakeJob({
+        state: 'completed',
+        progress: { phase: 'done', percent: 100 },
+        returnvalue: { resultSnapshotId: 'snap-1', count: 1980 },
+      }),
+    );
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('completed');
+    expect(res.result).toEqual({ resultSnapshotId: 'snap-1', count: 1980 });
+  });
+
+  it('maps a failed job to status=failed', async () => {
+    const { service, queueGetJob } = await buildHarness();
+    queueGetJob.mockResolvedValue(
+      fakeJob({ state: 'failed', progress: { phase: 'fetch', percent: 40 } }),
+    );
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('failed');
+    expect(res.result).toEqual({ resultSnapshotId: null, count: null });
+  });
+
+  it('defaults progress to a queued shape when the job has none yet', async () => {
+    const { service, queueGetJob } = await buildHarness();
+    queueGetJob.mockResolvedValue(fakeJob({ state: 'delayed', progress: undefined }));
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('queued');
+    expect(res.progress).toEqual({ phase: 'queued', percent: 0 });
   });
 });
