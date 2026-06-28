@@ -17,7 +17,9 @@ export function chunkSeeds(
   seeds: string[],
   batchSize: number = DEFAULT_SEED_BATCH_SIZE,
 ): string[][] {
-  const size = Math.min(Math.max(Math.floor(batchSize), 1), MAX_SEED_BATCH_SIZE);
+  // 非有限值（NaN/Infinity）退回預設，避免 `i += NaN` 靜默吞掉所有 seed。
+  const requested = Number.isFinite(batchSize) ? batchSize : DEFAULT_SEED_BATCH_SIZE;
+  const size = Math.min(Math.max(Math.floor(requested), 1), MAX_SEED_BATCH_SIZE);
   const batches: string[][] = [];
   for (let i = 0; i < seeds.length; i += size) {
     batches.push(seeds.slice(i, i + size));

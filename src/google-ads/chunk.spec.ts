@@ -39,6 +39,20 @@ describe('chunkSeeds (TC-2)', () => {
     expect(chunkSeeds([])).toEqual([]);
   });
 
+  it('falls back to the default when batchSize is non-finite (no seed loss)', () => {
+    // 防呆：NaN/Infinity 不得靜默吞掉所有 seed（仍須涵蓋全部輸入且每批 ≤20）。
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      const out = chunkSeeds(seeds(25), bad);
+      expect(out.flat()).toHaveLength(25);
+      expect(Math.max(...out.map((b) => b.length))).toBeLessThanOrEqual(MAX_SEED_BATCH_SIZE);
+    }
+  });
+
+  it('floors a fractional batchSize and never exceeds the cap', () => {
+    expect(chunkSeeds(seeds(10), 20.9).map((b) => b.length)).toEqual([10]);
+    expect(chunkSeeds(seeds(10), 4.7).map((b) => b.length)).toEqual([4, 4, 2]);
+  });
+
   it('preserves order and content across batches', () => {
     const input = seeds(5);
     const out = chunkSeeds(input, 2);
