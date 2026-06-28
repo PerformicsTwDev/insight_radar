@@ -118,9 +118,10 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
   });
 
   it('is enqueue-only: POST makes zero external Ads/LLM calls (TC-28)', async () => {
-    // The app graph has no real Ads/LLM clients wired into the POST path; the only
-    // side effects are queue.add (mocked) and prisma.create (mocked). Assert the
-    // request succeeds without ever resolving an external client.
+    // The app graph wires NO Ads/LLM provider into the POST path (verified: only
+    // queue.add + prisma.create + cache fire). Until the worker/processor lands
+    // (T3.5) there is no external client to spy; the call-count=0 is structural.
+    // Re-add an explicit Ads/LLM spy once those clients exist on the worker side.
     queueAdd.mockClear();
     prismaCreate.mockClear();
 
@@ -132,5 +133,19 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     expect(res.status).toBe(202);
     expect(queueAdd).toHaveBeenCalledTimes(1);
     expect(prismaCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('responds well within the enqueue-only latency budget (TC-28, p95<300ms)', async () => {
+    // Coarse single-request guard for the NFR-1 budget; pure enqueue (mocked I/O)
+    // should be far under 300ms. Real p95 load profiling is deferred to a perf test.
+    const start = process.hrtime.bigint();
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/keyword-analyses')
+      .set('x-api-key', API_KEY)
+      .send({ ...validBody, seeds: ['latency-budget-seed'] });
+    const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+
+    expect(res.status).toBe(202);
+    expect(elapsedMs).toBeLessThan(300);
   });
 });
