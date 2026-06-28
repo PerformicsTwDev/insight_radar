@@ -20,6 +20,9 @@ class FixtureAdsClient implements AdsClient {
   generateKeywordIdeas(): Promise<KeywordIdeaResult[]> {
     return Promise.resolve(fixture.results);
   }
+  generateKeywordHistoricalMetrics(): Promise<never[]> {
+    return Promise.resolve([]);
+  }
 }
 
 const PARAMS = {

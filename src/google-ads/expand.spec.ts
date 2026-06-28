@@ -12,6 +12,9 @@ class FakeAdsClient implements AdsClient {
     this.calls.push(req);
     return Promise.resolve(this.responder(req));
   }
+  generateKeywordHistoricalMetrics(): Promise<never[]> {
+    return Promise.resolve([]);
+  }
 }
 
 const PARAMS = {

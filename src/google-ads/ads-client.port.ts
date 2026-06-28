@@ -20,6 +20,26 @@ export interface KeywordIdeaResult {
   keywordIdeaMetrics?: RawKeywordIdeaMetrics | null;
 }
 
+/**
+ * `generateKeywordHistoricalMetrics`（指定模式）回應的單筆結果。
+ * - metrics 欄位為 **`keywordMetrics`**（與 ideas 的 `keywordIdeaMetrics` 不同名）。
+ * - `closeVariants`：被 near-exact 聚合進此列的原始輸入（輸入↔輸出非 1:1）。
+ */
+export interface KeywordHistoricalResult {
+  text: string;
+  closeVariants?: string[];
+  keywordMetrics?: RawKeywordIdeaMetrics | null;
+}
+
+/** `generateKeywordHistoricalMetrics` 請求（camelCase；無分頁，keywords ≤ 10,000）。 */
+export interface GenerateKeywordHistoricalMetricsRequest {
+  keywords: string[];
+  language: string;
+  geoTargetConstants: string[];
+  keywordPlanNetwork: 'GOOGLE_SEARCH' | 'GOOGLE_SEARCH_AND_PARTNERS';
+  includeAdultKeywords?: boolean;
+}
+
 /** `generateKeywordIdeas` 請求（camelCase；geo/language 為完整 resource name）。 */
 export interface GenerateKeywordIdeasRequest {
   keywords: string[];
@@ -31,4 +51,7 @@ export interface GenerateKeywordIdeasRequest {
 
 export interface AdsClient {
   generateKeywordIdeas(req: GenerateKeywordIdeasRequest): Promise<KeywordIdeaResult[]>;
+  generateKeywordHistoricalMetrics(
+    req: GenerateKeywordHistoricalMetricsRequest,
+  ): Promise<KeywordHistoricalResult[]>;
 }
