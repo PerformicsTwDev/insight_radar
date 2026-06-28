@@ -1,4 +1,8 @@
-import { LengthFinishReasonError, ContentFilterFinishReasonError } from 'openai/core/error';
+import {
+  BadRequestError,
+  ContentFilterFinishReasonError,
+  LengthFinishReasonError,
+} from 'openai/core/error';
 import { IntentService } from './intent.service';
 import type { IntentLabeler, ParseChatParams, ParseChatResult } from './intent-labeler.port';
 import type { IntentBatch } from './intent.schema';
@@ -108,5 +112,66 @@ describe('IntentService.labelKeywords resilience (T2.5 / TC-8)', () => {
     });
     const service = new IntentService(labeler, { batchSize: 4 });
     await expect(service.labelKeywords(['x'])).rejects.toThrow('network exploded');
+  });
+
+  // —— M2-R1：prompt-side content_filter（HTTP 400 BadRequestError）——
+  it('falls back the batch on a prompt-side content_filter 400 (BadRequestError)', async () => {
+    const labeler = new ScriptedLabeler(() => {
+      // SDK stores the unwrapped error body; .code reads error.code (flat).
+      throw new BadRequestError(
+        400,
+        { code: 'content_filter', message: 'blocked' },
+        'content filter',
+        new Headers(),
+      );
+    });
+    const service = new IntentService(labeler, { batchSize: 4 });
+    const result = await service.labelKeywordsWithReview(['x', 'y']);
+
+    expect(result.labeled.map((r) => r.labels)).toEqual([['informational'], ['informational']]);
+    expect(result.needsReview).toEqual(['x', 'y']); // flagged for manual review
+  });
+
+  it('re-throws a non-content_filter BadRequestError (e.g. unsupported temperature)', async () => {
+    const labeler = new ScriptedLabeler(() => {
+      throw new BadRequestError(
+        400,
+        { code: 'unsupported_value', param: 'temperature' },
+        'bad request',
+        new Headers(),
+      );
+    });
+    const service = new IntentService(labeler, { batchSize: 4 });
+    await expect(service.labelKeywords(['x'])).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  // —— M2-R2：malformed 模型輸出（缺 results）不得使整批崩潰 ——
+  it('does not crash when parsed is non-null but results is missing/not an array', async () => {
+    const labeler = new ScriptedLabeler(
+      () => ({ parsed: {} as IntentBatch, refusal: null }), // finish_reason=stop but malformed
+    );
+    const service = new IntentService(labeler, { batchSize: 4 });
+    const out = await service.labelKeywords(['a', 'b']);
+    expect(out.map((r) => r.keyword)).toEqual(['a', 'b']);
+    for (const r of out) expect(r.labels).toEqual(['informational']); // safe fallback, no throw
+  });
+
+  it('treats results:null as malformed (fallback, no crash)', async () => {
+    const labeler = new ScriptedLabeler(() => ({
+      parsed: { results: null } as unknown as IntentBatch,
+      refusal: null,
+    }));
+    const service = new IntentService(labeler, { batchSize: 4 });
+    const out = await service.labelKeywords(['a']);
+    expect(out).toEqual([{ keyword: 'a', labels: ['informational'] }]);
+  });
+
+  it('passes a valid empty results array through (postProcess fills inputs as fallback)', async () => {
+    // results:[] is a VALID array → pushed to collected, not treated as malformed; postProcess
+    // then maps the input to fallback (no result row for it).
+    const labeler = new ScriptedLabeler(() => ({ parsed: { results: [] }, refusal: null }));
+    const service = new IntentService(labeler, { batchSize: 4 });
+    const out = await service.labelKeywords(['a']);
+    expect(out).toEqual([{ keyword: 'a', labels: ['informational'] }]);
   });
 });

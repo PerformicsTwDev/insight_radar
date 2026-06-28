@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ContentFilterFinishReasonError, LengthFinishReasonError } from 'openai/core/error';
+import {
+  BadRequestError,
+  ContentFilterFinishReasonError,
+  LengthFinishReasonError,
+} from 'openai/core/error';
 import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
 import { type IntentBatch, intentResponseFormat } from './intent.schema';
 import { buildIntentMessages } from './intent.prompt';
@@ -81,8 +85,9 @@ export class IntentService {
     // chunk 永遠非空：外層 slice 不產空批，遞迴只在 length ≥2 時對半（兩半皆非空）。
     try {
       const result = await this.callBatch(chunk);
-      if (result.refusal !== null || result.parsed === null) {
-        // refusal → 整批 fallback（postProcess 補 informational）+ 覆核。
+      // refusal 或 malformed（strict 為 server-only 保證，client 端不驗；缺 results 仍可能）→
+      // 整批 fallback（postProcess 補 informational）+ 覆核；不得 spread undefined 而崩（M2-R2）。
+      if (result.refusal !== null || !Array.isArray(result.parsed?.results)) {
         needsReview.push(...chunk);
         return;
       }
@@ -97,11 +102,16 @@ export class IntentService {
         await this.labelChunkResilient(chunk.slice(mid), collected, needsReview);
         return;
       }
-      if (error instanceof ContentFilterFinishReasonError) {
-        needsReview.push(...chunk); // 整批 fallback + 覆核。
+      if (
+        error instanceof ContentFilterFinishReasonError ||
+        (error instanceof BadRequestError && error.code === 'content_filter')
+      ) {
+        // completion-side（200 finish_reason）或 prompt-side（HTTP 400 code=content_filter）內容過濾
+        // → 整批 fallback + 覆核（M2-R1：prompt-side 400 原會落到下方 throw 使整 job 崩）。
+        needsReview.push(...chunk);
         return;
       }
-      throw error; // 其餘錯誤（429/5xx 已由 SDK maxRetries 處理；非預期則上拋）。
+      throw error; // 其餘錯誤（429/5xx 已由 SDK maxRetries 處理；非預期/非 content_filter 400 則上拋）。
     }
   }
 
