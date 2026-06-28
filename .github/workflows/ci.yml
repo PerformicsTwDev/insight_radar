@@ -85,6 +85,19 @@ jobs:
       # ⚠ 嚴禁在此 workflow 的 env 寫死 DATABASE_URL，否則會 shadow 掉 Testcontainers 注入值。
       - name: Test + coverage gate (global ≥85% / core ≥90%)
         run: pnpm test:cov --ci --runInBand
+      - name: Coverage summary → run summary（免下載 artifact 即可見；門檻失敗時也輸出）
+        if: ${{ always() && matrix.node == '22.x' }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const p = "coverage/coverage-summary.json";
+            if (!fs.existsSync(p)) { console.log("no coverage-summary.json — skip"); process.exit(0); }
+            const t = JSON.parse(fs.readFileSync(p, "utf8")).total;
+            const row = (k) => `| ${k} | ${t[k].pct}% (${t[k].covered}/${t[k].total}) |`;
+            const md = ["### Coverage (node 22.x)", "", "| metric | covered |", "| --- | --- |",
+              row("statements"), row("branches"), row("functions"), row("lines"), ""].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          '
       - name: Upload coverage report (single node，避免重複計數)
         if: ${{ matrix.node == '22.x' }}
         uses: actions/upload-artifact@v7
