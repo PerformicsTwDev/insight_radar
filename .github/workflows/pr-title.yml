@@ -1,0 +1,49 @@
+name: lint-pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # ★ 必須鏡射 DevelopmentRules §7.2 的 type/scope 清單，否則「唯一進 main 的 squash commit」其實未被約束
+        with:
+          types: |
+            feat
+            fix
+            test
+            refactor
+            perf
+            docs
+            chore
+            build
+            ci
+            style
+            revert
+          scopes: |
+            googleAds
+            intent
+            keyword-analysis
+            keywords
+            embeddings
+            clustering
+            topics
+            serp
+            cache
+            config
+            common
+            health
+            queue
+            db
+            deps
+            release
+          requireScope: false
+          subjectPattern: ^.{1,60}$

@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# 供應鏈最小權限（NFR-5）；個別 job 需要時才 elevate
+permissions:
+  contents: read
+
+# 同一 PR 後續 push 取消前一輪，省 runner
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test # 觸發 ConfigModule 載入 .env.test（假 env、外部 mock）
+  CI: 'true'
+  FORCE_COLOR: '1'
+
+jobs:
+  # —— 第 1 段：lint / typecheck / build（與 Node 版本無關，單一 LTS）——
+  quality:
+    name: lint · typecheck · build
+    runs-on: ubuntu-latest
+    # Bootstrap 守門：T0.1 引入 package.json 之前（seed / Dependabot 階段）跳過 Node 步驟，
+    # 避免「無應用程式可建置」的紅燈。T0.1 之後 package.json 恆存在 → 本守門自動失效、永遠執行。
+    if: ${{ hashFiles('package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # 須在 setup-node 前；pnpm 版本取自 package.json 的 "packageManager" 欄位
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm # 以 pnpm-lock.yaml hash 為 cache key
+      - run: pnpm install --frozen-lockfile # 鎖檔、可重現（嚴禁 npm/yarn）
+      - run: pnpm lint # eslint，0 error（T0.1 DoD）
+      - run: pnpm format:check # prettier --check（可選）
+      - run: pnpm typecheck # tsc -p tsconfig.json --noEmit
+      - run: pnpm build # nest build（M0：build 必綠）
+
+  # —— 第 2/3 段：test + coverage gate（Node 矩陣；Testcontainers 需 Docker）——
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest # GitHub-hosted runner 內建 Docker daemon → Testcontainers OK
+    if: ${{ hashFiles('package.json') != '' }} # 同上：T0.1 前跳過，避免空專案紅燈
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x'] # 政策：追兩條現役 LTS；EOL 即下架（Node 20 於 2026-04 EOL）
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 一次跑 unit+integration+e2e（jest projects）並一次強制 coverageThreshold；
+      # Testcontainers 在 globalSetup 起臨時 Postgres、跑 prisma migrate deploy、注入 DATABASE_URL。
+      # ⚠ 嚴禁在此 workflow 的 env 寫死 DATABASE_URL，否則會 shadow 掉 Testcontainers 注入值。
+      - name: Test + coverage gate (global ≥85% / core ≥90%)
+        run: pnpm test:cov --ci --runInBand
+      - name: Upload coverage report (single node，避免重複計數)
+        if: ${{ matrix.node == '22.x' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7

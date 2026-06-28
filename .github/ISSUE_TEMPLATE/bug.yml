@@ -1,0 +1,37 @@
+name: "Bug"
+description: "既有行為缺陷（先寫重現測試紅）"
+title: "[bug] <現象> <模組>"
+labels: ["type:fix"]
+body:
+  - type: textarea
+    id: repro
+    attributes:
+      label: "重現步驟 / 現象"
+      value: |
+        - 輸入 / 請求：
+        - 期望：
+        - 實際：
+    validations: { required: true }
+  - type: input
+    id: ref
+    attributes: { label: "牽涉 Req-ID / TC-ID / Task-ID（如可定位）", placeholder: "FR-3 / TC-3 / T1.3" }
+  - type: input
+    id: area
+    attributes: { label: "Area（模組）", placeholder: "googleAds / intent / cache ..." }
+  - type: textarea
+    id: tdd
+    attributes:
+      label: "修復計畫（TDD）"
+      value: |
+        - [ ] red：先寫「能重現此 bug」的失敗測試（標 TC-__ 或新增 TC）
+        - [ ] green：最小修正
+        - [ ] refactor：清理且維持綠燈
+    validations: { required: true }
+  - type: textarea
+    id: dod
+    attributes:
+      label: "DoD"
+      value: |
+        - [ ] 重現測試由紅轉綠；覆蓋率未下降（global ≥85% / core ≥90%）
+        - [ ] 外部全 mock；祕密未入 log（如適用）
+        - [ ] 若屬正確性單點（micros/MonthOfYear/normalizedText/seed≤20/TTL 毫秒/集中式限流）已加回歸測試鎖死

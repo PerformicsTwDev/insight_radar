@@ -1,0 +1,5 @@
+blank_issues_enabled: false # 禁止空白 Issue，強制「1 Task = 1 Issue 且必填 Task-ID/Req-ID/TC-ID」（DevelopmentRules §2.2）
+contact_links:
+  - name: 提問 / 討論（非 Task）
+    url: https://github.com/tedliu6/insight_radar/discussions
+    about: 非 Task 的提問、設計討論請走 Discussions，不開 Issue

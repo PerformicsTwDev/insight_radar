@@ -1,0 +1,15 @@
+# CODEOWNERS — 高風險路徑指定 reviewer。
+# 搭配 main 分支保護的 require_code_owner_reviews: true 才具「強制」效力（見 DevelopmentRules §9.4 / §12.5）。
+# 請把 @tedliu6 換成實際 GitHub handle / team。
+
+# 高風險模組（契約映射、正確性單點、可重現性）
+/src/google-ads/             @tedliu6
+/src/intent/                 @tedliu6
+/src/embeddings/             @tedliu6   # gemini 維度 / normalize / pgvector halfvec 契約
+/services/cluster-service/   @tedliu6   # Python UMAP+HDBSCAN，可重現性釘版本
+/prisma/migrations/          @tedliu6   # 含 pg_trgm / vector·halfvec extension、GIN/HNSW 手動 SQL
+/.github/                    @tedliu6
+
+# 流程 / 發布設定
+/release-please-config.json     @tedliu6
+/.release-please-manifest.json  @tedliu6

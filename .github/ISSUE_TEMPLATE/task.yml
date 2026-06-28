@@ -1,0 +1,47 @@
+name: "Task (TDD)"
+description: "一個 Task Tx.y = 一張 Issue，遵循 red→green→refactor"
+title: "T<x.y> <簡述>"
+labels: ["type:feat"]
+body:
+  - type: input
+    id: task-id
+    attributes: { label: "Task-ID", placeholder: "T1.3" }
+    validations: { required: true }
+  - type: input
+    id: req-id
+    attributes: { label: "對應需求 Req-ID (FR/NFR)", placeholder: "FR-3" }
+    validations: { required: true }
+  - type: input
+    id: tc-id
+    attributes: { label: "對應 TC-ID", placeholder: "TC-3, TC-4" }
+    validations: { required: true }
+  - type: input
+    id: deps
+    attributes: { label: "相依 Tasks（對照 Task.md §0.2）", placeholder: "T1.1, T1.2" }
+  - type: textarea
+    id: red
+    attributes:
+      label: "① 先寫測試（紅）"
+      description: "列出將先寫成失敗的測試（對應 TC-x 或新測試）"
+      value: "- [ ] TC-__：<可失敗斷言，例如 micros=2,500,000 → cpc=2.5；micros=null → cpc=null（不補 0）>\n"
+    validations: { required: true }
+  - type: textarea
+    id: green
+    attributes: { label: "② 最小實作（綠）", value: "- [ ] <最小通過實作>\n" }
+    validations: { required: true }
+  - type: textarea
+    id: refactor
+    attributes: { label: "③ 重構重點（不得改動測試期望）", value: "- [ ] <綠燈下重構>\n" }
+  - type: textarea
+    id: dod
+    attributes:
+      label: "④ DoD（完成定義）"
+      value: |
+        - [ ] 對應 TC-x 全綠，且歷經 red→green→refactor（重構未改測試期望）
+        - [ ] 覆蓋率未下降：global line/branch ≥85%、core（映射/正規化/去重/篩選/趨勢/intent 後處理）≥90%
+        - [ ] 外部 API（Google Ads / Azure OpenAI / Redis）全 mock；Postgres 用 Testcontainers；CI 無真實憑證
+        - [ ] 祕密未入 log（如涉敏感值；developer token/API key/OAuth refresh/Azure key 皆 redact）
+        - [ ] 涉對外端點者維持 /api/v1 前綴（/health 除外）
+        - [ ] 追溯欄位 Task-ID/Req-ID/TC-ID 與 Task.md 一致；如新增 TC 已回填 Design.md + Task.md 附錄 A
+        - [ ] 文件同步（如涉端點/DTO/config/env：README/API/.env.example/runbook）
+    validations: { required: true }

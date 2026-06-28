@@ -1,0 +1,32 @@
+# === 祕密 / env（NFR-5 / TC-29）===
+# 本機 .env 由 .env.example 複製；.env.example 與 .env.test 為 committed（不 ignore）
+.env
+.env.local
+.env.*.local
+*.pem
+
+# === Node / build ===
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# === 測試 / 工具 ===
+.jest/
+.eslintcache
+
+# === 日誌 ===
+logs/
+*.log
+npm-debug.log*
+
+# === OS / IDE ===
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# === Claude Code ===
+# 提交共享設定（settings.json / hooks / commands / agents / CLAUDE.md）；忽略個人本機覆寫
+.claude/settings.local.json

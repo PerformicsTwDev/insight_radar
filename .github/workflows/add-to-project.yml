@@ -1,0 +1,19 @@
+# 新 Issue/PR 自動加入 GitHub Project「insight_radar」(#4)。
+# 需要 repo secret ADD_TO_PROJECT_PAT＝具 `repo`+`project` scope 的 PAT（PAT 放 Secret 框,不是 Name 框）。
+name: Add issues/PRs to Project
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, reopened]
+  workflow_dispatch: {}
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v2
+        with:
+          project-url: https://github.com/users/PerformicsTwDev/projects/4
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}

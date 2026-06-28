@@ -1,0 +1,20 @@
+name: "Docs"
+description: "文件 / README / runbook / API 文件（對映 T7.6）"
+title: "[docs] <內容>"
+labels: ["type:docs"]
+body:
+  - type: input
+    id: scope
+    attributes: { label: "文件範圍", placeholder: "README / API 文件 / .env.example / runbook" }
+    validations: { required: true }
+  - type: input
+    id: ref
+    attributes: { label: "牽涉 Req-ID / Task-ID", placeholder: "NFR-10 / T7.6" }
+  - type: textarea
+    id: dod
+    attributes:
+      label: "DoD"
+      value: |
+        - [ ] 文件與實際行為一致（以 e2e 綠燈為事實基準）
+        - [ ] 涉端點者標註 /api/v1 前綴（/health 除外）
+        - [ ] 範例不含任何真實祕密（NFR-5）

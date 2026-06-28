@@ -1,0 +1,26 @@
+name: "Spike"
+description: "time-boxed 探索 / 查證（不直接交付產品碼）"
+title: "[spike] <要回答的問題>"
+labels: ["type:chore", "spike"]
+body:
+  - type: input
+    id: timebox
+    attributes: { label: "Time-box（上限）", placeholder: "0.5–1 天" }
+    validations: { required: true }
+  - type: textarea
+    id: question
+    attributes:
+      label: "要回答的問題 / 決策點"
+      value: |
+        - 背景（牽涉哪個 FR/NFR/上游 API）：
+        - 需做出的決策：
+    validations: { required: true }
+  - type: textarea
+    id: output
+    attributes:
+      label: "預期產出"
+      value: |
+        - [ ] 決策結論（標 confirmed / uncertain / refuted 並附來源）
+        - [ ] 後續要開的 Task Issue（Tx.y）清單
+        - [ ] 若推翻既有假設，回報需更新哪份 SSOT（Requirement/Design/Task）；重大者寫 ADR（§16.2）
+    validations: { required: true }
