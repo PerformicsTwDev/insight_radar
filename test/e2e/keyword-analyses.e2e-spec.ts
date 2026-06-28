@@ -18,23 +18,27 @@ const API_KEY = 'test-api-key'; // matches .env.test
 describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
   let app: INestApplication<App>;
   let queueAdd: jest.Mock;
+  let queueGetJob: jest.Mock;
   let prismaCreate: jest.Mock;
+  let prismaFindUnique: jest.Mock;
 
   beforeAll(async () => {
     queueAdd = jest.fn().mockResolvedValue({ id: 'job-1' });
+    queueGetJob = jest.fn();
     prismaCreate = jest.fn((args: { data: { id: string } }) => Promise.resolve(args.data));
+    prismaFindUnique = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
-      .useValue({ add: queueAdd })
+      .useValue({ add: queueAdd, getJob: queueGetJob })
       // ioredis-mock so BullModule's forRoot connection has no real socket (no Jest hang).
       .overrideProvider(BULL_CONNECTION)
       .useValue({ quit: jest.fn().mockResolvedValue(undefined) })
       .overrideProvider(PrismaService)
       .useValue({
-        keywordAnalysis: { create: prismaCreate, findUnique: jest.fn(), delete: jest.fn() },
+        keywordAnalysis: { create: prismaCreate, findUnique: prismaFindUnique, delete: jest.fn() },
       })
       .compile();
 
@@ -147,5 +151,79 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
 
     expect(res.status).toBe(202);
     expect(elapsedMs).toBeLessThan(300);
+  });
+
+  describe('GET /keyword-analyses/:id (TC-22) — DB source of truth', () => {
+    it('returns 200 with status/progress/result for a running job', async () => {
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'some-id',
+        status: 'running',
+        progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
+        resultSnapshot: null,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/some-id')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        status: 'running',
+        progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
+        result: { resultSnapshotId: null, count: null },
+      });
+    });
+
+    it('returns the completed result snapshot id + count', async () => {
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'some-id',
+        status: 'completed',
+        progress: { phase: 'done', percent: 100 },
+        resultSnapshot: { id: 'snap-9', keywordCount: 1980 },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/some-id')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(200);
+      expect((res.body as { result: unknown }).result).toEqual({
+        resultSnapshotId: 'snap-9',
+        count: 1980,
+      });
+    });
+
+    it('surfaces a partial status (queue state cannot express it)', async () => {
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'some-id',
+        status: 'partial',
+        progress: { phase: 'intent', percent: 100 },
+        resultSnapshot: { id: 'snap-p', keywordCount: 800 },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/some-id')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(200);
+      expect((res.body as { status: string }).status).toBe('partial');
+    });
+
+    it('returns 404 for an unknown analysisId', async () => {
+      prismaFindUnique.mockResolvedValueOnce(null);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/missing')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(404);
+      expect((res.body as { code: string }).code).toBe('NOT_FOUND');
+    });
+
+    it('requires x-api-key (401 without)', async () => {
+      const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses/some-id');
+
+      expect(res.status).toBe(401);
+    });
   });
 });

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import type { JobStatus } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
@@ -38,6 +39,27 @@ interface JobSummary {
   status: 'queued';
   progress: { phase: 'queued'; percent: 0 };
 }
+
+/** 對外輪詢狀態（Design §6.2 / §6.8 狀態機）= DB `KeywordAnalysis.status` enum（6 值）。 */
+export type AnalysisStatus = JobStatus;
+
+/** 進度（與 processor `updateProgress` 對齊；phase/percent 必有，其餘階段性欄位 optional）。 */
+export interface AnalysisProgress {
+  phase: string;
+  percent: number;
+  expanded?: number;
+  labeled?: number;
+  total?: number;
+}
+
+/** 輪詢回應（Design §6.2）。`result` 僅 completed 時帶實值，其餘為 null。 */
+export interface AnalysisStatusResponse {
+  status: AnalysisStatus;
+  progress: AnalysisProgress;
+  result: { resultSnapshotId: string | null; count: number | null };
+}
+
+const DEFAULT_PROGRESS: AnalysisProgress = { phase: 'queued', percent: 0 };
 
 /**
  * KeywordAnalysisService（T3.2，FR-1）。`create` 負責：算 idempotency key → 命中即回舊
@@ -120,9 +142,41 @@ export class KeywordAnalysisService {
 
     return { analysisId };
   }
+
+  /**
+   * 輪詢狀態（T3.4，FR-8）。**DB `KeywordAnalysis` 為真實來源**（§6.8 狀態機含 `partial`/`canceled`，
+   * BullMQ `JobState` 無此語意，且 job 可能在 retention 後被逐出 → 不可僅讀 queue）。
+   * 不存在 → 404；completed/partial 時自關聯 `ResultSnapshot` 取 `resultSnapshotId`+`count`（AC-8.4）。
+   */
+  async getStatus(analysisId: string): Promise<AnalysisStatusResponse> {
+    const row = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      include: { resultSnapshot: true },
+    });
+    if (!row) {
+      throw new NotFoundException(`Analysis ${analysisId} not found`);
+    }
+
+    const progress = isProgress(row.progress) ? row.progress : DEFAULT_PROGRESS;
+    const result = row.resultSnapshot
+      ? { resultSnapshotId: row.resultSnapshot.id, count: row.resultSnapshot.keywordCount }
+      : { resultSnapshotId: null, count: null };
+
+    return { status: row.status, progress, result };
+  }
 }
 
 /** Prisma 唯一鍵衝突（P2002）判定。 */
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+/** DB progress（Json 欄位）是否為我們的進度結構（phase+percent）。 */
+function isProgress(value: unknown): value is AnalysisProgress {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as AnalysisProgress).phase === 'string' &&
+    typeof (value as AnalysisProgress).percent === 'number'
+  );
 }

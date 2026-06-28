@@ -1,4 +1,5 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
@@ -52,8 +53,13 @@ class FakePrisma {
       this.rows.push(args.data);
       return Promise.resolve(args.data);
     }),
-    findUnique: jest.fn((args: { where: { idempotencyKey?: string } }) => {
-      const row = this.rows.find((r) => r.idempotencyKey === args.where.idempotencyKey);
+    findUnique: jest.fn((args: { where: { idempotencyKey?: string; id?: string } }) => {
+      const row = this.rows.find(
+        (r) =>
+          (args.where.idempotencyKey !== undefined &&
+            r.idempotencyKey === args.where.idempotencyKey) ||
+          (args.where.id !== undefined && r.id === args.where.id),
+      );
       return Promise.resolve(row ?? null);
     }),
     delete: jest.fn((args: { where: { id: string } }) => {
@@ -78,24 +84,32 @@ interface Harness {
   cache: FakeCache;
   prisma: FakePrisma;
   queueAdd: jest.Mock;
+  queueGetJob: jest.Mock;
 }
 
 async function buildHarness(queueAdd?: jest.Mock): Promise<Harness> {
   const cache = new FakeCache();
   const prisma = new FakePrisma();
   const add = queueAdd ?? jest.fn().mockResolvedValue({ id: 'job-1' });
+  const getJob = jest.fn();
 
   const moduleRef = await Test.createTestingModule({
     providers: [
       KeywordAnalysisService,
-      { provide: getQueueToken(KEYWORD_ANALYSIS_QUEUE), useValue: { add } },
+      { provide: getQueueToken(KEYWORD_ANALYSIS_QUEUE), useValue: { add, getJob } },
       { provide: CacheService, useValue: cache },
       { provide: PrismaService, useValue: prisma },
       { provide: queueConfig.KEY, useValue: QUEUE_CONFIG },
     ],
   }).compile();
 
-  return { service: moduleRef.get(KeywordAnalysisService), cache, prisma, queueAdd: add };
+  return {
+    service: moduleRef.get(KeywordAnalysisService),
+    cache,
+    prisma,
+    queueAdd: add,
+    queueGetJob: getJob,
+  };
 }
 
 const baseInput: CreateAnalysisInput = {
@@ -221,5 +235,133 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
     });
 
     expect(b.analysisId).not.toBe(a.analysisId);
+  });
+});
+
+/** 在 FakePrisma 注入一筆可被 `findUnique({where:{id},include:{resultSnapshot}})` 命中的列。 */
+function seedRow(
+  prisma: FakePrisma,
+  row: {
+    id: string;
+    status: string;
+    progress?: unknown;
+    resultSnapshotId?: string | null;
+    resultSnapshot?: { id: string; keywordCount: number } | null;
+  },
+): void {
+  prisma.rows.push({
+    id: row.id,
+    idempotencyKey: `idem-${row.id}`,
+    status: row.status,
+    progress: row.progress ?? { phase: 'queued', percent: 0 },
+    resultSnapshotId: row.resultSnapshotId ?? null,
+    resultSnapshot: row.resultSnapshot ?? null,
+  });
+}
+
+describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of truth', () => {
+  it('throws NotFound for an unknown analysisId', async () => {
+    const { service, prisma } = await buildHarness();
+
+    await expect(service.getStatus('missing-id')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.keywordAnalysis.findUnique).toHaveBeenCalledWith({
+      where: { id: 'missing-id' },
+      include: { resultSnapshot: true },
+    });
+  });
+
+  it('returns status=queued with progress from the DB row', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'queued', progress: { phase: 'queued', percent: 0 } });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res).toEqual({
+      status: 'queued',
+      progress: { phase: 'queued', percent: 0 },
+      result: { resultSnapshotId: null, count: null },
+    });
+  });
+
+  it('returns status=running with phase progress', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'running',
+      progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
+    });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('running');
+    expect(res.progress).toEqual({
+      phase: 'intent',
+      percent: 72,
+      expanded: 1980,
+      labeled: 1420,
+      total: 1980,
+    });
+    expect(res.result).toEqual({ resultSnapshotId: null, count: null });
+  });
+
+  it('returns status=completed with resultSnapshotId + count from the snapshot (AC-8.4)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'completed',
+      progress: { phase: 'done', percent: 100 },
+      resultSnapshotId: 'snap-1',
+      resultSnapshot: { id: 'snap-1', keywordCount: 1980 },
+    });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('completed');
+    expect(res.result).toEqual({ resultSnapshotId: 'snap-1', count: 1980 });
+  });
+
+  it('surfaces status=partial (BullMQ state cannot express this — AC-8.3)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'partial',
+      progress: { phase: 'intent', percent: 100 },
+      resultSnapshotId: 'snap-2',
+      resultSnapshot: { id: 'snap-2', keywordCount: 800 },
+    });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('partial');
+    expect(res.result).toEqual({ resultSnapshotId: 'snap-2', count: 800 });
+  });
+
+  it('surfaces status=canceled (set by DELETE — AC-8.3)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'canceled', progress: { phase: 'fetch', percent: 20 } });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('canceled');
+    expect(res.result).toEqual({ resultSnapshotId: null, count: null });
+  });
+
+  it('returns status=failed with null result', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'failed', progress: { phase: 'fetch', percent: 40 } });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.status).toBe('failed');
+    expect(res.result).toEqual({ resultSnapshotId: null, count: null });
+  });
+
+  it('defaults progress to a queued shape when the row has malformed/empty progress', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'queued', progress: null });
+
+    const res = await service.getStatus('id-1');
+
+    expect(res.progress).toEqual({ phase: 'queued', percent: 0 });
   });
 });
