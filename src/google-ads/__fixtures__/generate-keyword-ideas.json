@@ -1,0 +1,67 @@
+{
+  "_meta": {
+    "description": "Representative (synthetic, not live-recorded) shape of customer.keywordPlanIdeas.generateKeywordIdeas (Opteo google-ads-api, camelCase). Sanitised, no credentials. Covers BOTH the enum-name-string and proto-integer wire forms (competition + MonthOfYear) so the contract guards either. Replace with a genuinely captured response during the T7 real-credential smoke (Task.md L900).",
+    "package": "google-ads-api",
+    "packageVersion": "24.1.0",
+    "fixtureVersion": 1,
+    "recordedFor": "expand mode (GenerateKeywordIdeas), seeds=[\"coffee\"]"
+  },
+  "results": [
+    {
+      "text": "coffee",
+      "keywordIdeaMetrics": {
+        "avgMonthlySearches": 110000,
+        "competition": "LOW",
+        "competitionIndex": 12,
+        "lowTopOfPageBidMicros": "1230000",
+        "highTopOfPageBidMicros": "4560000",
+        "monthlySearchVolumes": [
+          {
+            "year": 2024,
+            "month": "DECEMBER",
+            "monthlySearches": 100000
+          },
+          {
+            "year": 2025,
+            "month": "JANUARY",
+            "monthlySearches": 110000
+          },
+          {
+            "year": 2025,
+            "month": "FEBRUARY",
+            "monthlySearches": null
+          }
+        ]
+      }
+    },
+    {
+      "text": "coffee machine",
+      "_note": "proto-integer wire form: competition 4=HIGH, month 2=JANUARY (off-by-one trap) — guards the integer path",
+      "keywordIdeaMetrics": {
+        "avgMonthlySearches": 27000,
+        "competition": 4,
+        "competitionIndex": 88,
+        "lowTopOfPageBidMicros": "3000000",
+        "highTopOfPageBidMicros": "9500000",
+        "monthlySearchVolumes": [
+          {
+            "year": 2025,
+            "month": 2,
+            "monthlySearches": 27000
+          }
+        ]
+      }
+    },
+    {
+      "text": "low volume keyword",
+      "keywordIdeaMetrics": {
+        "avgMonthlySearches": null,
+        "competition": "UNKNOWN",
+        "competitionIndex": null,
+        "lowTopOfPageBidMicros": null,
+        "highTopOfPageBidMicros": null,
+        "monthlySearchVolumes": []
+      }
+    }
+  ]
+}
