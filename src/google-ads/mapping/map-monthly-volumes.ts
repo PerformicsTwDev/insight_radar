@@ -55,7 +55,7 @@ function resolveSearches(searches: number | string | null | undefined): number |
  * 映射逐月搜量為趨勢資料（FR-5、TC-5）。
  *
  * - `month` **以名稱**映射 1–12（JANUARY→1…DECEMBER→12，避開 proto off-by-one）。
- * - `monthlySearches` 缺值保留 null（該月斷點，不補 0）。
+ * - `monthly_searches` 缺值保留 null（該月斷點，不補 0）。
  * - 無法辨識月份（UNSPECIFIED/UNKNOWN/未知）的條目略過。
  */
 export function mapMonthlyVolumes(
