@@ -1,6 +1,10 @@
 import { normalizeText } from '../google-ads/normalize';
 import { INTENT_LABELS, type IntentLabel } from './intent.schema';
 
+/**
+ * 後處理的暫態 DTO（非 canonical 實體）。下游 service 才組裝成 Design §5.1 的 `Keyword`
+ * （`text` / `intentLabels`）；此處用 `keyword`/`labels` 對齊 LLM 回應與 TC-7 語意。
+ */
 export interface LabeledKeyword {
   keyword: string;
   labels: IntentLabel[];
