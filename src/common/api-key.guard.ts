@@ -1,8 +1,8 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { timingSafeEqual } from 'node:crypto';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { timingSafeEqualStr } from './timing-safe-equal';
 
 /** API key header 名（小寫；Express header 一律小寫）。 */
 export const API_KEY_HEADER = 'x-api-key';
@@ -41,14 +41,4 @@ export class ApiKeyGuard implements CanActivate {
     }
     return true;
   }
-}
-
-/** 等長才比對的常數時間字串比較（長度不同直接 false，仍不洩漏內容）。 */
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) {
-    return false;
-  }
-  return timingSafeEqual(ab, bb);
 }
