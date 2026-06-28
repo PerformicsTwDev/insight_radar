@@ -31,7 +31,7 @@ export function dedupeMerge(candidates: KeywordCandidate[]): DedupedKeyword[] {
       byKey.set(normalizedText, {
         ...candidate,
         normalizedText,
-        seedOrigins: candidate.seedOrigins ? [...candidate.seedOrigins] : candidate.seedOrigins,
+        seedOrigins: candidate.seedOrigins ? [...candidate.seedOrigins] : undefined,
       });
       continue;
     }
@@ -48,16 +48,35 @@ function mergeInto(
   incoming: KeywordCandidate,
   normalizedText: string,
 ): DedupedKeyword {
-  // seed 優先：保留 seed 的 source 與原字（exact/seed 一律納入並標記）。
-  const seedWins = incoming.source === 'seed' && existing.source !== 'seed';
-  const base = seedWins ? { ...incoming, normalizedText } : existing;
-
   return {
-    ...base,
+    ...pickRepresentative(existing, incoming, normalizedText),
     // 任一筆帶指標即視為有指標（偏好保留含 keyword_idea_metrics 者）。
     hasMetrics: Boolean(existing.hasMetrics) || Boolean(incoming.hasMetrics),
     seedOrigins: mergeSeedOrigins(existing.seedOrigins, incoming.seedOrigins),
   };
+}
+
+/**
+ * 選代表列（決定保留哪筆的 `text`/`source`，FR-2 / AC-2.3）：
+ * 1. seed 優先（exact/seed 一律納入並標記；seed 原字保留）。
+ * 2. 兩筆同源時，**優先保留含 metrics 的那筆**（拓展回應中只有部分帶 keyword_idea_metrics）。
+ * 3. 否則維持既有（首見）。
+ */
+function pickRepresentative(
+  existing: DedupedKeyword,
+  incoming: KeywordCandidate,
+  normalizedText: string,
+): DedupedKeyword {
+  const incomingIsSeed = incoming.source === 'seed';
+  const existingIsSeed = existing.source === 'seed';
+  if (incomingIsSeed !== existingIsSeed) {
+    return incomingIsSeed ? { ...incoming, normalizedText } : existing;
+  }
+  // 同源（皆 seed 或皆 expanded）：incoming 帶指標而 existing 沒有 → 改用 incoming 為代表。
+  if (incoming.hasMetrics && !existing.hasMetrics) {
+    return { ...incoming, normalizedText };
+  }
+  return existing;
 }
 
 /** 合併兩組 seedOrigins：去重、保持首見順序；皆空則回 undefined。 */

@@ -73,6 +73,18 @@ describe('dedupeMerge (TC-1)', () => {
     expect(out[0].seedOrigins).toEqual(['coffee', 'espresso']);
   });
 
+  it('keeps the metrics-bearing entry as the representative when two expansions collide', () => {
+    // 第二筆才帶指標 → 代表列須採帶指標者（含其原字），對齊 AC-2.3「優先保留含 metrics 的那筆」。
+    const out = dedupeMerge([
+      expanded('cold brew', ['coffee'], false),
+      expanded('Cold Brew', ['espresso'], true),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].hasMetrics).toBe(true);
+    expect(out[0].text).toBe('Cold Brew'); // 帶指標者的原字成為代表
+    expect(out[0].seedOrigins).toEqual(['coffee', 'espresso']);
+  });
+
   it('preserves first-seen order of distinct keywords', () => {
     const out = dedupeMerge([seed('b'), seed('a'), expanded('c', ['x'])]);
     expect(out.map((k) => k.normalizedText)).toEqual(['b', 'a', 'c']);
@@ -106,11 +118,20 @@ describe('dedupeMerge (TC-1)', () => {
     expect(out[0].seedOrigins).toEqual(['espresso']); // 保留 expanded 的來源
   });
 
-  it('keeps the first seed text when a later seed collides (existing already seed)', () => {
+  it('keeps the first seed text when two seeds collide without metrics (first-seen)', () => {
+    const out = dedupeMerge([seed('Coffee'), seed('COFFEE')]);
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe('Coffee'); // 同源、皆無指標 → 維持首見原字
+    expect(out[0].source).toBe('seed');
+  });
+
+  it('prefers the metrics-bearing seed text when two seeds collide (AC-2.3)', () => {
+    // AC-2.3「優先保留含 metrics 的那筆」為 tiebreaker，凌駕首見；normalizedText 相同，
+    // 故去重/快取 key 不受影響，僅代表 text 改採帶指標者。
     const out = dedupeMerge([seed('Coffee'), seed('COFFEE', true)]);
     expect(out).toHaveLength(1);
-    expect(out[0].text).toBe('Coffee'); // 首見 seed 原字保留
+    expect(out[0].text).toBe('COFFEE');
     expect(out[0].source).toBe('seed');
-    expect(out[0].hasMetrics).toBe(true); // 後者帶指標 → 合併為有指標
+    expect(out[0].hasMetrics).toBe(true);
   });
 });
