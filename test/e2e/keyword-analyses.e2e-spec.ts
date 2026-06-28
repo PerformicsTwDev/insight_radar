@@ -6,6 +6,7 @@ import type { App } from 'supertest/types';
 import { configureApp } from 'src/bootstrap';
 import { AppModule } from 'src/app.module';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
+import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
 
 const API_KEY = 'test-api-key'; // matches .env.test
@@ -40,6 +41,10 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       .useValue({
         keywordAnalysis: { create: prismaCreate, findUnique: prismaFindUnique, delete: jest.fn() },
       })
+      // Stub the processor so its WorkerHost doesn't spin up a real BullMQ Worker
+      // (this is an HTTP-layer e2e; worker behavior is covered by the processor unit test).
+      .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
       .compile();
 
     app = moduleRef.createNestApplication();
