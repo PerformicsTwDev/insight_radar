@@ -46,6 +46,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const r = res as { message?: unknown; code?: unknown; fields?: unknown };
         if (typeof r.message === 'string') {
           message = r.message;
+        } else if (Array.isArray(r.message) && r.message.length > 0) {
+          // NestJS 預設 ValidationPipe / `BadRequestException([...])` 帶 string[]——
+          // 串成單一可讀訊息，避免退回通用 500 文字（M0-R2）。
+          message = r.message.map(String).join('; ');
         }
         if (typeof r.code === 'string') {
           code = r.code;
