@@ -3,7 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import { azureConfig } from '../config/azure.config';
 import { AzureOpenAiService } from './azure-openai.service';
 import { createAzureOpenAiClient } from './azure-openai.factory';
-import { AZURE_OPENAI_CLIENT, AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
+import {
+  AZURE_OPENAI_CLIENT,
+  AZURE_OPENAI_DEPLOYMENT,
+  INTENT_LABELER,
+} from './intent-labeler.port';
 import { IntentService } from './intent.service';
 
 /**
@@ -27,6 +31,7 @@ import { IntentService } from './intent.service';
       inject: [azureConfig.KEY],
     },
     IntentService,
+    { provide: INTENT_LABELER, useExisting: AzureOpenAiService },
     {
       provide: 'INTENT_SERVICE_CONFIG',
       useFactory: (config: Parameters<typeof createAzureOpenAiClient>[0]) => ({

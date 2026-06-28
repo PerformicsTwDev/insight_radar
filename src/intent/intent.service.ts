@@ -1,6 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AzureOpenAiService } from './azure-openai.service';
-import type { IntentLabeler, ParseChatResult } from './intent-labeler.port';
+import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
 import { type IntentBatch, intentResponseFormat } from './intent.schema';
 import { buildIntentMessages } from './intent.prompt';
 
@@ -23,7 +22,7 @@ export class IntentService {
   private readonly batchSize: number;
 
   constructor(
-    @Inject(AzureOpenAiService) private readonly labeler: IntentLabeler,
+    @Inject(INTENT_LABELER) private readonly labeler: IntentLabeler,
     @Inject('INTENT_SERVICE_CONFIG') config: IntentServiceConfig,
   ) {
     this.batchSize = config.batchSize > 0 ? Math.floor(config.batchSize) : DEFAULT_BATCH_SIZE;
