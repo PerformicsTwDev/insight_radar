@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Golden fixture: recorded shape of customer.keywordPlanIdeas.generateKeywordIdeas (Opteo google-ads-api, camelCase). No secrets. Used by the T1.7 contract test (TC-14) to detect upstream schema drift.",
+    "description": "Representative (synthetic, not live-recorded) shape of customer.keywordPlanIdeas.generateKeywordIdeas (Opteo google-ads-api, camelCase). Sanitised, no credentials. Covers BOTH the enum-name-string and proto-integer wire forms (competition + MonthOfYear) so the contract guards either. Replace with a genuinely captured response during the T7 real-credential smoke (Task.md L900).",
     "package": "google-ads-api",
     "packageVersion": "24.1.0",
     "fixtureVersion": 1,
@@ -36,16 +36,17 @@
     },
     {
       "text": "coffee machine",
+      "_note": "proto-integer wire form: competition 4=HIGH, month 2=JANUARY (off-by-one trap) — guards the integer path",
       "keywordIdeaMetrics": {
         "avgMonthlySearches": 27000,
-        "competition": "HIGH",
+        "competition": 4,
         "competitionIndex": 88,
         "lowTopOfPageBidMicros": "3000000",
         "highTopOfPageBidMicros": "9500000",
         "monthlySearchVolumes": [
           {
             "year": 2025,
-            "month": "JANUARY",
+            "month": 2,
             "monthlySearches": 27000
           }
         ]
