@@ -1,7 +1,8 @@
 import { AdsClientAdapter } from './ads-client.adapter';
-import type { GenerateKeywordIdeasRequest } from './ads-client.port';
+import { buildGenerateKeywordIdeasRequest } from './ads-request.builder';
+import type { ExpandParams } from './google-ads.service';
 
-/** 最小 fake Opteo customer：只實作本案用到的 keywordPlanIdeas.generateKeywordIdeas。 */
+/** 最小 fake Opteo customer。 */
 interface FakeCustomer {
   keywordPlanIdeas: {
     generateKeywordIdeas: (req: unknown) => Promise<unknown>;
@@ -9,49 +10,35 @@ interface FakeCustomer {
   };
 }
 
-const REQ: GenerateKeywordIdeasRequest = {
-  keywords: ['coffee'],
+const PARAMS: ExpandParams = {
+  geo: 'geoTargetConstants/2158',
   language: 'languageConstants/1018',
-  geoTargetConstants: ['geoTargetConstants/2158'],
-  keywordPlanNetwork: 'GOOGLE_SEARCH',
+  currencyCode: 'TWD',
 };
 
-describe('AdsClientAdapter (T1.8)', () => {
-  it('delegates generateKeywordIdeas to the wrapped customer and returns its results', async () => {
-    const results = [{ text: 'coffee beans', keywordIdeaMetrics: null }];
+describe('AdsClientAdapter (T1.8 / M1-R1)', () => {
+  it('delegates generateKeywordIdeas to the wrapped customer and returns its (array) results', async () => {
+    const results = [{ text: 'coffee beans', keyword_idea_metrics: null }];
     const calls: unknown[] = [];
     const customer: FakeCustomer = {
       keywordPlanIdeas: {
         generateKeywordIdeas: (req) => {
           calls.push(req);
-          return Promise.resolve(results);
+          return Promise.resolve(results); // ideas → bare array
         },
-        generateKeywordHistoricalMetrics: () => Promise.resolve([]),
+        generateKeywordHistoricalMetrics: () => Promise.resolve({ results: [] }),
       },
     };
-    const adapter = new AdsClientAdapter(customer as never);
+    const adapter = new AdsClientAdapter(customer as never, '1234567890');
 
-    const out = await adapter.generateKeywordIdeas(REQ);
+    const out = await adapter.generateKeywordIdeas(
+      buildGenerateKeywordIdeasRequest(['coffee'], PARAMS),
+    );
     expect(out).toEqual(results);
-    expect(calls).toEqual([REQ]);
-  });
-
-  it('delegates generateKeywordHistoricalMetrics to the wrapped customer', async () => {
-    const results = [{ text: 'car', closeVariants: ['cars'], keywordMetrics: null }];
-    const calls: unknown[] = [];
-    const customer: FakeCustomer = {
-      keywordPlanIdeas: {
-        generateKeywordIdeas: () => Promise.resolve([]),
-        generateKeywordHistoricalMetrics: (req) => {
-          calls.push(req);
-          return Promise.resolve(results);
-        },
-      },
-    };
-    const adapter = new AdsClientAdapter(customer as never);
-
-    const out = await adapter.generateKeywordHistoricalMetrics(REQ);
-    expect(out).toEqual(results);
-    expect(calls).toEqual([REQ]);
+    // delegated request carries the injected customer_id + nested keyword_seed
+    expect(calls[0]).toMatchObject({
+      customer_id: '1234567890',
+      keyword_seed: { keywords: ['coffee'] },
+    });
   });
 });

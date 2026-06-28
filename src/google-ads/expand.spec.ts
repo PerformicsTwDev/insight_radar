@@ -25,13 +25,13 @@ const PARAMS = {
 
 const idea = (text: string, avg?: number | null): KeywordIdeaResult => ({
   text,
-  keywordIdeaMetrics: {
-    avgMonthlySearches: avg ?? null,
+  keyword_idea_metrics: {
+    avg_monthly_searches: avg ?? null,
     competition: enums.KeywordPlanCompetitionLevel.LOW,
-    competitionIndex: 33,
-    lowTopOfPageBidMicros: '1000000',
-    highTopOfPageBidMicros: '2000000',
-    monthlySearchVolumes: [{ year: 2025, month: 'JANUARY', monthlySearches: 10 }],
+    competition_index: 33,
+    low_top_of_page_bid_micros: '1000000',
+    high_top_of_page_bid_micros: '2000000',
+    monthly_search_volumes: [{ year: 2025, month: 'JANUARY', monthly_searches: 10 }],
   },
 });
 
@@ -45,13 +45,13 @@ describe('GoogleAdsService.expand (T1.6)', () => {
     );
     expect(fake.calls).toHaveLength(2);
     for (const call of fake.calls) {
-      expect(call.keywords.length).toBeLessThanOrEqual(20);
+      expect(call.keyword_seed.keywords.length).toBeLessThanOrEqual(20);
     }
   });
 
   it('includes every seed (source=seed) plus expansions, deduped across batches', async () => {
     const fake = new FakeAdsClient((req) =>
-      req.keywords.flatMap((k) => [idea(`${k} cheap`, 50), idea(`${k} cheap`, 50)]),
+      req.keyword_seed.keywords.flatMap((k) => [idea(`${k} cheap`, 50), idea(`${k} cheap`, 50)]),
     );
     const service = new GoogleAdsService(fake);
     const out = await service.expand(['coffee'], PARAMS);
@@ -89,7 +89,7 @@ describe('GoogleAdsService.expand (T1.6)', () => {
   });
 
   it('flattens an expansion with no metrics to null cpc/competition and empty volumes', async () => {
-    const fake = new FakeAdsClient(() => [{ text: 'no metrics kw', keywordIdeaMetrics: null }]);
+    const fake = new FakeAdsClient(() => [{ text: 'no metrics kw', keyword_idea_metrics: null }]);
     const service = new GoogleAdsService(fake);
     const out = await service.expand(['seed'], PARAMS);
 
@@ -112,8 +112,8 @@ describe('GoogleAdsService.expand (T1.6)', () => {
     expect(expanded?.seedOrigins).toEqual(['coffee']);
 
     const req = fake.calls[0];
-    expect(req.geoTargetConstants).toEqual(['geoTargetConstants/2158']);
+    expect(req.geo_target_constants).toEqual(['geoTargetConstants/2158']);
     expect(req.language).toBe('languageConstants/1018');
-    expect(req.keywordPlanNetwork).toBe('GOOGLE_SEARCH'); // 預設
+    expect(req.keyword_plan_network).toBe('GOOGLE_SEARCH'); // 預設
   });
 });

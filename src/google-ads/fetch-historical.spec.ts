@@ -34,18 +34,18 @@ const PARAMS = {
 };
 
 const metrics = (avg: number) => ({
-  avgMonthlySearches: avg,
+  avg_monthly_searches: avg,
   competition: enums.KeywordPlanCompetitionLevel.MEDIUM,
-  competitionIndex: 40,
-  lowTopOfPageBidMicros: '500000',
-  highTopOfPageBidMicros: '1500000',
-  monthlySearchVolumes: [{ year: 2025, month: 'JANUARY', monthlySearches: avg }],
+  competition_index: 40,
+  low_top_of_page_bid_micros: '500000',
+  high_top_of_page_bid_micros: '1500000',
+  monthly_search_volumes: [{ year: 2025, month: 'JANUARY', monthly_searches: avg }],
 });
 
 describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
   it('calls generateKeywordHistoricalMetrics and never expands (no generateKeywordIdeas)', async () => {
     const fake = new FakeAdsClient((req) =>
-      req.keywords.map((k) => ({ text: k, keywordMetrics: metrics(10) })),
+      req.keywords.map((k) => ({ text: k, keyword_metrics: metrics(10) })),
     );
     const service = new GoogleAdsService(fake);
     await service.fetchHistoricalMetrics(['coffee'], PARAMS);
@@ -55,7 +55,7 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
 
   it('batches keywords at <= GOOGLE_ADS_HISTORICAL_BATCH_SIZE', async () => {
     const fake = new FakeAdsClient((req) =>
-      req.keywords.map((k) => ({ text: k, keywordMetrics: metrics(1) })),
+      req.keywords.map((k) => ({ text: k, keyword_metrics: metrics(1) })),
     );
     const service = new GoogleAdsService(fake);
     // batchSize=2 → 5 keywords → 3 calls, none > 2
@@ -64,14 +64,14 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
   });
 
   it('emits every row as source=seed (exact mode never produces expanded)', async () => {
-    const fake = new FakeAdsClient(() => [{ text: 'coffee', keywordMetrics: metrics(99) }]);
+    const fake = new FakeAdsClient(() => [{ text: 'coffee', keyword_metrics: metrics(99) }]);
     const service = new GoogleAdsService(fake);
     const out = await service.fetchHistoricalMetrics(['coffee'], PARAMS);
     expect(out.every((k) => k.source === 'seed')).toBe(true);
   });
 
   it('reuses the shared mapper (micros/competition/monthlyVolumes) like expand', async () => {
-    const fake = new FakeAdsClient(() => [{ text: 'coffee', keywordMetrics: metrics(120) }]);
+    const fake = new FakeAdsClient(() => [{ text: 'coffee', keyword_metrics: metrics(120) }]);
     const service = new GoogleAdsService(fake);
     const [kw] = await service.fetchHistoricalMetrics(['coffee'], PARAMS);
     expect(kw).toMatchObject({
@@ -88,7 +88,7 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
   it('maps close variants back to every original input (car/cars -> one row, both in seedOrigins)', async () => {
     // 上游把 car/cars near-exact 聚合為一筆（text=car、closeVariants=[cars]）。
     const fake = new FakeAdsClient(() => [
-      { text: 'car', closeVariants: ['cars'], keywordMetrics: metrics(5000) },
+      { text: 'car', close_variants: ['cars'], keyword_metrics: metrics(5000) },
     ]);
     const service = new GoogleAdsService(fake);
     const out = await service.fetchHistoricalMetrics(['car', 'cars'], PARAMS);
@@ -103,8 +103,8 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
   it('drops a result that maps to no submitted input (output only user inputs)', async () => {
     // 上游回了一筆 text 不在輸入、closeVariants 也對不到的列 → 不得出現在輸出（AC-13.2）。
     const fake = new FakeAdsClient(() => [
-      { text: 'unsolicited keyword', keywordMetrics: metrics(1) },
-      { text: 'coffee', keywordMetrics: metrics(2) },
+      { text: 'unsolicited keyword', keyword_metrics: metrics(1) },
+      { text: 'coffee', keyword_metrics: metrics(2) },
     ]);
     const service = new GoogleAdsService(fake);
     const out = await service.fetchHistoricalMetrics(['coffee'], PARAMS);
@@ -113,7 +113,7 @@ describe('GoogleAdsService.fetchHistoricalMetrics (T1.9 / TC-34)', () => {
 
   it('marks an input with no returned data as a no-data seed row', async () => {
     // 只回 car 的資料；cars 無對應 → 仍須有一列（無指標）對應 cars。
-    const fake = new FakeAdsClient(() => [{ text: 'car', keywordMetrics: metrics(5000) }]);
+    const fake = new FakeAdsClient(() => [{ text: 'car', keyword_metrics: metrics(5000) }]);
     const service = new GoogleAdsService(fake);
     const out = await service.fetchHistoricalMetrics(['car', 'truck'], PARAMS);
 

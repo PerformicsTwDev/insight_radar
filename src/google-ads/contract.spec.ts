@@ -33,7 +33,7 @@ const PARAMS = {
 
 describe('GenerateKeywordIdeas contract (TC-14)', () => {
   it('pins the fixture version against the installed package (re-record on bump)', () => {
-    expect(fixture._meta.fixtureVersion).toBe(1);
+    expect(fixture._meta.fixtureVersion).toBe(2);
     // 對照「實際安裝」的版本，而非自我斷言；套件升版未重錄 fixture 即轉紅。
     const installed = JSON.parse(
       readFileSync(
@@ -70,8 +70,8 @@ describe('GenerateKeywordIdeas contract (TC-14)', () => {
       ],
     });
 
-    // 拓展「coffee machine」：proto **整數** wire form（competition 4=HIGH、month 2=JANUARY），
-    // 驗證整數路徑也被 contract 守住（off-by-one：2→1）。
+    // 拓展「coffee machine」：HIGH competition、JANUARY→1。真實 gax 回應 enum 為**名稱字串**
+    // （proto 整數路徑為防呆死碼，另由 map-competition/map-monthly-volumes unit 測守住）。
     expect(byKey['coffee machine']).toEqual({
       text: 'coffee machine',
       normalizedText: 'coffee machine',

@@ -1,66 +1,49 @@
 {
   "_meta": {
-    "description": "Representative (synthetic, not live-recorded) shape of customer.keywordPlanIdeas.generateKeywordIdeas (Opteo google-ads-api, camelCase). Sanitised, no credentials. Covers BOTH the enum-name-string and proto-integer wire forms (competition + MonthOfYear) so the contract guards either. Replace with a genuinely captured response during the T7 real-credential smoke (Task.md L900).",
+    "description": "Representative (synthetic, not live-recorded) shape of customer.keywordPlanIdeas.generateKeywordIdeas (Opteo google-ads-api). MATCHES THE REAL gRPC CONTRACT: snake_case keys, int64 fields as decimal strings (gax longs:String), enum fields as NAME strings (gax enums:String). Sanitised, no credentials. Replace with a genuinely captured response during the T7 real-credential smoke (Task.md L900).",
     "package": "google-ads-api",
     "packageVersion": "24.1.0",
-    "fixtureVersion": 1,
+    "fixtureVersion": 2,
     "recordedFor": "expand mode (GenerateKeywordIdeas), seeds=[\"coffee\"]"
   },
   "results": [
     {
       "text": "coffee",
-      "keywordIdeaMetrics": {
-        "avgMonthlySearches": 110000,
+      "keyword_idea_metrics": {
+        "avg_monthly_searches": "110000",
         "competition": "LOW",
-        "competitionIndex": 12,
-        "lowTopOfPageBidMicros": "1230000",
-        "highTopOfPageBidMicros": "4560000",
-        "monthlySearchVolumes": [
-          {
-            "year": 2024,
-            "month": "DECEMBER",
-            "monthlySearches": 100000
-          },
-          {
-            "year": 2025,
-            "month": "JANUARY",
-            "monthlySearches": 110000
-          },
-          {
-            "year": 2025,
-            "month": "FEBRUARY",
-            "monthlySearches": null
-          }
+        "competition_index": "12",
+        "low_top_of_page_bid_micros": "1230000",
+        "high_top_of_page_bid_micros": "4560000",
+        "monthly_search_volumes": [
+          { "year": "2024", "month": "DECEMBER", "monthly_searches": "100000" },
+          { "year": "2025", "month": "JANUARY", "monthly_searches": "110000" },
+          { "year": "2025", "month": "FEBRUARY", "monthly_searches": null }
         ]
       }
     },
     {
       "text": "coffee machine",
-      "_note": "proto-integer wire form: competition 4=HIGH, month 2=JANUARY (off-by-one trap) — guards the integer path",
-      "keywordIdeaMetrics": {
-        "avgMonthlySearches": 27000,
-        "competition": 4,
-        "competitionIndex": 88,
-        "lowTopOfPageBidMicros": "3000000",
-        "highTopOfPageBidMicros": "9500000",
-        "monthlySearchVolumes": [
-          {
-            "year": 2025,
-            "month": 2,
-            "monthlySearches": 27000
-          }
+      "keyword_idea_metrics": {
+        "avg_monthly_searches": "27000",
+        "competition": "HIGH",
+        "competition_index": "88",
+        "low_top_of_page_bid_micros": "3000000",
+        "high_top_of_page_bid_micros": "9500000",
+        "monthly_search_volumes": [
+          { "year": "2025", "month": "JANUARY", "monthly_searches": "27000" }
         ]
       }
     },
     {
       "text": "low volume keyword",
-      "keywordIdeaMetrics": {
-        "avgMonthlySearches": null,
+      "keyword_idea_metrics": {
+        "avg_monthly_searches": null,
         "competition": "UNKNOWN",
-        "competitionIndex": null,
-        "lowTopOfPageBidMicros": null,
-        "highTopOfPageBidMicros": null,
-        "monthlySearchVolumes": []
+        "competition_index": null,
+        "low_top_of_page_bid_micros": null,
+        "high_top_of_page_bid_micros": null,
+        "monthly_search_volumes": []
       }
     }
   ]

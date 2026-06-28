@@ -46,4 +46,12 @@ describe('mapCompetitionIndex (TC-4)', () => {
     expect(mapCompetitionIndex(null)).toBeNull();
     expect(mapCompetitionIndex(undefined)).toBeNull();
   });
+
+  it('parses int64-as-string competition_index (gax longs:String); blank/non-finite → null', () => {
+    expect(mapCompetitionIndex('88')).toBe(88);
+    expect(mapCompetitionIndex('0')).toBe(0);
+    expect(mapCompetitionIndex('')).toBeNull();
+    expect(mapCompetitionIndex('   ')).toBeNull();
+    expect(mapCompetitionIndex('abc')).toBeNull();
+  });
 });

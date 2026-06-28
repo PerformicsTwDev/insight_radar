@@ -1,10 +1,10 @@
 import { enums } from 'google-ads-api';
 
-/** Google Ads `MonthlySearchVolume` 原始形狀（Opteo camelCase；month 可能為 proto 整數或名稱）。 */
+/** Google Ads `MonthlySearchVolume` 原始形狀（**snake_case**；month 為名稱字串（gax enums:String），int64 為字串）。 */
 export interface RawMonthlySearchVolume {
   year: number | string;
   month: string | number;
-  monthlySearches?: number | string | null;
+  monthly_searches?: number | string | null;
 }
 
 /** 映射後的逐月搜量：`month` 已映射 1–12（名稱映射），`searches` 缺值為 null（不補 0）。 */
@@ -55,11 +55,11 @@ function resolveSearches(searches: number | string | null | undefined): number |
  * 映射逐月搜量為趨勢資料（FR-5、TC-5）。
  *
  * - `month` **以名稱**映射 1–12（JANUARY→1…DECEMBER→12，避開 proto off-by-one）。
- * - `monthlySearches` 缺值保留 null（該月斷點，不補 0）。
+ * - `monthly_searches` 缺值保留 null（該月斷點，不補 0）。
  * - 無法辨識月份（UNSPECIFIED/UNKNOWN/未知）的條目略過。
  */
 export function mapMonthlyVolumes(
-  raw: RawMonthlySearchVolume[] | undefined,
+  raw: RawMonthlySearchVolume[] | null | undefined,
 ): MonthlySearchVolume[] {
   if (!raw) {
     return [];
@@ -70,7 +70,11 @@ export function mapMonthlyVolumes(
     if (month === null) {
       continue;
     }
-    out.push({ year: Number(entry.year), month, searches: resolveSearches(entry.monthlySearches) });
+    out.push({
+      year: Number(entry.year),
+      month,
+      searches: resolveSearches(entry.monthly_searches),
+    });
   }
   return out;
 }

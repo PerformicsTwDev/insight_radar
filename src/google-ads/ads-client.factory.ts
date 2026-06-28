@@ -32,5 +32,5 @@ export function createAdsClient(
     login_customer_id: config.loginCustomerId,
     refresh_token: config.refreshToken,
   });
-  return new AdsClientAdapter(customer);
+  return new AdsClientAdapter(customer, config.customerId);
 }
