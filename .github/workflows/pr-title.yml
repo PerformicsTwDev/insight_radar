@@ -11,7 +11,7 @@ jobs:
   lint-pr-title:
     runs-on: ubuntu-latest
     steps:
-      - uses: amannn/action-semantic-pull-request@v5
+      - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # ★ 必須鏡射 DevelopmentRules §7.2 的 type/scope 清單，否則「唯一進 main 的 squash commit」其實未被約束
