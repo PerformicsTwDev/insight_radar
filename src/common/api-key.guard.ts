@@ -1,11 +1,18 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+import { timingSafeEqual } from 'node:crypto';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
+/** API key header 名（小寫；Express header 一律小寫）。 */
+export const API_KEY_HEADER = 'x-api-key';
+
 /**
- * T0.5 red stub：讀取依賴但**一律放行**，讓 TC-12 的「擋下」案例（無/錯 key）轉紅。
- * green 階段補上 `x-api-key` 與 config `app.apiKey` 的常數時間比對。
+ * 全域 API key 守衛（FR-11 / TC-12）。
+ *
+ * - `@Public()` 標記的 handler/controller → 放行（如 `/health`）。
+ * - 其餘路由：比對 `x-api-key` 與 config `app.apiKey`（**常數時間** `timingSafeEqual`，避免 timing 洩漏）。
+ * - 缺/錯/未設定 key → `401 Unauthorized`。
  */
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -15,11 +22,33 @@ export class ApiKeyGuard implements CanActivate {
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
-    this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    this.config.get<string>('app.apiKey');
+    if (isPublic) {
+      return true;
+    }
+
+    const request = context
+      .switchToHttp()
+      .getRequest<{ headers: Record<string, string | undefined> }>();
+    const provided = request.headers[API_KEY_HEADER];
+    const expected = this.config.get<string>('app.apiKey');
+
+    if (!provided || !expected || !timingSafeEqualStr(provided, expected)) {
+      throw new UnauthorizedException('Invalid or missing API key');
+    }
     return true;
   }
+}
+
+/** 等長才比對的常數時間字串比較（長度不同直接 false，仍不洩漏內容）。 */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) {
+    return false;
+  }
+  return timingSafeEqual(ab, bb);
 }
