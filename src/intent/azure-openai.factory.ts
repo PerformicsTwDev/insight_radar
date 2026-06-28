@@ -1,6 +1,10 @@
 import { AzureOpenAI } from 'openai';
 import type { ConfigType } from '@nestjs/config';
 import { azureConfig } from '../config/azure.config';
+import {
+  AZURE_OPENAI_API_VERSION_ALLOWLIST,
+  isAllowedAzureApiVersion,
+} from '../config/azure-api-version.allowlist';
 import type { OpenAiChatClient } from './intent-labeler.port';
 
 /** 自訂 fetch（測試注入；型別與 SDK ClientOptions.fetch 相容）。 */
@@ -32,6 +36,14 @@ export function createAzureOpenAiClient(
   Ctor: AzureOpenAICtor = AzureOpenAI as unknown as AzureOpenAICtor,
   fetch?: FetchLike,
 ): OpenAiChatClient {
+  // T2.7 啟動斷言（defense-in-depth）：apiVersion 必在 allowlist——若 config 繞過 Joi（如測試/直接
+  // 注入），仍在建構 client、發出任何呼叫**之前**擋下。allowlist 集合比對，**非**字典序 >=。
+  const apiVersion: string = config.apiVersion;
+  if (!isAllowedAzureApiVersion(apiVersion)) {
+    throw new Error(
+      `Invalid AZURE_OPENAI_API_VERSION "${apiVersion}"; must be one of: ${AZURE_OPENAI_API_VERSION_ALLOWLIST.join(', ')}`,
+    );
+  }
   const maxRetries =
     Number.isFinite(config.maxRetries) && config.maxRetries >= 0
       ? config.maxRetries

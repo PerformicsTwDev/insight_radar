@@ -48,6 +48,28 @@ describe('createAzureOpenAiClient (T2.1)', () => {
     expect(captured[1].maxRetries).toBe(AZURE_OPENAI_MAX_RETRIES); // 5
   });
 
+  it('rejects an apiVersion not in the allowlist before constructing the client (T2.7)', () => {
+    let constructed = false;
+    const FakeCtor = function (this: unknown) {
+      constructed = true;
+      return { chat: { completions: { parse: () => Promise.resolve({}) } } };
+    } as unknown as AzureOpenAICtor;
+
+    // 字典序會誤放的值 / 純亂值都必須被擋；且在建構 client 之前就拋。
+    const bad = { ...CONFIG, apiVersion: '2099-12-31' as never };
+    expect(() => createAzureOpenAiClient(bad, FakeCtor)).toThrow(/api.?version/i);
+    expect(constructed).toBe(false);
+  });
+
+  it('accepts every allowlisted apiVersion (preview / GA / v1)', () => {
+    const FakeCtor = function (this: unknown) {
+      return { chat: { completions: { parse: () => Promise.resolve({}) } } };
+    } as unknown as AzureOpenAICtor;
+    for (const apiVersion of ['2024-08-01-preview', '2024-10-21', 'v1'] as const) {
+      expect(() => createAzureOpenAiClient({ ...CONFIG, apiVersion }, FakeCtor)).not.toThrow();
+    }
+  });
+
   it('defaults to the real AzureOpenAI constructor (lazy; no network at build)', () => {
     // 不傳 Ctor → 走預設 AzureOpenAI；建構為 lazy（不打網路），回傳具 chat.completions.parse 的 client。
     const client = createAzureOpenAiClient(CONFIG);
