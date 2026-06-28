@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
+import { LoggerModule } from './logger';
 import { PrismaModule } from './prisma';
 import { configNamespaces, validationSchema } from './config';
 
@@ -21,6 +22,7 @@ import { configNamespaces, validationSchema } from './config';
       validationSchema,
       validationOptions: { allowUnknown: true, abortEarly: false },
     }),
+    LoggerModule,
     CommonModule,
     CacheModule,
     PrismaModule,
