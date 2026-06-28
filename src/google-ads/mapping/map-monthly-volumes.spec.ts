@@ -1,0 +1,76 @@
+import { enums } from 'google-ads-api';
+import { mapMonthlyVolumes } from './map-monthly-volumes';
+import type { RawMonthlySearchVolume } from './map-monthly-volumes';
+
+describe('mapMonthlyVolumes (TC-5)', () => {
+  it('maps MonthOfYear by NAME: JANUARY -> 1 (NOT the proto integer 2)', () => {
+    const raw: RawMonthlySearchVolume[] = [{ year: 2025, month: 'JANUARY', monthlySearches: 100 }];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 1, searches: 100 }]);
+  });
+
+  it('maps DECEMBER -> 12', () => {
+    const raw: RawMonthlySearchVolume[] = [{ year: 2025, month: 'DECEMBER', monthlySearches: 5 }];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 12, searches: 5 }]);
+  });
+
+  it('resolves the proto integer value via the package enum names (no off-by-one)', () => {
+    // 上游可能回 proto 整數（JANUARY=2）；必須先反查名稱再映射，故 proto-2 -> month 1。
+    const raw: RawMonthlySearchVolume[] = [
+      { year: 2025, month: enums.MonthOfYear.JANUARY, monthlySearches: 7 }, // proto int = 2
+      { year: 2025, month: enums.MonthOfYear.DECEMBER, monthlySearches: 9 }, // proto int = 13
+    ];
+    expect(mapMonthlyVolumes(raw)).toEqual([
+      { year: 2025, month: 1, searches: 7 },
+      { year: 2025, month: 12, searches: 9 },
+    ]);
+  });
+
+  it('keeps null monthlySearches as null (not 0)', () => {
+    const raw: RawMonthlySearchVolume[] = [{ year: 2025, month: 'MARCH', monthlySearches: null }];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 3, searches: null }]);
+  });
+
+  it('treats a missing monthlySearches field as null', () => {
+    const raw: RawMonthlySearchVolume[] = [{ year: 2025, month: 'APRIL' }];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 4, searches: null }]);
+  });
+
+  it('maps all twelve months to 1..12 in order by name', () => {
+    const names = [
+      'JANUARY',
+      'FEBRUARY',
+      'MARCH',
+      'APRIL',
+      'MAY',
+      'JUNE',
+      'JULY',
+      'AUGUST',
+      'SEPTEMBER',
+      'OCTOBER',
+      'NOVEMBER',
+      'DECEMBER',
+    ] as const;
+    const raw: RawMonthlySearchVolume[] = names.map((month, i) => ({
+      year: 2025,
+      month,
+      monthlySearches: i,
+    }));
+    expect(mapMonthlyVolumes(raw).map((v) => v.month)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
+  });
+
+  it('skips entries with an unspecified/unknown/unrecognised month', () => {
+    const raw: RawMonthlySearchVolume[] = [
+      { year: 2025, month: 'UNSPECIFIED', monthlySearches: 1 },
+      { year: 2025, month: 'UNKNOWN', monthlySearches: 2 },
+      { year: 2025, month: 'JUNE', monthlySearches: 3 },
+    ];
+    expect(mapMonthlyVolumes(raw)).toEqual([{ year: 2025, month: 6, searches: 3 }]);
+  });
+
+  it('returns an empty array for empty / undefined input', () => {
+    expect(mapMonthlyVolumes([])).toEqual([]);
+    expect(mapMonthlyVolumes(undefined)).toEqual([]);
+  });
+});
