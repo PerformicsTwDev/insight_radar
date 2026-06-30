@@ -9,6 +9,7 @@ import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { ExpandParams } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { normalizeText } from '../google-ads/normalize';
+import { MetricsCache } from '../google-ads/metrics-cache';
 import { IntentService } from '../intent/intent.service';
 import type { LabelResult } from '../intent/intent.service';
 import { scrubSecrets } from '../logger/redaction';
@@ -52,6 +53,7 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     private readonly intent: IntentService,
     private readonly snapshots: ResultSnapshotService,
     private readonly prisma: PrismaService,
+    private readonly metricsCache: MetricsCache,
     @Inject(queueConfig.KEY) private readonly config: ConfigType<typeof queueConfig>,
   ) {
     super();
@@ -187,12 +189,30 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       return { keywords: this.ads.mergeExpansion(candidates, params), labels };
     }
     if (mode === 'exact') {
-      const keywords = await this.ads.fetchHistoricalMetrics(seeds, params);
+      const keywords = await this.fetchExactCached(seeds, params);
       await report('fetch', keywords.length);
       const labels = await this.intent.labelStream([keywords.map((kw) => kw.normalizedText)]);
       return { keywords, labels };
     }
     throw new Error(`Unknown analysis mode: ${String(mode)}`);
+  }
+
+  /**
+   * exact 模式 cache-first（T4.1，FR-10/NFR-4）：先以 `normalizedText` 批查 metrics 快取，**命中省 Ads
+   * 呼叫**；只對 cache-miss 打 `fetchHistoricalMetrics`，取回後回寫（之後可命中）。去重 key 與快取 key
+   * 共用同一 `normalizeText`，故命中判定與 snapshot 去重一致。
+   */
+  private async fetchExactCached(seeds: string[], params: ExpandParams): Promise<Keyword[]> {
+    const normalized = seeds.map(normalizeText);
+    const cached = await this.metricsCache.mget(normalized, params);
+    const hits = cached.filter((kw): kw is Keyword => kw !== undefined);
+    const missSeeds = seeds.filter((_seed, i) => cached[i] === undefined);
+    if (missSeeds.length === 0) {
+      return hits; // 全命中 → 不打 Ads
+    }
+    const fetched = await this.ads.fetchHistoricalMetrics(missSeeds, params);
+    await this.metricsCache.mset(fetched, params);
+    return [...hits, ...fetched];
   }
 
   private async report(

@@ -1,5 +1,6 @@
 import { appConfig } from './app.config';
 import { azureConfig } from './azure.config';
+import { cacheConfig } from './cache.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
 import { queueConfig } from './queue.config';
@@ -35,6 +36,7 @@ const ENV: Record<string, string> = {
   JOB_BACKOFF_MS: '3000',
   IDEMP_TTL_MS: '86400000',
   JOB_TTL_MS: '259200000',
+  CACHE_TTL_METRICS_MS: '1814400000',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -98,5 +100,9 @@ describe('config namespaces (registerAs, typed)', () => {
       idempTtlMs: 86400000,
       jobTtlMs: 259200000,
     });
+  });
+
+  it('cacheConfig maps metrics cache TTL env (coerced to number, ms)', () => {
+    expect(cacheConfig()).toEqual({ metricsTtlMs: 1814400000 });
   });
 });
