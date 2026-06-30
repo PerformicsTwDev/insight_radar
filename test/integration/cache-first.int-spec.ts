@@ -131,6 +131,8 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     await prisma.keywordAnalysis.updateMany({ data: { resultSnapshotId: null } });
     await prisma.resultSnapshot.deleteMany();
     await prisma.keywordAnalysis.deleteMany();
+    await prisma.keyword.deleteMany(); // canonical metrics（T4.6）
+    await prisma.keywordIntent.deleteMany(); // canonical intents（T4.6）
   });
 
   async function seedRunning(id: string): Promise<void> {
@@ -184,5 +186,34 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     // 命中與否最終結果一致（去重 key = 快取 key = normalizedText）。
     expect(warm.checksum).toBe(cold.checksum);
     expect(warm.keywordCount).toBe(cold.keywordCount);
+  });
+
+  it('a Redis miss falls back to the DB canonical without re-hitting Ads/LLM (T4.6)', async () => {
+    // 預填 DB canonical（Redis 空——用未被前面測試暖過的字）：模擬 Redis 失效後仍有持久後備。
+    const nt = 'db backed kw';
+    await prisma.keyword.create({
+      data: {
+        geo: PARAMS.geo,
+        language: PARAMS.language,
+        normalizedText: nt,
+        text: nt,
+        monthlyVolumes: [],
+      },
+    });
+    await prisma.keywordIntent.create({
+      data: { normalizedText: nt, modelVersion: 'v1:test-deploy', labels: ['informational'] },
+    });
+
+    const adsBefore = adsCalls.historical;
+    const labelerBefore = labelerCalls.parse;
+    const id = randomUUID();
+    await seedRunning(id);
+    await processor.process(fakeJob(id, [nt]) as never);
+
+    // Redis 皆 miss → metrics + intent 由 DB canonical 回填 → 不打 Ads/LLM（Redis 失效不致重打全部外部 API）。
+    expect(adsCalls.historical).toBe(adsBefore);
+    expect(labelerCalls.parse).toBe(labelerBefore);
+    const snap = await completedSnapshot(id);
+    expect(snap.keywordCount).toBeGreaterThan(0);
   });
 });
