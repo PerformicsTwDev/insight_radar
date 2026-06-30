@@ -56,4 +56,9 @@ export class CacheService implements OnModuleDestroy {
   async del(key: string): Promise<void> {
     await this.cache.del(key);
   }
+
+  /** 清空整個快取（cache-manager v6 `clear`）。**僅供整合測試隔離**用——避免跨測試殘留導致假命中。 */
+  async clear(): Promise<void> {
+    await this.cache.clear();
+  }
 }
