@@ -1,0 +1,85 @@
+import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Observable, Subject } from 'rxjs';
+import { JOB_QUEUE_EVENTS } from './job-events.constants';
+
+/** 統一的 job 事件（type + data）；progress→AnalysisProgress、completed→returnvalue、failed→reason。 */
+export type JobEventType = 'progress' | 'completed' | 'failed';
+export interface JobEvent {
+  type: JobEventType;
+  data: unknown;
+}
+
+/**
+ * `bullmq` `QueueEvents` 的最小介面（DI 可注入真實 QueueEvents、測試可注入 fake EventEmitter）。
+ * BullMQ listener 收 `(args, id)`；本服務只取 `args`，故簽名以單一 `args` 表示。
+ */
+export interface QueueEventsLike {
+  on(event: string, listener: (args: unknown) => void): unknown;
+  close(): Promise<void>;
+}
+
+/** BullMQ QueueEvents 各事件 payload 的子集（皆含 `jobId`）。 */
+interface QueueEventArgs {
+  jobId?: unknown;
+  data?: unknown;
+  returnvalue?: unknown;
+  failedReason?: unknown;
+}
+
+/**
+ * JobEventsService（T3.8，FR-9）：以**單一** `QueueEvents('keyword-analysis')` 橋接 BullMQ 事件到
+ * 以 analysisId（= jobId，見 T3.2 `add({jobId})`）為 key 的 RxJS Subject。`forJob(analysisId)`
+ * 只回該 job 的事件流；收到 `completed`/`failed` 後 `complete()`（終結串流、釋放 Subject）。
+ *
+ * 避免每 job 一個 QueueEvents（重構重點）；`onModuleDestroy` 關閉連線並結束所有開啟串流（NFR-8、防 hang）。
+ * SSE 串流（T3.9）與輪詢（FR-8）皆建於此之上。
+ */
+@Injectable()
+export class JobEventsService implements OnModuleInit, OnModuleDestroy {
+  private readonly subjects = new Map<string, Subject<JobEvent>>();
+
+  constructor(@Inject(JOB_QUEUE_EVENTS) private readonly queueEvents: QueueEventsLike) {}
+
+  onModuleInit(): void {
+    this.queueEvents.on('progress', (args) => this.route('progress', args));
+    this.queueEvents.on('completed', (args) => this.route('completed', args));
+    this.queueEvents.on('failed', (args) => this.route('failed', args));
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    for (const subject of this.subjects.values()) {
+      subject.complete();
+    }
+    this.subjects.clear();
+    await this.queueEvents.close();
+  }
+
+  /** 該 analysisId 的事件流（只收自己；completed/failed 後串流 complete）。 */
+  forJob(analysisId: string): Observable<JobEvent> {
+    return this.subjectFor(analysisId).asObservable();
+  }
+
+  /** 把單一 QueueEvents 事件路由到對應 job 的 Subject；終結事件後 complete + 釋放。 */
+  private route(type: JobEventType, args: unknown): void {
+    const { jobId, data, returnvalue, failedReason } = (args ?? {}) as QueueEventArgs;
+    if (typeof jobId !== 'string') {
+      return; // 防呆：缺 jobId 的事件不路由。
+    }
+    const payload = type === 'progress' ? data : type === 'completed' ? returnvalue : failedReason;
+    const subject = this.subjectFor(jobId);
+    subject.next({ type, data: payload });
+    if (type === 'completed' || type === 'failed') {
+      subject.complete();
+      this.subjects.delete(jobId);
+    }
+  }
+
+  private subjectFor(analysisId: string): Subject<JobEvent> {
+    let subject = this.subjects.get(analysisId);
+    if (!subject) {
+      subject = new Subject<JobEvent>();
+      this.subjects.set(analysisId, subject);
+    }
+    return subject;
+  }
+}
