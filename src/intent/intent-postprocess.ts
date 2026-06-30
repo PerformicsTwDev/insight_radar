@@ -22,8 +22,11 @@ export interface RawIntentBatch {
 const FALLBACK_LABEL: IntentLabel = 'informational';
 const VALID_LABELS = new Set<string>(INTENT_LABELS);
 
-/** 去重並只保留合法 label，保持首見順序。 */
-function cleanLabels(labels: string[]): IntentLabel[] {
+/**
+ * 去重並只保留合法 label（在 `INTENT_LABELS` 內），保持首見順序。**驗證邊界單點**：後處理（TC-7）與
+ * intent 快取回寫（M4-R4）共用此函式，確保「raw LLM label 視為不可信」在兩條路徑上一致清洗。
+ */
+export function cleanLabels(labels: string[]): IntentLabel[] {
   const out: IntentLabel[] = [];
   for (const label of labels) {
     if (VALID_LABELS.has(label) && !out.includes(label as IntentLabel)) {

@@ -96,13 +96,13 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
 
   it('keys by sha256(normalizedText) so the dedupe key and the cache key share normalizedText', async () => {
     const { service, store } = buildCache();
-    await service.mset([{ keyword: 'running shoes', labels: ['x'] }]);
+    await service.mset([{ keyword: 'running shoes', labels: ['informational'] }]);
     expect([...store.keys()]).toEqual([`intent:v1:${DEPLOYMENT}:${sha('running shoes')}`]);
   });
 
   it('separates by deployment (namespace isolation: another deployment is a miss)', async () => {
     const { service, store } = buildCache(); // deployment = DEPLOYMENT
-    await service.mset([{ keyword: 'running shoes', labels: ['x'] }]);
+    await service.mset([{ keyword: 'running shoes', labels: ['informational'] }]);
     // 同 nt、不同 deployment → 不同 key（schemaVer/deployment namespace 隔離 → bump 整批失效）。
     expect(store.has(`intent:v1:${DEPLOYMENT}:${sha('running shoes')}`)).toBe(true);
     expect(store.has(`intent:v1:other-deploy:${sha('running shoes')}`)).toBe(false);
@@ -123,6 +123,24 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
     ]);
     // 只快取非空標籤的 'y'。
     expect(setCalls.map((c) => c.key)).toEqual([`intent:v1:${DEPLOYMENT}:${sha('y')}`]);
+  });
+
+  it('does not cache out-of-enum labels; keeps only valid ones (validates before caching, M4-R4)', async () => {
+    const { service, setCalls, upsert } = buildCache();
+    await service.mset([
+      { keyword: 'a', labels: ['shopping'] }, // 全非法（不在 INTENT_LABELS）→ 不快取（清洗後 []）
+      { keyword: 'b', labels: ['commercial', 'shopping'] }, // 混合 → 只留合法 'commercial'
+    ]);
+
+    // 'a' 全非法 → 不寫 Redis/DB；'b' 只快取已驗證的 ['commercial']。
+    expect(setCalls.map((c) => c.key)).toEqual([`intent:v1:${DEPLOYMENT}:${sha('b')}`]);
+    expect(setCalls[0].value).toEqual(['commercial']);
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const arg = (upsert.mock.calls[0] as unknown[])[0] as {
+      create: { normalizedText: string; labels: string[] };
+    };
+    expect(arg.create.normalizedText).toBe('b');
+    expect(arg.create.labels).toEqual(['commercial']);
   });
 
   it('mget on an empty list returns [] without touching the cache', async () => {
