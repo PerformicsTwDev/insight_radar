@@ -40,13 +40,16 @@ const PARAMS = {
   includeAdult: false,
 };
 
+const EXPAND_PARAMS = { ...PARAMS, mode: 'expand' as const };
+
 function fakeJob(
   analysisId: string,
   seeds: string[],
+  params: typeof PARAMS | typeof EXPAND_PARAMS = PARAMS,
 ): { id: string; data: AnalysisJobPayload; updateProgress: () => Promise<void> } {
   return {
     id: analysisId,
-    data: { analysisId, seeds, params: PARAMS },
+    data: { analysisId, seeds, params },
     updateProgress: () => Promise.resolve(), // BullMQ/Redis（本測試不驗即時串流，no-op）
   };
 }
@@ -58,6 +61,17 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
   const adsCalls = { historical: 0 };
   const labelerCalls = { parse: 0 };
 
+  // 真實指標（非 null）：warm==cold checksum 斷言才有意義（會真正重建 micros→CPC / volumes），
+  // 且無指標列不回寫（M4-R1）——若回 null 指標，cache 將不寫入、warm 仍會重打 Ads。
+  const realMetrics = {
+    avg_monthly_searches: 480,
+    competition: 'LOW',
+    competition_index: 25,
+    low_top_of_page_bid_micros: '500000',
+    high_top_of_page_bid_micros: '1500000',
+    monthly_search_volumes: [{ year: 2026, month: 'JANUARY', monthly_searches: 480 }],
+  };
+
   const fakeAds: AdsClient = {
     generateKeywordIdeas: () => Promise.resolve([]),
     generateKeywordHistoricalMetrics: (
@@ -65,7 +79,7 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     ): Promise<KeywordHistoricalResult[]> => {
       adsCalls.historical += 1;
       return Promise.resolve(
-        req.keywords.map((kw) => ({ text: kw, keyword_metrics: null, close_variants: [] })),
+        req.keywords.map((kw) => ({ text: kw, keyword_metrics: realMetrics, close_variants: [] })),
       );
     },
   };
@@ -215,5 +229,24 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     expect(labelerCalls.parse).toBe(labelerBefore);
     const snap = await completedSnapshot(id);
     expect(snap.keywordCount).toBeGreaterThan(0);
+  });
+
+  it('an expand run with a no-metrics seed does not clobber canonical metrics from a prior exact run (M4-R1)', async () => {
+    const seed = 'alpha clobber kw';
+
+    // Run 1（exact）：Ads 回真實指標 → 回寫 DB canonical（有指標）。
+    const exactId = randomUUID();
+    await seedRunning(exactId);
+    await processor.process(fakeJob(exactId, [seed]) as never);
+    const before = await prisma.keyword.findFirst({ where: { normalizedText: seed } });
+    expect(before?.avgMonthlySearches).toBe(480); // canonical 有真實指標
+
+    // Run 2（expand，generateKeywordIdeas 回 []）：seed 以 noMetrics() 攤平 → msetByText 須跳過（不覆蓋）。
+    const expandId = randomUUID();
+    await seedRunning(expandId);
+    await processor.process(fakeJob(expandId, [seed], EXPAND_PARAMS) as never);
+
+    const after = await prisma.keyword.findFirst({ where: { normalizedText: seed } });
+    expect(after?.avgMonthlySearches).toBe(480); // 仍為真實指標，未被 null 覆蓋（無污染）
   });
 });
