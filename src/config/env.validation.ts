@@ -60,6 +60,11 @@ export const validationSchema = Joi.object({
   // —— Cache / Queue 運維參數（TTL 一律毫秒；Design §14）——
   CACHE_TTL_METRICS_MS: Joi.number().integer().min(0).default(1814400000),
   CACHE_TTL_INTENT_MS: Joi.number().integer().min(0).default(5184000000),
+  // intent 快取 namespace 版本（schema/prompt 變更皆 bump 此單一版本 → 整批失效；FR-10）。
+  // 限 `v\d+`（如 v1/v2）：避免含 `:` 等字元注入額外 key 段、並 fail-fast 擋拼錯。
+  INTENT_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

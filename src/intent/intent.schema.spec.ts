@@ -1,4 +1,4 @@
-import { INTENT_LABELS, INTENT_SCHEMA_VERSION, intentResponseFormat } from './intent.schema';
+import { INTENT_LABELS, intentResponseFormat } from './intent.schema';
 
 /** 遞迴數出整份 JSON schema 的 object property 總數（structured-outputs 上限 100）。 */
 function countProperties(node: unknown): number {
@@ -129,10 +129,5 @@ describe('intent json_schema (T2.2 / TC-15 部分)', () => {
     };
     walk(schema);
     expect(offenders).toEqual([]);
-  });
-
-  it('exposes a schema version for cache namespacing', () => {
-    expect(typeof INTENT_SCHEMA_VERSION).toBe('string');
-    expect(INTENT_SCHEMA_VERSION.length).toBeGreaterThan(0);
   });
 });

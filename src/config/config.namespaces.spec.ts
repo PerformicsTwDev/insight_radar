@@ -38,6 +38,7 @@ const ENV: Record<string, string> = {
   JOB_TTL_MS: '259200000',
   CACHE_TTL_METRICS_MS: '1814400000',
   CACHE_TTL_INTENT_MS: '5184000000',
+  INTENT_SCHEMA_VERSION: 'v1',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -103,7 +104,11 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('cacheConfig maps metrics + intent cache TTL env (coerced to number, ms)', () => {
-    expect(cacheConfig()).toEqual({ metricsTtlMs: 1814400000, intentTtlMs: 5184000000 });
+  it('cacheConfig maps cache TTL env (ms) + intent schema version (namespace)', () => {
+    expect(cacheConfig()).toEqual({
+      metricsTtlMs: 1814400000,
+      intentTtlMs: 5184000000,
+      intentSchemaVersion: 'v1',
+    });
   });
 });

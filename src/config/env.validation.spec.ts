@@ -70,6 +70,7 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.CACHE_TTL_METRICS_MS).toBe(1814400000);
       expect(value.WORKER_CONCURRENCY).toBe(5);
       expect(value.LOG_LEVEL).toBe('info');
+      expect(value.INTENT_SCHEMA_VERSION).toBe('v1'); // 預設 → 不致 intent:undefined: 的 namespace
     });
 
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
@@ -97,6 +98,15 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       );
       expect(error).toBeDefined();
       expect(error?.message).toContain('WORKER_CONCURRENCY');
+    });
+
+    it('rejects a malformed INTENT_SCHEMA_VERSION (no `:` injection into the cache namespace)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, INTENT_SCHEMA_VERSION: 'v1:evil' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('INTENT_SCHEMA_VERSION');
     });
 
     it('coerces numeric strings (env always arrives as strings)', () => {
