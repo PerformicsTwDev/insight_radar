@@ -9,6 +9,7 @@ import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { ExpandParams } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { normalizeText } from '../google-ads/normalize';
+import { MetricsCache } from '../google-ads/metrics-cache';
 import { IntentService } from '../intent/intent.service';
 import type { LabelResult } from '../intent/intent.service';
 import { scrubSecrets } from '../logger/redaction';
@@ -52,6 +53,7 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     private readonly intent: IntentService,
     private readonly snapshots: ResultSnapshotService,
     private readonly prisma: PrismaService,
+    private readonly metricsCache: MetricsCache,
     @Inject(queueConfig.KEY) private readonly config: ConfigType<typeof queueConfig>,
   ) {
     super();
@@ -187,12 +189,33 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       return { keywords: this.ads.mergeExpansion(candidates, params), labels };
     }
     if (mode === 'exact') {
-      const keywords = await this.ads.fetchHistoricalMetrics(seeds, params);
+      const keywords = await this.fetchExactCached(seeds, params);
       await report('fetch', keywords.length);
       const labels = await this.intent.labelStream([keywords.map((kw) => kw.normalizedText)]);
       return { keywords, labels };
     }
     throw new Error(`Unknown analysis mode: ${String(mode)}`);
+  }
+
+  /**
+   * exact 模式 cache-first（T4.1，FR-10/NFR-4）：先以 `normalizedText` 批查 metrics 快取，**命中省 Ads
+   * 呼叫**；只對 cache-miss 打 `fetchHistoricalMetrics`，取回後回寫（之後可命中）。去重 key 與快取 key
+   * 共用同一 `normalizeText`，故命中判定與 snapshot 去重一致。
+   */
+  private async fetchExactCached(seeds: string[], params: ExpandParams): Promise<Keyword[]> {
+    const normalized = seeds.map(normalizeText);
+    const cached = await this.metricsCache.mget(normalized, params);
+    const hits = cached.filter((kw): kw is Keyword => kw !== undefined);
+    const missSeeds = seeds.filter((_seed, i) => cached[i] === undefined);
+    const fetched =
+      missSeeds.length > 0 ? await this.ads.fetchHistoricalMetrics(missSeeds, params) : [];
+    if (fetched.length > 0) {
+      await this.metricsCache.mset(fetched, params);
+    }
+    // 依 normalizedText 去重（命中不得改變正確性，AC-10.5）：重複 normalize 的 seed 會回同一命中多次，
+    // 且 close-variant 的命中可能與新取的 canonical 撞同字——cold 路徑（fetchHistoricalMetrics 內 dedupeMerge）
+    // 為無碰撞，故合併後須去重，否則 snapshot 出現重複列、keywordCount 膨脹、checksum 漂移（NFR-7）。
+    return dedupeByNormalizedText([...hits, ...fetched]);
   }
 
   private async report(
@@ -222,6 +245,17 @@ function isTerminalFailure(job: Job<AnalysisJobPayload>): boolean {
   }
   const attempts = job.opts?.attempts ?? 1;
   return job.attemptsMade >= attempts;
+}
+
+/** 依 `normalizedText` 去重（保留首見；去重 key 與快取 key 共用），讓 cache-warm 結果與 cold 一致。 */
+function dedupeByNormalizedText(keywords: Keyword[]): Keyword[] {
+  const byNt = new Map<string, Keyword>();
+  for (const kw of keywords) {
+    if (!byNt.has(kw.normalizedText)) {
+      byNt.set(kw.normalizedText, kw);
+    }
+  }
+  return [...byNt.values()];
 }
 
 /** Keyword + intent → snapshot 列（攤平 5 欄 + intent；labels 排序使 checksum 確定，NFR-7）。 */

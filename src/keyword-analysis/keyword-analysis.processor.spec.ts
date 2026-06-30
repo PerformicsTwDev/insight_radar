@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
+import { MetricsCache } from '../google-ads/metrics-cache';
 import { IntentService } from '../intent/intent.service';
 import { PrismaService } from '../prisma';
 import { queueConfig } from '../config/queue.config';
@@ -101,6 +102,8 @@ interface Harness {
   labelStream: jest.Mock;
   saveResult: jest.Mock;
   prismaUpdateMany: jest.Mock;
+  metricsMget: jest.Mock;
+  metricsMset: jest.Mock;
   labeledTexts: string[];
 }
 
@@ -132,6 +135,10 @@ function buildHarness(): Harness {
 
   const prismaUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
 
+  // 預設全 miss（mget 對齊輸入長度回 undefined），mset no-op：exact 模式落回打 Ads（既有測試行為不變）。
+  const metricsMget = jest.fn((nts: string[]) => Promise.resolve(nts.map(() => undefined)));
+  const metricsMset = jest.fn().mockResolvedValue(undefined);
+
   const ads = {
     expandStreamRaw,
     mergeExpansion,
@@ -142,7 +149,18 @@ function buildHarness(): Harness {
   const prisma = {
     keywordAnalysis: { updateMany: prismaUpdateMany },
   } as unknown as PrismaService;
-  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma, queueCfg);
+  const metricsCache = {
+    mget: metricsMget,
+    mset: metricsMset,
+  } as unknown as MetricsCache;
+  const processor = new KeywordAnalysisProcessor(
+    ads,
+    intent,
+    snapshots,
+    prisma,
+    metricsCache,
+    queueCfg,
+  );
 
   return {
     processor,
@@ -152,6 +170,8 @@ function buildHarness(): Harness {
     labelStream,
     saveResult,
     prismaUpdateMany,
+    metricsMget,
+    metricsMset,
     labeledTexts,
   };
 }
@@ -215,7 +235,18 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     const prisma = {
       keywordAnalysis: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     } as unknown as PrismaService;
-    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma, queueCfg);
+    const metricsCache = {
+      mget: jest.fn((nts: string[]) => Promise.resolve(nts.map(() => undefined))),
+      mset: jest.fn().mockResolvedValue(undefined),
+    } as unknown as MetricsCache;
+    const processor = new KeywordAnalysisProcessor(
+      ads,
+      intent,
+      snapshots,
+      prisma,
+      metricsCache,
+      queueCfg,
+    );
 
     await processor.process(fakeJob(buildPayload()) as never);
 
@@ -247,6 +278,97 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
 
     expect(fetchHistorical).toHaveBeenCalledTimes(1);
     expect(expandStreamRaw).not.toHaveBeenCalled();
+  });
+
+  describe('exact-mode metrics cache-first (T4.1, TC-20 部分)', () => {
+    const exactPayload = buildPayload({
+      seeds: ['Running Shoes', 'trail shoes'],
+      params: { geo: 'g', language: 'l', mode: 'exact', includeAdult: false },
+    });
+
+    it('skips Ads when every keyword hits the metrics cache (命中省 Ads 呼叫)', async () => {
+      const { processor, fetchHistorical, metricsMget } = buildHarness();
+      // 全命中（mget 對齊輸入回完整 Keyword）→ 不打 fetchHistoricalMetrics。
+      metricsMget.mockResolvedValueOnce([
+        keyword('running shoes', { source: 'seed' }),
+        keyword('trail shoes', { source: 'seed' }),
+      ]);
+
+      const result = await processor.process(fakeJob(exactPayload) as never);
+
+      expect(fetchHistorical).not.toHaveBeenCalled();
+      expect(result).toEqual({ count: 2 });
+    });
+
+    it('looks up the cache by normalizedText (去重 key 與快取 key 共用)', async () => {
+      const { processor, metricsMget } = buildHarness();
+      metricsMget.mockResolvedValueOnce([
+        keyword('running shoes', { source: 'seed' }),
+        keyword('trail shoes', { source: 'seed' }),
+      ]);
+
+      await processor.process(fakeJob(exactPayload) as never);
+
+      // 原字 'Running Shoes'/'trail shoes' → normalizeText → 'running shoes'/'trail shoes'。
+      expect(metricsMget).toHaveBeenCalledWith(
+        ['running shoes', 'trail shoes'],
+        expect.objectContaining({ geo: 'g', language: 'l' }),
+      );
+    });
+
+    it('fetches only cache-miss keywords from Ads and writes them back', async () => {
+      const { processor, fetchHistorical, metricsMget, metricsMset } = buildHarness();
+      // 第一筆命中、第二筆 miss → 只對 miss 打 Ads。
+      metricsMget.mockResolvedValueOnce([keyword('running shoes', { source: 'seed' }), undefined]);
+      fetchHistorical.mockResolvedValueOnce([keyword('trail shoes', { source: 'seed' })]);
+
+      const result = await processor.process(fakeJob(exactPayload) as never);
+
+      expect(fetchHistorical).toHaveBeenCalledTimes(1);
+      expect(fetchHistorical).toHaveBeenCalledWith(['trail shoes'], expect.anything());
+      // 回寫新取得者（之後可命中）。
+      expect(metricsMset).toHaveBeenCalledWith(
+        [expect.objectContaining({ normalizedText: 'trail shoes' })],
+        expect.anything(),
+      );
+      expect(result).toEqual({ count: 2 }); // 命中 + 新取合併
+    });
+
+    it('dedupes by normalizedText so a warm cache does not drift the count (duplicate-normalizing seeds)', async () => {
+      const { processor, fetchHistorical, metricsMget } = buildHarness();
+      const payload = buildPayload({
+        seeds: ['Running Shoes', 'running shoes'], // 兩者 normalize 為同一字
+        params: { geo: 'g', language: 'l', mode: 'exact', includeAdult: false },
+      });
+      // mget 對齊輸入 → 同一命中回兩次。
+      metricsMget.mockResolvedValueOnce([
+        keyword('running shoes', { source: 'seed' }),
+        keyword('running shoes', { source: 'seed' }),
+      ]);
+
+      const result = await processor.process(fakeJob(payload) as never);
+
+      expect(fetchHistorical).not.toHaveBeenCalled();
+      // cold 路徑（fetchHistoricalMetrics dedupeMerge）會是 1 列 → 命中不得改變正確性（AC-10.5）。
+      expect(result).toEqual({ count: 1 });
+    });
+
+    it('dedupes a cache hit that collides with a freshly-fetched canonical keyword', async () => {
+      const { processor, metricsMget, fetchHistorical } = buildHarness();
+      const payload = buildPayload({
+        seeds: ['cars', 'car'],
+        params: { geo: 'g', language: 'l', mode: 'exact', includeAdult: false },
+      });
+      // 'cars' 命中（canonical），'car' miss → 打 Ads 回同一 canonical 'cars'（涵蓋 'car'）。
+      metricsMget.mockResolvedValueOnce([keyword('cars', { source: 'seed' }), undefined]);
+      fetchHistorical.mockResolvedValueOnce([
+        keyword('cars', { source: 'seed', seedOrigins: ['car'] }),
+      ]);
+
+      const result = await processor.process(fakeJob(payload) as never);
+
+      expect(result).toEqual({ count: 1 }); // hit 'cars' + fetched 'cars' → 去重為 1
+    });
   });
 
   it('passes seeds + params through to the fetch source', async () => {
