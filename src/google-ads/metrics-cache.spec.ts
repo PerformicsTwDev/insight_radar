@@ -65,6 +65,23 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     expect(setCalls.every((c) => c.ttlMs === TTL_MS)).toBe(true); // TTL 毫秒
   });
 
+  it('writes back under each seedOrigins key so a close-variant input is cached by what was requested', async () => {
+    const { service, setCalls } = buildCache();
+    // Ads near-exact 聚合：canonical 'cars' 涵蓋輸入 'car' → 須快取於**輸入** key '…:car'，否則 'car' 永遠 miss。
+    await service.mset([keyword('cars', { seedOrigins: ['car', 'cars'] })], params);
+
+    const keys = setCalls.map((c) => c.key);
+    expect(keys).toContain('metrics:geoTargetConstants/2158:languageConstants/1018:car');
+    expect(keys).toContain('metrics:geoTargetConstants/2158:languageConstants/1018:cars');
+  });
+
+  it('a close-variant input hits on the next lookup (no perpetual miss, NFR-4)', async () => {
+    const { service } = buildCache();
+    await service.mset([keyword('cars', { seedOrigins: ['car'] })], params);
+    const got = await service.mget(['car'], params);
+    expect(got[0]?.normalizedText).toBe('cars'); // 'car' 命中、回 canonical keyword
+  });
+
   it('mget returns hits aligned to input order, miss = undefined', async () => {
     const { service } = buildCache();
     await service.mset([keyword('running shoes')], params);

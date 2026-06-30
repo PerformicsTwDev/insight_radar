@@ -333,6 +333,42 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       );
       expect(result).toEqual({ count: 2 }); // 命中 + 新取合併
     });
+
+    it('dedupes by normalizedText so a warm cache does not drift the count (duplicate-normalizing seeds)', async () => {
+      const { processor, fetchHistorical, metricsMget } = buildHarness();
+      const payload = buildPayload({
+        seeds: ['Running Shoes', 'running shoes'], // 兩者 normalize 為同一字
+        params: { geo: 'g', language: 'l', mode: 'exact', includeAdult: false },
+      });
+      // mget 對齊輸入 → 同一命中回兩次。
+      metricsMget.mockResolvedValueOnce([
+        keyword('running shoes', { source: 'seed' }),
+        keyword('running shoes', { source: 'seed' }),
+      ]);
+
+      const result = await processor.process(fakeJob(payload) as never);
+
+      expect(fetchHistorical).not.toHaveBeenCalled();
+      // cold 路徑（fetchHistoricalMetrics dedupeMerge）會是 1 列 → 命中不得改變正確性（AC-10.5）。
+      expect(result).toEqual({ count: 1 });
+    });
+
+    it('dedupes a cache hit that collides with a freshly-fetched canonical keyword', async () => {
+      const { processor, metricsMget, fetchHistorical } = buildHarness();
+      const payload = buildPayload({
+        seeds: ['cars', 'car'],
+        params: { geo: 'g', language: 'l', mode: 'exact', includeAdult: false },
+      });
+      // 'cars' 命中（canonical），'car' miss → 打 Ads 回同一 canonical 'cars'（涵蓋 'car'）。
+      metricsMget.mockResolvedValueOnce([keyword('cars', { source: 'seed' }), undefined]);
+      fetchHistorical.mockResolvedValueOnce([
+        keyword('cars', { source: 'seed', seedOrigins: ['car'] }),
+      ]);
+
+      const result = await processor.process(fakeJob(payload) as never);
+
+      expect(result).toEqual({ count: 1 }); // hit 'cars' + fetched 'cars' → 去重為 1
+    });
   });
 
   it('passes seeds + params through to the fetch source', async () => {

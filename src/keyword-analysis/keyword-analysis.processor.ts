@@ -207,12 +207,15 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     const cached = await this.metricsCache.mget(normalized, params);
     const hits = cached.filter((kw): kw is Keyword => kw !== undefined);
     const missSeeds = seeds.filter((_seed, i) => cached[i] === undefined);
-    if (missSeeds.length === 0) {
-      return hits; // 全命中 → 不打 Ads
+    const fetched =
+      missSeeds.length > 0 ? await this.ads.fetchHistoricalMetrics(missSeeds, params) : [];
+    if (fetched.length > 0) {
+      await this.metricsCache.mset(fetched, params);
     }
-    const fetched = await this.ads.fetchHistoricalMetrics(missSeeds, params);
-    await this.metricsCache.mset(fetched, params);
-    return [...hits, ...fetched];
+    // 依 normalizedText 去重（命中不得改變正確性，AC-10.5）：重複 normalize 的 seed 會回同一命中多次，
+    // 且 close-variant 的命中可能與新取的 canonical 撞同字——cold 路徑（fetchHistoricalMetrics 內 dedupeMerge）
+    // 為無碰撞，故合併後須去重，否則 snapshot 出現重複列、keywordCount 膨脹、checksum 漂移（NFR-7）。
+    return dedupeByNormalizedText([...hits, ...fetched]);
   }
 
   private async report(
@@ -242,6 +245,17 @@ function isTerminalFailure(job: Job<AnalysisJobPayload>): boolean {
   }
   const attempts = job.opts?.attempts ?? 1;
   return job.attemptsMade >= attempts;
+}
+
+/** 依 `normalizedText` 去重（保留首見；去重 key 與快取 key 共用），讓 cache-warm 結果與 cold 一致。 */
+function dedupeByNormalizedText(keywords: Keyword[]): Keyword[] {
+  const byNt = new Map<string, Keyword>();
+  for (const kw of keywords) {
+    if (!byNt.has(kw.normalizedText)) {
+      byNt.set(kw.normalizedText, kw);
+    }
+  }
+  return [...byNt.values()];
 }
 
 /** Keyword + intent → snapshot 列（攤平 5 欄 + intent；labels 排序使 checksum 確定，NFR-7）。 */

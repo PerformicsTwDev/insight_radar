@@ -40,12 +40,20 @@ export class MetricsCache {
     return this.cache.mget<Keyword>(normalizedTexts.map((nt) => this.keyFor(params, nt)));
   }
 
-  /** 回寫（writeback）：每筆以其 `normalizedText` 為 key、TTL 毫秒寫入（之後命中即省 Ads 呼叫）。 */
+  /**
+   * 回寫（writeback）：以**每個原始輸入**（`seedOrigins`）的 normalizedText 為 key 寫入該 keyword，TTL 毫秒。
+   * Ads near-exact 聚合會把 `'car'` 對回 canonical `'cars'`（輸入↔輸出非 1:1）；若只用 `kw.normalizedText`
+   * （= canonical）當 key，原輸入 `'car'` 永遠 cache-miss、每次重打 Ads（NFR-4 失效）。故用 `seedOrigins`
+   * 把指標快取在「被查詢的輸入」上；無 `seedOrigins`（無資料 seed 列，其 nt 即輸入）→ 退回 `normalizedText`。
+   */
   async mset(keywords: Keyword[], params: MetricsCacheParams): Promise<void> {
     await Promise.all(
-      keywords.map((kw) =>
-        this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
-      ),
+      keywords.flatMap((kw) => {
+        const inputs = kw.seedOrigins?.length ? kw.seedOrigins : [kw.normalizedText];
+        return inputs.map((input) =>
+          this.cache.set(this.keyFor(params, input), kw, this.config.metricsTtlMs),
+        );
+      }),
     );
   }
 }
