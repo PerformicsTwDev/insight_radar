@@ -123,18 +123,22 @@ export class MetricsCache {
     if (persistable.length === 0) {
       return;
     }
-    await this.bestEffort(
-      Promise.all([
-        ...persistable.flatMap((kw) => {
-          const inputs = kw.seedOrigins?.length ? kw.seedOrigins : [kw.normalizedText];
-          return inputs.map((input) =>
-            this.cache.set(this.keyFor(params, input), kw, this.config.metricsTtlMs),
-          );
-        }),
-        this.upsertDb(persistable, params),
-      ]),
-      'metrics cache writeback',
-    );
+    // Redis 與 DB 各自獨立 best-effort（M4-R3）：Redis-set reject 不可短路丟棄 in-flight DB upsert
+    // ——DB 後備正是 Redis 失效時的依靠，故 Redis 故障時 DB 寫入更須確實 await 到完成。
+    await Promise.all([
+      this.bestEffort(
+        Promise.all(
+          persistable.flatMap((kw) => {
+            const inputs = kw.seedOrigins?.length ? kw.seedOrigins : [kw.normalizedText];
+            return inputs.map((input) =>
+              this.cache.set(this.keyFor(params, input), kw, this.config.metricsTtlMs),
+            );
+          }),
+        ),
+        'metrics cache writeback (redis)',
+      ),
+      this.bestEffort(this.upsertDb(persistable, params), 'metrics cache writeback (db)'),
+    ]);
   }
 
   /**
@@ -147,15 +151,18 @@ export class MetricsCache {
     if (persistable.length === 0) {
       return;
     }
-    await this.bestEffort(
-      Promise.all([
-        ...persistable.map((kw) =>
-          this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
+    // 同 {@link mset}：Redis 與 DB 各自獨立 best-effort（M4-R3）。
+    await Promise.all([
+      this.bestEffort(
+        Promise.all(
+          persistable.map((kw) =>
+            this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
+          ),
         ),
-        this.upsertDb(persistable, params),
-      ]),
-      'metrics cache writeback',
-    );
+        'metrics cache writeback (redis)',
+      ),
+      this.bestEffort(this.upsertDb(persistable, params), 'metrics cache writeback (db)'),
+    ]);
   }
 
   /** upsert 進 DB canonical `keywords`（持久後備；以各字自身 nt + geo/language 為 PK）。 */
