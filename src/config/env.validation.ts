@@ -60,6 +60,8 @@ export const validationSchema = Joi.object({
   // —— Cache / Queue 運維參數（TTL 一律毫秒；Design §14）——
   CACHE_TTL_METRICS_MS: Joi.number().integer().min(0).default(1814400000),
   CACHE_TTL_INTENT_MS: Joi.number().integer().min(0).default(5184000000),
+  // intent 快取 namespace 版本（bump 整批失效；FR-10）。
+  INTENT_SCHEMA_VERSION: Joi.string().default('v1'),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

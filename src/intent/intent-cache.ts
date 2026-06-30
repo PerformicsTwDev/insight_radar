@@ -6,7 +6,6 @@ import { sha256Hex } from '../common/sha256';
 import { cacheConfig } from '../config/cache.config';
 import { normalizeText } from '../google-ads/normalize';
 import { AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
-import { INTENT_SCHEMA_VERSION } from './intent.schema';
 
 /** intent 快取項：每字（normalizedText）對應的標籤集。 */
 export interface IntentCacheEntry {
@@ -19,7 +18,8 @@ export interface IntentCacheEntry {
  * 為 key 批次查/回寫每字的 intent 標籤，讓 `IntentService` 貼標前 `mget`、只對 cache-miss 送 LLM（命中省
  * `AzureOpenAiService` 呼叫，LLM 成本隨重複率線性下降）。
  *
- * - **schemaVer**（`INTENT_SCHEMA_VERSION`）+ **deployment** 入 namespace → bump 版本/換部署整批失效、不污染舊結果。
+ * - **schemaVer**（config `intentSchemaVersion`，env `INTENT_SCHEMA_VERSION`）+ **deployment** 入 namespace →
+ *   bump 版本/換部署整批失效、不污染舊結果（T4.3）。
  * - sha256(normalizedText)：**去重 key 與快取 key 共用同一 normalizedText**；TTL 一律毫秒（`CACHE_TTL_INTENT_MS`）。
  */
 @Injectable()
@@ -34,7 +34,7 @@ export class IntentCache {
   private keyFor(text: string): string {
     return this.cache.buildKey(
       CacheNamespace.INTENT,
-      INTENT_SCHEMA_VERSION,
+      this.config.intentSchemaVersion, // bump（env INTENT_SCHEMA_VERSION）→ namespace 整批失效（T4.3）
       this.deployment,
       sha256Hex(normalizeText(text)),
     );

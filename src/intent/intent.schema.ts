@@ -19,8 +19,7 @@ export const INTENT_LABELS = [
 
 export type IntentLabel = (typeof INTENT_LABELS)[number];
 
-/** schema 版本——bump 即整批 intent 快取失效（快取 namespace 用）。 */
-export const INTENT_SCHEMA_VERSION = 'v1';
+// intent 快取 namespace 版本已移至 config（env `INTENT_SCHEMA_VERSION`，預設 v1；T4.3）——bump 整批失效。
 
 /** batch 貼標的 zod schema：`results: [{ keyword, labels[] }]`。 */
 export const intentBatchSchema = z.object({

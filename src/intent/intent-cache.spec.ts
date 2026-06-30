@@ -17,8 +17,7 @@ interface SetCall {
   ttlMs?: number;
 }
 
-function buildCache() {
-  const store = new Map<string, unknown>();
+function buildCache(intentSchemaVersion = 'v1', store = new Map<string, unknown>()) {
   const setCalls: SetCall[] = [];
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
@@ -31,7 +30,11 @@ function buildCache() {
       return Promise.resolve();
     }),
   } as unknown as CacheService;
-  const config: ConfigType<typeof cacheConfig> = { metricsTtlMs: 1, intentTtlMs: TTL_MS };
+  const config: ConfigType<typeof cacheConfig> = {
+    metricsTtlMs: 1,
+    intentTtlMs: TTL_MS,
+    intentSchemaVersion,
+  };
   return { service: new IntentCache(cache, config, DEPLOYMENT), store, setCalls };
 }
 
@@ -90,5 +93,19 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
   it('mget on an empty list returns [] without touching the cache', async () => {
     const { service } = buildCache();
     expect(await service.mget([])).toEqual([]);
+  });
+
+  it('bumping intentSchemaVersion isolates the namespace: old keys miss, old results not polluted (T4.3)', async () => {
+    const store = new Map<string, unknown>();
+    const { service: v1 } = buildCache('v1', store);
+    await v1.mset([{ keyword: 'running shoes', labels: ['informational'] }]);
+
+    // bump v1 → v2：新版本查不到舊 key（整批失效）。
+    const { service: v2 } = buildCache('v2', store);
+    expect((await v2.mget(['running shoes']))[0]).toBeUndefined();
+    expect(store.has(`intent:v2:${DEPLOYMENT}:${sha('running shoes')}`)).toBe(false);
+
+    // 舊版本仍命中（舊結果隔離、不被污染）。
+    expect((await v1.mget(['running shoes']))[0]).toEqual(['informational']);
   });
 });
