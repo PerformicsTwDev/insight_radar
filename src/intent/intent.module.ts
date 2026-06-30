@@ -36,6 +36,7 @@ import { IntentService } from './intent.service';
       provide: 'INTENT_SERVICE_CONFIG',
       useFactory: (config: Parameters<typeof createAzureOpenAiClient>[0]) => ({
         batchSize: config.llmBatchSize,
+        llmConcurrency: config.llmConcurrency,
       }),
       inject: [azureConfig.KEY],
     },

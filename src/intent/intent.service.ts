@@ -4,6 +4,7 @@ import {
   ContentFilterFinishReasonError,
   LengthFinishReasonError,
 } from 'openai/core/error';
+import pLimit from 'p-limit';
 import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
 import { type IntentBatch, intentResponseFormat } from './intent.schema';
 import { buildIntentMessages } from './intent.prompt';
@@ -13,15 +14,30 @@ import { type LabeledKeyword, postProcessIntent } from './intent-postprocess';
 const MAX_COMPLETION_TOKENS = 4000;
 /** 預設每批關鍵字數（25–40，預設 30；Design §4.2 / config LLM_BATCH_SIZE）。 */
 const DEFAULT_BATCH_SIZE = 30;
+/** 預設 LLM 並發上限（4–8，預設 6；Design §14 LLM_CONCURRENCY）。 */
+const DEFAULT_LLM_CONCURRENCY = 6;
 
 export interface IntentServiceConfig {
   batchSize: number;
+  /** LLM 並發上限（p-limit）；省略 → 預設 6（4–8）。 */
+  llmConcurrency?: number;
 }
 
 /** `labelKeywords` 含覆核清單的結果（filter/refusal fallback 的字需人工覆核）。 */
 export interface LabelResult {
   labeled: LabeledKeyword[];
   needsReview: string[];
+}
+
+/** 單批韌性貼標的原始累積（postProcess 前）。 */
+interface ChunkOutcome {
+  collected: { keyword: string; labels: string[] }[];
+  needsReview: string[];
+}
+
+/** 把單一關鍵字陣列包成單批 iterable（非串流呼叫者沿用；`for await` 同時接受 sync iterable）。 */
+function* singleBatch(keywords: string[]): Generator<string[]> {
+  yield keywords;
 }
 
 /**
@@ -36,14 +52,15 @@ export interface LabelResult {
 @Injectable()
 export class IntentService {
   private readonly batchSize: number;
+  private readonly llmConcurrency: number;
 
   constructor(
     @Inject(INTENT_LABELER) private readonly labeler: IntentLabeler,
     @Inject('INTENT_SERVICE_CONFIG') config: IntentServiceConfig,
   ) {
     // floor 後須 ≥1，否則迴圈 i += 0 會無限迴圈（分數 batchSize 如 0.5 會 floor 成 0）。
-    const floored = Math.floor(config.batchSize);
-    this.batchSize = Number.isFinite(floored) && floored >= 1 ? floored : DEFAULT_BATCH_SIZE;
+    this.batchSize = sanitizePositiveInt(config.batchSize, DEFAULT_BATCH_SIZE);
+    this.llmConcurrency = sanitizePositiveInt(config.llmConcurrency, DEFAULT_LLM_CONCURRENCY);
   }
 
   /** 低階：切批呼叫 LLM，回各批原始結果（不處理 length/filter；T2.3）。 */
@@ -62,45 +79,72 @@ export class IntentService {
 
   /** 高階：韌性貼標 + 需人工覆核清單（content_filter/refusal fallback 的字）。 */
   async labelKeywordsWithReview(keywords: string[]): Promise<LabelResult> {
-    const collected: { keyword: string; labels: string[] }[] = [];
-    const needsReview: string[] = [];
-
-    for (let i = 0; i < keywords.length; i += this.batchSize) {
-      const chunk = keywords.slice(i, i + this.batchSize);
-      await this.labelChunkResilient(chunk, collected, needsReview);
-    }
-
-    return { labeled: postProcessIntent(keywords, { results: collected }), needsReview };
+    return this.labelStream(singleBatch(keywords));
   }
 
   /**
-   * 對單批做韌性呼叫：length → 對半遞迴；content_filter/refusal → 整批 fallback + 覆核。
-   * 結果累積進 `collected`（postProcess 會對回輸入並補 fallback；length 拆到底也由 postProcess 補）。
+   * 串流式韌性貼標（T3.7，AC-12.5）：邊消費 `textBatches`（拓展段產出即進來）邊以
+   * `p-limit(llmConcurrency)` 並發送 LLM——達 batchSize 即派批，讓 **expand 與 label 階段重疊**且
+   * LLM 並發受控（與 WORKER_CONCURRENCY、Ads 限流器為三個獨立維度）。所有輸入累積後一次
+   * `postProcessIntent` 保證每輸入恰一列、≥1 label。
    */
-  private async labelChunkResilient(
-    chunk: string[],
-    collected: { keyword: string; labels: string[] }[],
-    needsReview: string[],
-  ): Promise<void> {
-    // chunk 永遠非空：外層 slice 不產空批，遞迴只在 length ≥2 時對半（兩半皆非空）。
+  async labelStream(
+    textBatches: AsyncIterable<string[]> | Iterable<string[]>,
+  ): Promise<LabelResult> {
+    const limit = pLimit(this.llmConcurrency);
+    const tasks: Promise<ChunkOutcome>[] = [];
+    // allInputs 為 append-only（postProcess 用）；cursor 標記已派批位置 → O(n) 不重配置。
+    const allInputs: string[] = [];
+    let cursor = 0;
+
+    const dispatchFullChunks = (): void => {
+      while (allInputs.length - cursor >= this.batchSize) {
+        const chunk = allInputs.slice(cursor, cursor + this.batchSize); // 立即取值（避免閉包看到位移後的 cursor）
+        cursor += this.batchSize;
+        tasks.push(limit(() => this.labelChunkResilient(chunk)));
+      }
+    };
+
+    for await (const batch of textBatches) {
+      allInputs.push(...batch);
+      dispatchFullChunks(); // 滿一批即送 → 與後續拓展重疊
+    }
+    if (allInputs.length > cursor) {
+      tasks.push(limit(() => this.labelChunkResilient(allInputs.slice(cursor))));
+    }
+
+    const outcomes = await Promise.all(tasks);
+    const collected = outcomes.flatMap((o) => o.collected);
+    const needsReview = outcomes.flatMap((o) => o.needsReview);
+    return { labeled: postProcessIntent(allInputs, { results: collected }), needsReview };
+  }
+
+  /**
+   * 對單批做韌性呼叫並**回傳**累積結果：length → 對半遞迴（序列、不超 p-limit 並發）；
+   * content_filter/refusal/malformed → 整批 fallback + 覆核（postProcess 補 informational）。
+   */
+  private async labelChunkResilient(chunk: string[]): Promise<ChunkOutcome> {
+    // chunk 永遠非空：外層只送非空批，遞迴只在 length ≥2 時對半（兩半皆非空）。
     try {
       const result = await this.callBatch(chunk);
       // refusal 或 malformed（strict 為 server-only 保證，client 端不驗；缺 results 仍可能）→
       // 整批 fallback（postProcess 補 informational）+ 覆核；不得 spread undefined 而崩（M2-R2）。
       if (result.refusal !== null || !Array.isArray(result.parsed?.results)) {
-        needsReview.push(...chunk);
-        return;
+        return { collected: [], needsReview: [...chunk] };
       }
-      collected.push(...result.parsed.results);
+      return { collected: result.parsed.results, needsReview: [] };
     } catch (error) {
       if (error instanceof LengthFinishReasonError) {
         if (chunk.length === 1) {
-          return; // 拆到底仍 length → 留空，postProcess 補 fallback。
+          return { collected: [], needsReview: [] }; // 拆到底仍 length → postProcess 補 fallback。
         }
         const mid = Math.ceil(chunk.length / 2);
-        await this.labelChunkResilient(chunk.slice(0, mid), collected, needsReview);
-        await this.labelChunkResilient(chunk.slice(mid), collected, needsReview);
-        return;
+        const left = await this.labelChunkResilient(chunk.slice(0, mid));
+        const right = await this.labelChunkResilient(chunk.slice(mid));
+        return {
+          collected: [...left.collected, ...right.collected],
+          needsReview: [...left.needsReview, ...right.needsReview],
+        };
       }
       if (
         error instanceof ContentFilterFinishReasonError ||
@@ -108,8 +152,7 @@ export class IntentService {
       ) {
         // completion-side（200 finish_reason）或 prompt-side（HTTP 400 code=content_filter）內容過濾
         // → 整批 fallback + 覆核（M2-R1：prompt-side 400 原會落到下方 throw 使整 job 崩）。
-        needsReview.push(...chunk);
-        return;
+        return { collected: [], needsReview: [...chunk] };
       }
       throw error; // 其餘錯誤（429/5xx 已由 SDK maxRetries 處理；非預期/非 content_filter 400 則上拋）。
     }
@@ -128,4 +171,10 @@ export class IntentService {
       maxCompletionTokens: MAX_COMPLETION_TOKENS,
     });
   }
+}
+
+/** floor 後須為有限正整數，否則回退預設（防 0 致無限迴圈 / 並發 0）。 */
+function sanitizePositiveInt(value: number | undefined, fallback: number): number {
+  const floored = Math.floor(value ?? fallback);
+  return Number.isFinite(floored) && floored >= 1 ? floored : fallback;
 }
