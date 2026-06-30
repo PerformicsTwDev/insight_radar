@@ -2,6 +2,7 @@ import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { Keyword } from '../google-ads/keyword.types';
 import { IntentService } from '../intent/intent.service';
 import { KeywordAnalysisProcessor } from './keyword-analysis.processor';
+import { ResultSnapshotService } from './result-snapshot.service';
 import type { AnalysisJobPayload } from './keyword-analysis.service';
 
 function keyword(text: string, overrides: Partial<Keyword> = {}): Keyword {
@@ -55,11 +56,16 @@ function* gen(batches: Keyword[][]): Generator<Keyword[]> {
   }
 }
 
+interface SavedRow {
+  normalizedText: string;
+  intent: string[];
+}
 interface Harness {
   processor: KeywordAnalysisProcessor;
   expandStream: jest.Mock;
   fetchHistorical: jest.Mock;
   labelStream: jest.Mock;
+  saveResult: jest.Mock;
   labeledTexts: string[];
 }
 
@@ -79,15 +85,20 @@ function buildHarness(): Harness {
       needsReview: [],
     };
   });
+  // Matches ResultSnapshotService.saveResult: count = rows.length, returns the snapshot id.
+  const saveResult = jest.fn((_analysisId: string, rows: SavedRow[]) =>
+    Promise.resolve({ resultSnapshotId: 'snap-1', count: rows.length, checksum: 'sum' }),
+  );
 
   const ads = {
     expandStream,
     fetchHistoricalMetrics: fetchHistorical,
   } as unknown as GoogleAdsService;
   const intent = { labelStream } as unknown as IntentService;
-  const processor = new KeywordAnalysisProcessor(ads, intent);
+  const snapshots = { saveResult } as unknown as ResultSnapshotService;
+  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots);
 
-  return { processor, expandStream, fetchHistorical, labelStream, labeledTexts };
+  return { processor, expandStream, fetchHistorical, labelStream, saveResult, labeledTexts };
 }
 
 describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
@@ -144,7 +155,10 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       fetchHistoricalMetrics: jest.fn(),
     } as unknown as GoogleAdsService;
     const intent = { labelStream } as unknown as IntentService;
-    const processor = new KeywordAnalysisProcessor(ads, intent);
+    const snapshots = {
+      saveResult: jest.fn().mockResolvedValue({ resultSnapshotId: 's', count: 2, checksum: 'x' }),
+    } as unknown as ResultSnapshotService;
+    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots);
 
     await processor.process(fakeJob(buildPayload()) as never);
 
@@ -196,6 +210,20 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     await processor.process(fakeJob(buildPayload()) as never);
 
     expect(labeledTexts).toEqual(['running shoes', 'trail shoes']);
+  });
+
+  it('persists a snapshot with keywords merged with their intent labels (T3.10)', async () => {
+    const { processor, saveResult } = buildHarness();
+
+    await processor.process(fakeJob(buildPayload()) as never);
+
+    expect(saveResult).toHaveBeenCalledTimes(1);
+    const [analysisId, rows] = saveResult.mock.calls[0] as [string, SavedRow[]];
+    expect(analysisId).toBe('a-1');
+    expect(rows).toEqual([
+      expect.objectContaining({ normalizedText: 'running shoes', intent: ['informational'] }),
+      expect.objectContaining({ normalizedText: 'trail shoes', intent: ['informational'] }),
+    ]);
   });
 
   it('logs (does not throw) on the failed worker event', () => {

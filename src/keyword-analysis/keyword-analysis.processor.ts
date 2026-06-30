@@ -6,6 +6,8 @@ import type { ExpandParams } from '../google-ads/google-ads.service';
 import type { Keyword } from '../google-ads/keyword.types';
 import { IntentService } from '../intent/intent.service';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
+import type { SnapshotRowData } from './result-snapshot.checksum';
+import { ResultSnapshotService } from './result-snapshot.service';
 import type {
   AnalysisJobPayload,
   AnalysisParams,
@@ -37,12 +39,13 @@ export class KeywordAnalysisProcessor extends WorkerHost {
   constructor(
     private readonly ads: GoogleAdsService,
     private readonly intent: IntentService,
+    private readonly snapshots: ResultSnapshotService,
   ) {
     super();
   }
 
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {
-    const { seeds, params } = job.data;
+    const { analysisId, seeds, params } = job.data;
     const keywords: Keyword[] = [];
 
     // 依 mode 取得關鍵字串流（expand 串流逐批；exact 指定字已知 → 單批）。unknown mode 同步拋
@@ -60,12 +63,18 @@ export class KeywordAnalysisProcessor extends WorkerHost {
       }
     }
 
-    await this.intent.labelStream(texts());
+    const labels = await this.intent.labelStream(texts());
+    await report('metrics'); // 指標兩模式皆隨取數回應夾帶（無額外 Ads 呼叫）
 
-    // 指標兩模式皆隨取數回應夾帶（無額外 Ads 呼叫）；貼標完成 → 100%。
-    await report('metrics');
-    await report('intent');
-    return { count: keywords.length };
+    // 固化不可變 snapshot（T3.10）：合併 intent（by normalizedText）→ rows → 落 DB + 回填 FK/status。
+    const intentByKeyword = new Map(labels.labeled.map((l) => [l.keyword, l.labels]));
+    const rows = keywords.map((kw) =>
+      toSnapshotRow(kw, intentByKeyword.get(kw.normalizedText) ?? []),
+    );
+    const { count } = await this.snapshots.saveResult(analysisId, rows);
+
+    await report('intent'); // 貼標 + 固化完成 → 100%
+    return { count };
   }
 
   @OnWorkerEvent('failed')
@@ -101,6 +110,20 @@ export class KeywordAnalysisProcessor extends WorkerHost {
 /** 把「一次取回」的 fetch 包成單批 async iterable（指定模式無拓展可重疊，仍走同一 labelStream pipeline）。 */
 async function* onceStream(fetch: () => Promise<Keyword[]>): AsyncGenerator<Keyword[]> {
   yield await fetch();
+}
+
+/** Keyword + intent → snapshot 列（攤平 5 欄 + intent；labels 排序使 checksum 確定，NFR-7）。 */
+function toSnapshotRow(kw: Keyword, intent: string[]): SnapshotRowData {
+  return {
+    text: kw.text,
+    normalizedText: kw.normalizedText,
+    avgMonthlySearches: kw.avgMonthlySearches,
+    competition: kw.competition,
+    competitionIndex: kw.competitionIndex,
+    cpcLow: kw.cpcLow,
+    cpcHigh: kw.cpcHigh,
+    intent: [...intent].sort(),
+  };
 }
 
 /** AnalysisParams → GoogleAds ExpandParams（currencyCode 由 geo/語言情境決定，此處沿用預設 TWD 由下游覆寫）。 */

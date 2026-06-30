@@ -8,6 +8,7 @@ import { QueueModule } from '../queue/queue.module';
 import { KeywordAnalysisController } from './keyword-analysis.controller';
 import { KeywordAnalysisProcessor } from './keyword-analysis.processor';
 import { KeywordAnalysisService } from './keyword-analysis.service';
+import { ResultSnapshotService } from './result-snapshot.service';
 
 /**
  * KeywordAnalysis 模組（T3.2/T3.3/T3.5，FR-1/12/13）。匯入 {@link QueueModule}（`keyword-analysis`
@@ -25,7 +26,7 @@ import { KeywordAnalysisService } from './keyword-analysis.service';
     IntentModule,
   ],
   controllers: [KeywordAnalysisController],
-  providers: [KeywordAnalysisService, KeywordAnalysisProcessor],
+  providers: [KeywordAnalysisService, KeywordAnalysisProcessor, ResultSnapshotService],
   exports: [KeywordAnalysisService],
 })
 export class KeywordAnalysisModule {}
