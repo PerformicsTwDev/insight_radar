@@ -73,6 +73,20 @@ class FakePrisma {
       if (row) Object.assign(row, args.data);
       return Promise.resolve(row ?? null);
     }),
+    // 條件更新（M3-R3）：honour `where.status.notIn`——命中（id 對且 status 不在 notIn）才套 data、回 count。
+    updateMany: jest.fn(
+      (args: { where: { id: string; status?: { notIn?: string[] } }; data: Partial<Row> }) => {
+        const notIn = args.where.status?.notIn ?? [];
+        const row = this.rows.find(
+          (r) => r.id === args.where.id && !notIn.includes(r.status as string),
+        );
+        if (row) {
+          Object.assign(row, args.data);
+          return Promise.resolve({ count: 1 });
+        }
+        return Promise.resolve({ count: 0 });
+      },
+    ),
   };
 }
 
@@ -417,5 +431,22 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
 
     expect(out).toEqual({ status: 'canceled' });
     expect(prisma.rows[0].status).toBe('canceled');
+  });
+
+  it('does not overwrite a job that completed mid-cancel (conditional updateMany, M3-R3)', async () => {
+    const { service, prisma, queueRemove } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'completed' }); // 實際已 completed
+    // race 視窗：pre-check 那一次 findUnique 讀到 running（過終態守門），但 updateMany 命中 0（實際 completed）。
+    prisma.keywordAnalysis.findUnique.mockResolvedValueOnce({
+      id: 'id-1',
+      idempotencyKey: 'idem-id-1',
+      status: 'running',
+    });
+
+    const out = await service.cancel('id-1');
+
+    expect(out).toEqual({ status: 'completed' }); // 條件 updateMany 不覆寫終態
+    expect(prisma.rows[0].status).toBe('completed');
+    expect(queueRemove).not.toHaveBeenCalled();
   });
 });
