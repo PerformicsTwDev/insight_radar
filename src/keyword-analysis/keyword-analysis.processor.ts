@@ -9,6 +9,7 @@ import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { normalizeText } from '../google-ads/normalize';
 import { IntentService } from '../intent/intent.service';
 import type { LabelResult } from '../intent/intent.service';
+import { scrubSecrets } from '../logger/redaction';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
 import type { SnapshotRowData } from './result-snapshot.checksum';
 import { ResultSnapshotService } from './result-snapshot.service';
@@ -81,16 +82,25 @@ export class KeywordAnalysisProcessor extends WorkerHost {
 
   @OnWorkerEvent('failed')
   async onFailed(job: Job<AnalysisJobPayload>, error: Error): Promise<void> {
-    this.logger.error(`Analysis ${job?.id ?? 'unknown'} failed: ${error.message}`);
-    // 推進 DB 狀態機（M3-R1/M-1）：標 failed+error+finishedAt（條件式，不覆寫 canceled/completed）。
-    // FR-8 輪詢以 DB 為真實來源——未寫則失敗 job 在 DB 永遠停 queued、永不見終態。
+    // 祕密不入 log / DB error 欄（NFR-5、§5.1）：上游錯誤訊息可能夾帶連線字串密碼/bearer token。
+    const safeMessage = scrubSecrets(error.message);
+    this.logger.error(`Analysis ${job?.id ?? 'unknown'} failed: ${safeMessage}`);
     const analysisId = job?.data?.analysisId;
     if (typeof analysisId !== 'string') {
       return;
     }
+    // BullMQ 對「每次」失敗都發 failed（含將被重試的中間嘗試）；只有最終態（重試耗盡/不可重試）
+    // 才寫 DB failed。否則中途瞬時錯誤把列推進終態 → markStatus/saveResult 皆守 notIn 終態 →
+    // 擋掉後續成功重試的 running/completed 寫入，完成的 job 在 DB 永遠停 failed（M3-R1 review）。
+    // moveToFailed 僅在非重試分支設 finishedOn（且於 emit 前），故 finishedOn 已設 ⟺ 最終態失敗。
+    if (!isTerminalFailure(job)) {
+      return;
+    }
+    // 推進 DB 狀態機（M3-R1/M-1）：標 failed+error+finishedAt（條件式，不覆寫 canceled/completed）。
+    // FR-8 輪詢以 DB 為真實來源——未寫則失敗 job 在 DB 永遠停 queued、永不見終態。
     await this.markStatus(analysisId, {
       status: 'failed',
-      error: error.message,
+      error: safeMessage,
       finishedAt: new Date(),
     }).catch((persistError: unknown) => {
       this.logger.error(
@@ -164,12 +174,25 @@ export class KeywordAnalysisProcessor extends WorkerHost {
     const progress: AnalysisProgress = { phase, percent: PHASE_PERCENT[phase], total };
     await job.updateProgress(progress); // BullMQ/Redis（SSE / QueueEvents 即時串流）
     // 鏡像到 DB progress 欄（M3-R1/M-2）：getStatus/輪詢（FR-8）以 DB 為真實來源——未鏡像則 progress
-    // 永遠停在 {queued,0}（連 completed job 也是）。updateMany 不因 0 列拋錯。
-    await this.prisma.keywordAnalysis.updateMany({
-      where: { id: job.data.analysisId },
-      data: { progress: progress as unknown as Prisma.InputJsonValue },
+    // 永遠停在 {queued,0}（連 completed job 也是）。經 markStatus 走**條件式**寫入（notIn 終態）：
+    // 已 cancel 但仍在跑的 job 不被推回 intent/100（M3-R1 review）。updateMany 不因 0 列拋錯。
+    await this.markStatus(job.data.analysisId, {
+      progress: progress as unknown as Prisma.InputJsonValue,
     });
   }
+}
+
+/**
+ * 此次 failed 事件是否為**最終態失敗**（重試耗盡或不可重試），而非將被重試的中間嘗試。
+ * BullMQ `moveToFailed` 僅在非重試分支設 `finishedOn`（且於 emit('failed') 前），故 `finishedOn`
+ * 已設即最終態；以 `attemptsMade >= attempts` 為文件化備援（涵蓋 attempts 未設等邊界）。
+ */
+function isTerminalFailure(job: Job<AnalysisJobPayload>): boolean {
+  if (job.finishedOn != null) {
+    return true;
+  }
+  const attempts = job.opts?.attempts ?? 1;
+  return job.attemptsMade >= attempts;
 }
 
 /** Keyword + intent → snapshot 列（攤平 5 欄 + intent；labels 排序使 checksum 確定，NFR-7）。 */

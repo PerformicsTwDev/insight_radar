@@ -30,10 +30,29 @@ interface FakeJob {
   id: string;
   data: AnalysisJobPayload;
   updateProgress: jest.Mock;
+  /** BullMQ 在「最終態失敗」才設 finishedOn（重試中間態為 undefined）。 */
+  finishedOn?: number;
+  attemptsMade?: number;
+  opts?: { attempts?: number };
 }
 
 function fakeJob(payload: AnalysisJobPayload): FakeJob {
   return { id: payload.analysisId, data: payload, updateProgress: jest.fn() };
+}
+
+/** 最終態失敗 job（重試耗盡）：finishedOn 已設 + attemptsMade==attempts → onFailed 應寫 DB failed。 */
+function terminalFailedJob(payload: AnalysisJobPayload = buildPayload()): FakeJob {
+  return {
+    ...fakeJob(payload),
+    finishedOn: 1_700_000_000_000,
+    attemptsMade: 5,
+    opts: { attempts: 5 },
+  };
+}
+
+/** 重試中間態失敗 job（還會再試）：finishedOn 未設 + attemptsMade<attempts → onFailed 應跳過、不寫終態。 */
+function retryableFailedJob(payload: AnalysisJobPayload = buildPayload()): FakeJob {
+  return { ...fakeJob(payload), finishedOn: undefined, attemptsMade: 1, opts: { attempts: 5 } };
 }
 
 function buildPayload(overrides: Partial<AnalysisJobPayload> = {}): AnalysisJobPayload {
@@ -257,9 +276,10 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
 
   it('logs and persists without throwing on the failed worker event', async () => {
     const { processor } = buildHarness();
-    const job = fakeJob(buildPayload());
 
-    await expect(processor.onFailed(job as never, new Error('boom'))).resolves.toBeUndefined();
+    await expect(
+      processor.onFailed(terminalFailedJob() as never, new Error('boom')),
+    ).resolves.toBeUndefined();
   });
 
   describe('advances the DB state machine (M3-R1)', () => {
@@ -286,24 +306,55 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       const { processor, prismaUpdateMany } = buildHarness();
       await processor.process(fakeJob(buildPayload()) as never);
 
-      const progress = argsOf(prismaUpdateMany)
-        .map((a) => a.data.progress)
-        .filter((p): p is { phase: string; percent: number } => p !== undefined);
-      expect(progress.length).toBeGreaterThan(0);
-      expect(progress.at(-1)).toMatchObject({ phase: 'intent', percent: 100 });
+      const progressWrites = argsOf(prismaUpdateMany).filter((a) => a.data.progress !== undefined);
+      expect(progressWrites.length).toBeGreaterThan(0);
+      expect(progressWrites.at(-1)?.data.progress).toMatchObject({ phase: 'intent', percent: 100 });
+      // 進度鏡像亦須條件式（notIn 終態）——否則已 cancel 但仍在跑的 job 會被推回 intent/100（M3-R1 review）。
+      for (const write of progressWrites) {
+        expect(write.where.status?.notIn).toEqual(
+          expect.arrayContaining(['completed', 'failed', 'canceled']),
+        );
+      }
     });
 
-    it('persists status=failed + error on the failed worker event (FR-8 poll)', async () => {
+    it('persists status=failed + error on the FINAL failed attempt (FR-8 poll)', async () => {
       const { processor, prismaUpdateMany } = buildHarness();
       prismaUpdateMany.mockClear();
 
-      await processor.onFailed(fakeJob(buildPayload()) as never, new Error('boom'));
+      await processor.onFailed(terminalFailedJob() as never, new Error('boom'));
 
       const failed = argsOf(prismaUpdateMany).find((a) => a.data.status === 'failed');
       expect(failed?.data.error).toBe('boom');
       expect(failed?.where.status?.notIn).toEqual(
         expect.arrayContaining(['completed', 'failed', 'canceled']),
       );
+    });
+
+    it('does NOT persist failed on a retryable intermediate attempt (BullMQ fires per-attempt)', async () => {
+      // BullMQ 對「每次」失敗都發 failed（含將被重試者）。若中途瞬時錯誤就寫終態 failed，會擋掉
+      // 後續成功重試的 running/completed 寫入（markStatus/saveResult 皆守 notIn 終態）→ 完成的 job
+      // 在 DB 永遠停在 failed。只有 finishedOn 已設（最終態）才可寫。
+      const { processor, prismaUpdateMany } = buildHarness();
+      prismaUpdateMany.mockClear();
+
+      await processor.onFailed(retryableFailedJob() as never, new Error('transient'));
+
+      expect(argsOf(prismaUpdateMany).find((a) => a.data.status === 'failed')).toBeUndefined();
+    });
+
+    it('scrubs secrets from the persisted error message (NFR-5, §5.1 error 欄)', async () => {
+      // 上游錯誤訊息可能夾帶連線字串密碼／bearer token——§5.1 標明此欄「祕密不入」。
+      const { processor, prismaUpdateMany } = buildHarness();
+      prismaUpdateMany.mockClear();
+
+      await processor.onFailed(
+        terminalFailedJob() as never,
+        new Error('connect failed: postgres://user:s3cr3t@db:5432/app'),
+      );
+
+      const failed = argsOf(prismaUpdateMany).find((a) => a.data.status === 'failed');
+      expect(failed?.data.error).not.toContain('s3cr3t');
+      expect(failed?.data.error).toContain('[Redacted]');
     });
 
     it('skips the failed-status write when the job has no analysisId', async () => {
@@ -319,7 +370,7 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
 
       // onFailed 自身不得拋——再拋會讓 worker 的 failed 事件處理崩潰（吞錯只記 log）。
       await expect(
-        processor.onFailed(fakeJob(buildPayload()) as never, new Error('boom')),
+        processor.onFailed(terminalFailedJob() as never, new Error('boom')),
       ).resolves.toBeUndefined();
     });
   });
