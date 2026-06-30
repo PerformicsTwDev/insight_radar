@@ -1,3 +1,4 @@
+import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
 import { AppModule } from 'src/app.module';
@@ -5,7 +6,19 @@ import { configureApp } from 'src/bootstrap';
 import { CacheService } from 'src/cache/cache.service';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import { BULL_CONNECTION } from 'src/queue/queue.constants';
+import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
+
+/**
+ * 最小**真實** WorkerHost：保留 `@Processor` metadata，讓 @nestjs/bullmq explorer **真的建立 Worker**
+ * （非空替身 `{}`——其 constructor 為 Object、無 metadata 會被 explorer 過濾、不建 Worker），
+ * 以驗證 `app.close()` 確實關閉 Worker（NFR-9：未關則 app.close 會 hang → 測試 timeout）。
+ */
+@Processor(KEYWORD_ANALYSIS_QUEUE)
+class ShutdownTestProcessor extends WorkerHost {
+  process(): Promise<{ count: number }> {
+    return Promise.resolve({ count: 0 });
+  }
+}
 
 /**
  * TC-26（NFR-9 graceful shutdown）：`app.close()` 須收回所有外部連線（Queue / QueueEvents /
@@ -27,8 +40,9 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
       .useValue(jobEventsConnection)
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: queueEventsClose })
+      // 真實（最小）processor → explorer 建真 Worker，使 app.close() 的 Worker 關閉路徑被覆蓋。
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
+      .useClass(ShutdownTestProcessor)
       .compile();
 
     const app = moduleRef.createNestApplication();
