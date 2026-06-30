@@ -1,5 +1,5 @@
 import { getQueueToken } from '@nestjs/bullmq';
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
@@ -431,6 +431,23 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
 
     expect(out).toEqual({ status: 'canceled' });
     expect(prisma.rows[0].status).toBe('canceled');
+  });
+
+  it('scrubs secrets from the queue.remove warn log (NFR-5, M3-R6/#9)', async () => {
+    const { service, prisma, queueRemove } = await buildHarness();
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    // ioredis 連線錯誤可夾帶 REDIS_URL（含密碼）——警告日誌須遮罩。
+    queueRemove.mockRejectedValueOnce(
+      new Error('connect ECONNREFUSED redis://user:s3cr3t@redis:6379'),
+    );
+    seedRow(prisma, { id: 'id-1', status: 'running' });
+
+    await service.cancel('id-1');
+
+    const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).not.toContain('s3cr3t');
+    expect(logged).toContain('[Redacted]');
+    warnSpy.mockRestore();
   });
 
   it('does not overwrite a job that completed mid-cancel (conditional updateMany, M3-R3)', async () => {

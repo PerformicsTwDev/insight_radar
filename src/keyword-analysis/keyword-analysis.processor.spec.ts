@@ -371,6 +371,31 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       expect(failed?.data.error).toContain('[Redacted]');
     });
 
+    it('does not fail the job when the DB state mirror errors (best-effort, M3-R6/#2)', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      // 所有 markStatus（running/progress）DB 寫入暫時性錯誤——不應讓已成功取數/貼標的 job 失敗重跑。
+      prismaUpdateMany.mockRejectedValue(new Error('db blip'));
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).resolves.toEqual({
+        count: 2,
+      });
+    });
+
+    it('scrubs secrets from the best-effort mirror error log (NFR-5, M3-R6/#9)', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      prismaUpdateMany.mockRejectedValue(
+        new Error('connect failed: postgres://user:s3cr3t@db:5432/app'),
+      );
+
+      await processor.process(fakeJob(buildPayload()) as never);
+
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(logged).not.toContain('s3cr3t');
+      expect(logged).toContain('[Redacted]');
+      warnSpy.mockRestore();
+    });
+
     it('skips the failed-status write when the job has no analysisId', async () => {
       const { processor, prismaUpdateMany } = buildHarness();
       prismaUpdateMany.mockClear();

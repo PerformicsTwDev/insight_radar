@@ -22,6 +22,13 @@ const TERMINAL_STATUSES = new Set<JobStatus>(['completed', 'failed', 'canceled']
 const COMPLETED_PROGRESS = { phase: 'intent', percent: 100 } as const;
 
 /**
+ * 互動式固化交易上限（M3-R6/#1）。findUnique+create+createMany(N 列)+updateMany 於單一交易；大量關鍵字
+ * （expand 可達數千列）+ WORKER_CONCURRENCY>1 連線池競爭下，Prisma 預設 `timeout 5s / maxWait 2s` 太緊 →
+ * P2028（非 TerminalRaceError）→ 已完成結果被回滾並讓 job 重跑。放寬為有界較大值（仍封頂，避免長佔連線）。
+ */
+const SAVE_RESULT_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
+/**
  * 結果快照固化（T3.10，FR-6/NFR-7）：把分析結果列寫成**不可變** `ResultSnapshot`（content-addressed
  * checksum + keywordCount **落 DB**，非僅 Redis）+ `SnapshotRow`，並回填 `KeywordAnalysis.resultSnapshotId`
  * （FK）與 `status='completed'`。三寫於單一交易內原子完成（NFR-7：snapshot 落地後不漂移）。
@@ -71,14 +78,15 @@ export class ResultSnapshotService {
             resultSnapshotId: snapshotId,
             status: 'completed',
             finishedAt: new Date(),
-            progress: COMPLETED_PROGRESS,
+            // total=keywordCount（M3-R6/#4）：與 in-flight frame 同形，completed 不丟分母。
+            progress: { ...COMPLETED_PROGRESS, total: keywordCount },
           },
         });
         if (count === 0) {
           throw new TerminalRaceError(); // 中途終態 → 回滾整筆固化
         }
         return { resultSnapshotId: snapshotId, count: keywordCount, checksum };
-      })
+      }, SAVE_RESULT_TX_OPTIONS)
       .catch((error: unknown) => {
         if (error instanceof TerminalRaceError) {
           return null; // 回滾後於 tx 外回讀現狀

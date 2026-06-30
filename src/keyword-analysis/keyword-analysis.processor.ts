@@ -119,27 +119,34 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       return;
     }
     // 推進 DB 狀態機（M3-R1/M-1）：標 failed+error+finishedAt（條件式，不覆寫 canceled/completed）。
-    // FR-8 輪詢以 DB 為真實來源——未寫則失敗 job 在 DB 永遠停 queued、永不見終態。
+    // FR-8 輪詢以 DB 為真實來源——未寫則失敗 job 在 DB 永遠停 queued、永不見終態。markStatus 為 best-effort。
     await this.markStatus(analysisId, {
       status: 'failed',
       error: safeMessage,
       finishedAt: new Date(),
-    }).catch((persistError: unknown) => {
-      this.logger.error(
-        `failed to persist 'failed' status for ${analysisId}: ${String(persistError)}`,
-      );
     });
   }
 
-  /** 條件式推進 DB 狀態（只在仍非終態時寫，§6.8 終態不可逆；M3-R1）。 */
+  /**
+   * 條件式推進 DB 狀態（只在仍非終態時寫，§6.8 終態不可逆；M3-R1）。
+   * **best-effort（M3-R6/#2）**：DB 狀態/進度鏡像為 FR-8 輪詢便利，暫時性錯誤**不應**讓 worker 流程失敗
+   * 重跑（已成功取數/貼標的 job 不該因一次 progress 寫入失敗而丟棄）。終態正確性由 saveResult/cancel 的
+   * 守門寫入保證，非此處。錯誤遮罩後記 warn（NFR-5/#9：Prisma 錯誤可夾帶連線字串密碼）。
+   */
   private async markStatus(
     analysisId: string,
     data: Prisma.KeywordAnalysisUpdateManyMutationInput,
   ): Promise<void> {
-    await this.prisma.keywordAnalysis.updateMany({
-      where: { id: analysisId, status: { notIn: [...TERMINAL_STATUSES] } },
-      data,
-    });
+    await this.prisma.keywordAnalysis
+      .updateMany({
+        where: { id: analysisId, status: { notIn: [...TERMINAL_STATUSES] } },
+        data,
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `markStatus(${analysisId}) failed (best-effort): ${scrubSecrets(String(error))}`,
+        );
+      });
   }
 
   /**

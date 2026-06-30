@@ -7,6 +7,7 @@ import type { JobStatus } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
+import { scrubSecrets } from '../logger/redaction';
 import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma/prisma.service';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
@@ -200,8 +201,9 @@ export class KeywordAnalysisService {
     // jobId === analysisId。best-effort：active job 鎖住無法 remove（預期）→ 記 warn
     // （DB status='canceled' 為權威信號；saveResult 對終態不固化，防 resurrection）。
     await this.queue.remove(analysisId).catch((error: unknown) => {
+      // 祕密不入 log（NFR-5/#9）：ioredis 連線錯誤可夾帶 REDIS_URL（含密碼）。
       this.logger.warn(
-        `queue.remove(${analysisId}) failed (job may be active/locked): ${String(error)}`,
+        `queue.remove(${analysisId}) failed (job may be active/locked): ${scrubSecrets(String(error))}`,
       );
     });
     return { status: 'canceled' };
