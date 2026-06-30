@@ -6,6 +6,7 @@ import type { AdsLimiterRedis } from './ads-rate-limiter';
 
 const RedisMock = RedisMockUntyped as unknown as new () => AdsLimiterRedis & {
   flushall(): Promise<unknown>;
+  pttl(key: string): Promise<number>;
 };
 
 type AdsCfg = ConfigType<typeof googleAdsConfig>;
@@ -96,6 +97,22 @@ describe('AdsRateLimiter (T3.6 / TC-16)', () => {
       await limiter.schedule('cid-1', fn);
       expect(state.sleeps).toEqual([500]); // qps=2 → 500ms spacing
     });
+
+    it('keeps the per-CID key alive past its reserved slot (TTL ≥ reservation horizon)', async () => {
+      // 反 1 QPS 突發回歸：單一 CID 桶（本案唯一 CID）堆疊多筆預約時，key 的 TTL 不可早於它存的
+      // 未來時槽到期——否則 burst 尾段暫停 > TTL 時 key 過期，新呼叫讀到 last=0 立即取槽，間隔 < minTime。
+      const { limiter, state, redis } = makeLimiter(); // qps=1 → minTime 1000
+      limiter.sleep = (ms: number) => {
+        state.sleeps.push(ms); // 不推進時鐘 → 在同一 now 深堆疊預約
+        return Promise.resolve();
+      };
+      for (let i = 0; i < 5; i += 1) {
+        await limiter.schedule('cid-1', () => Promise.resolve());
+      }
+      const maxWait = Math.max(...state.sleeps); // 第 5 筆 → 4000ms
+      const ttl = await redis.pttl('ads:ratelimit:cid-1');
+      expect(ttl).toBeGreaterThanOrEqual(maxWait);
+    });
   });
 
   describe('exponential backoff on transient Ads errors', () => {
@@ -141,6 +158,20 @@ describe('AdsRateLimiter (T3.6 / TC-16)', () => {
       const backoff = state.sleeps.filter((ms) => ms >= 1000)[0];
       expect(backoff).toBeGreaterThan(5000); // base 5000 + jitter
       expect(backoff).toBeLessThanOrEqual(6000); // ≤ base * 1.2 上限
+    });
+
+    it('caps the backoff at the 20s ceiling (5s→10s→20s→20s→20s, Design §11)', async () => {
+      const { limiter, state } = makeLimiter({ qps: 1000, adsMaxRetries: 5 });
+      const err = adsFailure('quota_error', 'RESOURCE_EXHAUSTED');
+      let calls = 0;
+      const fn = () => {
+        calls += 1;
+        return Promise.reject(err);
+      };
+      await expect(limiter.schedule('cid-1', fn)).rejects.toBe(err);
+      expect(calls).toBe(6); // attempt 0..5
+      // 不可指數無上限（5s,10s,20s,40s,80s）→ 違反 Design §11 圖示與 NFR-1 延遲預算。
+      expect(state.sleeps.filter((ms) => ms >= 1000)).toEqual([5000, 10000, 20000, 20000, 20000]);
     });
 
     it('stops after adsMaxRetries and rethrows the last transient error', async () => {
