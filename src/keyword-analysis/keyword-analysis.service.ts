@@ -164,7 +164,35 @@ export class KeywordAnalysisService {
 
     return { status: row.status, progress, result };
   }
+
+  /**
+   * 取消分析（T3.12，FR-8、§6.8 狀態機）：不存在 → 404；已終態（completed/failed/canceled）→ 回現狀
+   * 不覆寫；否則標 `status='canceled'` 並釋放佇列任務（best-effort：active job 鎖住無法 remove，DB
+   * status 為權威信號）。
+   */
+  async cancel(analysisId: string): Promise<{ status: AnalysisStatus }> {
+    const row = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { status: true },
+    });
+    if (!row) {
+      throw new NotFoundException(`Analysis ${analysisId} not found`);
+    }
+    if (TERMINAL_STATUSES.has(row.status)) {
+      return { status: row.status };
+    }
+
+    await this.prisma.keywordAnalysis.update({
+      where: { id: analysisId },
+      data: { status: 'canceled', finishedAt: new Date() },
+    });
+    await this.queue.remove(analysisId).catch(() => undefined); // jobId === analysisId
+    return { status: 'canceled' };
+  }
 }
+
+/** 終態（§6.8）：到此不再推進；取消僅作用於非終態 job。 */
+const TERMINAL_STATUSES = new Set<AnalysisStatus>(['completed', 'failed', 'canceled']);
 
 /** Prisma 唯一鍵衝突（P2002）判定。 */
 function isUniqueViolation(error: unknown): boolean {

@@ -58,4 +58,15 @@ describe('KeywordAnalysisController (T3.3)', () => {
       network: 'GOOGLE_SEARCH_AND_PARTNERS',
     });
   });
+
+  it('delegates cancel to the service (DELETE :id, T3.12)', async () => {
+    const cancel = jest.fn().mockResolvedValue({ status: 'canceled' });
+    const ctrl = new KeywordAnalysisController(
+      { cancel } as unknown as KeywordAnalysisService,
+      { forJob: jest.fn() } as unknown as import('../queue/job-events.service').JobEventsService,
+    );
+
+    expect(await ctrl.cancel('a-1')).toEqual({ status: 'canceled' });
+    expect(cancel).toHaveBeenCalledWith('a-1');
+  });
 });
