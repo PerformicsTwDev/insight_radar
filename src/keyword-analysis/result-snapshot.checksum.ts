@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../common/sha256';
 
 /**
  * Snapshot 列資料（result table 5 欄 + 攤平指標 + intent；存 `snapshot_rows.data` Json）。
@@ -43,5 +43,5 @@ export function computeChecksum(rows: SnapshotRowData[]): string {
     a.normalizedText < b.normalizedText ? -1 : a.normalizedText > b.normalizedText ? 1 : 0,
   );
   const canonical = JSON.stringify(ordered.map(canonicalize));
-  return createHash('sha256').update(canonical).digest('hex');
+  return sha256Hex(canonical);
 }

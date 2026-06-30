@@ -1,10 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BadRequestError,
   ContentFilterFinishReasonError,
   LengthFinishReasonError,
 } from 'openai/core/error';
 import pLimit from 'p-limit';
+import { IntentCache } from './intent-cache';
 import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
 import { type IntentBatch, intentResponseFormat } from './intent.schema';
 import { buildIntentMessages } from './intent.prompt';
@@ -63,6 +64,8 @@ export class IntentService {
   constructor(
     @Inject(INTENT_LABELER) private readonly labeler: IntentLabeler,
     @Inject('INTENT_SERVICE_CONFIG') config: IntentServiceConfig,
+    // intent 快取（T4.2）為 @Optional：未提供（多數單元測試）→ 退回「無快取」（一律送 LLM，行為不變）。
+    @Optional() private readonly intentCache?: IntentCache,
   ) {
     // floor 後須 ≥1，否則迴圈 i += 0 會無限迴圈（分數 batchSize 如 0.5 會 floor 成 0）。
     this.batchSize = sanitizePositiveInt(config.batchSize, DEFAULT_BATCH_SIZE);
@@ -90,10 +93,10 @@ export class IntentService {
   }
 
   /**
-   * 串流式韌性貼標（T3.7，AC-12.5）：邊消費 `textBatches`（拓展段產出即進來）邊以
-   * `p-limit(llmConcurrency)` 並發送 LLM——達 batchSize 即派批，讓 **expand 與 label 階段重疊**且
-   * LLM 並發受控（與 WORKER_CONCURRENCY、Ads 限流器為三個獨立維度）。所有輸入累積後一次
-   * `postProcessIntent` 保證每輸入恰一列、≥1 label。
+   * 串流式韌性貼標（T3.7，AC-12.5；T4.2 cache-first，TC-13）：邊消費 `textBatches`（拓展段產出即進來），
+   * **貼標前先 `mget` intent 快取——命中省 LLM 呼叫**，只把 cache-miss 以 `p-limit(llmConcurrency)` 並發送
+   * LLM（達 batchSize 即派批，讓 expand 與 label 階段重疊），LLM 結果回寫快取。所有輸入累積後一次
+   * `postProcessIntent` 保證每輸入恰一列、≥1 label。無 `intentCache`（未提供）→ 一律送 LLM（行為不變）。
    */
   async labelStream(
     textBatches: AsyncIterable<string[]> | Iterable<string[]>,
@@ -102,30 +105,50 @@ export class IntentService {
     // 全域 RPM cap（非 per-job 公平）；先派批者先跑，可接受（Ads ~1 QPS 涓流派批本就交錯）。
     const limit = this.limit;
     const tasks: Promise<ChunkOutcome>[] = [];
-    // allInputs 為 append-only（postProcess 用）；cursor 標記已派批位置 → O(n) 不重配置。
+    // allInputs 為 append-only（postProcess 用）；命中直接收進 cachedCollected，miss 才進 LLM 派批佇列。
     const allInputs: string[] = [];
-    let cursor = 0;
+    const cachedCollected: { keyword: string; labels: string[] }[] = [];
+    const misses: string[] = [];
+    let cursor = 0; // misses 已派批位置
 
     const dispatchFullChunks = (): void => {
-      while (allInputs.length - cursor >= this.batchSize) {
-        const chunk = allInputs.slice(cursor, cursor + this.batchSize); // 立即取值（避免閉包看到位移後的 cursor）
+      while (misses.length - cursor >= this.batchSize) {
+        const chunk = misses.slice(cursor, cursor + this.batchSize); // 立即取值（避免閉包看到位移後的 cursor）
         cursor += this.batchSize;
-        tasks.push(limit(() => this.labelChunkResilient(chunk)));
+        tasks.push(limit(() => this.labelChunkAndCache(chunk)));
       }
     };
 
     for await (const batch of textBatches) {
       allInputs.push(...batch);
-      dispatchFullChunks(); // 滿一批即送 → 與後續拓展重疊
+      const cached = this.intentCache ? await this.intentCache.mget(batch) : undefined;
+      batch.forEach((keyword, i) => {
+        const labels = cached?.[i];
+        if (labels && labels.length > 0) {
+          cachedCollected.push({ keyword, labels }); // 命中（非空）→ 不送 LLM
+        } else {
+          misses.push(keyword); // miss 或退化空標籤 → 送 LLM
+        }
+      });
+      dispatchFullChunks(); // miss 滿一批即送 → 與後續拓展重疊
     }
-    if (allInputs.length > cursor) {
-      tasks.push(limit(() => this.labelChunkResilient(allInputs.slice(cursor))));
+    if (misses.length > cursor) {
+      tasks.push(limit(() => this.labelChunkAndCache(misses.slice(cursor))));
     }
 
     const outcomes = await Promise.all(tasks);
-    const collected = outcomes.flatMap((o) => o.collected);
+    const collected = [...cachedCollected, ...outcomes.flatMap((o) => o.collected)];
     const needsReview = outcomes.flatMap((o) => o.needsReview);
     return { labeled: postProcessIntent(allInputs, { results: collected }), needsReview };
+  }
+
+  /** 貼標單批（cache-miss）並回寫成功貼標者（needsReview fallback 為不確定、不快取）。 */
+  private async labelChunkAndCache(chunk: string[]): Promise<ChunkOutcome> {
+    const outcome = await this.labelChunkResilient(chunk);
+    if (this.intentCache && outcome.collected.length > 0) {
+      await this.intentCache.mset(outcome.collected);
+    }
+    return outcome;
   }
 
   /**

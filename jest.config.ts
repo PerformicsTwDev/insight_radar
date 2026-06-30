@@ -34,7 +34,11 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   './src/**/mapping/**': coreThreshold, // micros/competition/MonthOfYear（TC-3/4/5）
   './src/**/normalize*.ts': coreThreshold, // normalizedText/dedupe（TC-1/6）
   './src/keywords/**': coreThreshold, // FilterSpec/buildPredicate/views/chart 引擎/buildTrend（TC-9/36/37）
-  './src/**/intent/**': coreThreshold, // intent 後處理（TC-7）
+  // core = intent **邏輯**（後處理 TC-7 + 韌性/length 拆批 T2.5 + cache-first 編排 T4.2）。純基礎設施
+  // adapter（IntentCache / AzureOpenAi client）走 global 85%——與 google-ads 的 MetricsCache adapter 一致；
+  // 不把 @Injectable + class-typed 參數 emitDecoratorMetadata 產生的不可測 undefined-guard 分支當 core 門檻。
+  './src/**/intent-postprocess*.ts': coreThreshold, // intent 後處理（TC-7）
+  './src/**/intent.service.ts': coreThreshold, // 韌性/length 拆批（T2.5）+ cache-first 編排（T4.2）
   './src/embeddings/**': coreThreshold, // buildEmbeddingInput/L2 normalize（TC-39/40）
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
