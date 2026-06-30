@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { JobStatus } from '@prisma/client';
@@ -68,6 +68,8 @@ const DEFAULT_PROGRESS: AnalysisProgress = { phase: 'queued', percent: 0 };
  */
 @Injectable()
 export class KeywordAnalysisService {
+  private readonly logger = new Logger(KeywordAnalysisService.name);
+
   constructor(
     @InjectQueue(KEYWORD_ANALYSIS_QUEUE) private readonly queue: Queue,
     private readonly cache: CacheService,
@@ -186,7 +188,13 @@ export class KeywordAnalysisService {
       where: { id: analysisId },
       data: { status: 'canceled', finishedAt: new Date() },
     });
-    await this.queue.remove(analysisId).catch(() => undefined); // jobId === analysisId
+    // jobId === analysisId。best-effort：active job 鎖住無法 remove（預期），記 debug；其餘記 warn
+    // （DB status='canceled' 為權威信號；processor saveResult 對終態不覆寫，防 cancel-race resurrection）。
+    await this.queue.remove(analysisId).catch((error: unknown) => {
+      this.logger.warn(
+        `queue.remove(${analysisId}) failed (job may be active/locked): ${String(error)}`,
+      );
+    });
     return { status: 'canceled' };
   }
 }

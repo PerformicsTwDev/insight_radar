@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { JobStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma';
 import { computeChecksum, type SnapshotRowData } from './result-snapshot.checksum';
 
 export interface SaveResultOutcome {
-  resultSnapshotId: string;
+  /** 既有/新建 snapshot id；已 canceled/failed 終態（不固化）→ `null`。 */
+  resultSnapshotId: string | null;
   count: number;
   checksum: string;
 }
+
+/** 終態（§6.8）：到此 `saveResult` 不再固化/覆寫（completed 回既有；canceled/failed 不轉 completed）。 */
+const TERMINAL_STATUSES = new Set<JobStatus>(['completed', 'failed', 'canceled']);
 
 /**
  * 結果快照固化（T3.10，FR-6/NFR-7）：把分析結果列寫成**不可變** `ResultSnapshot`（content-addressed
@@ -22,8 +26,9 @@ export class ResultSnapshotService {
   constructor(private readonly prisma: PrismaService) {}
 
   async saveResult(analysisId: string, rows: SnapshotRowData[]): Promise<SaveResultOutcome> {
-    // 冪等（M2）：BullMQ job 重試時若分析已 completed 且有 snapshot，回既有的、不重建——
-    // 否則每次重試另建一份 snapshot+rows、FK 漂移、舊 rows 變孤兒（snapshot 內容不可變，回既有即正確）。
+    // 已終態（§6.8）不固化/不覆寫——終態不可逆：
+    // - completed + 既有 snapshot → 回既有（BullMQ job 重試冪等，M2；否則孤兒 rows + FK 漂移）；
+    // - canceled / failed → **不**轉 completed（cancel-vs-processor race：取消後 active job 仍跑完）。
     const existing = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
       select: {
@@ -31,9 +36,11 @@ export class ResultSnapshotService {
         resultSnapshot: { select: { id: true, keywordCount: true, checksum: true } },
       },
     });
-    if (existing?.status === 'completed' && existing.resultSnapshot) {
+    if (existing && TERMINAL_STATUSES.has(existing.status)) {
       const snap = existing.resultSnapshot;
-      return { resultSnapshotId: snap.id, count: snap.keywordCount, checksum: snap.checksum };
+      return snap
+        ? { resultSnapshotId: snap.id, count: snap.keywordCount, checksum: snap.checksum }
+        : { resultSnapshotId: null, count: 0, checksum: '' };
     }
 
     const checksum = computeChecksum(rows);
