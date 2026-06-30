@@ -75,7 +75,8 @@ describe('ResultSnapshotService (integration · Testcontainers Postgres, T3.10 /
     expect(updated?.finishedAt).not.toBeNull();
     // M3-R5：progress 與 completed 同筆原子寫入 → completed job 的 DB progress 達 intent/100（非凍結於
     // seed 的 running/50）。FR-8 輪詢以 DB 為真實來源，不可回「completed 但 <100%」。
-    expect(updated?.progress).toEqual({ phase: 'intent', percent: 100 });
+    // M3-R6/#4：total=keywordCount（與 in-flight frame 同形，completed 不丟分母）。
+    expect(updated?.progress).toEqual({ phase: 'intent', percent: 100, total: 2 });
   });
 
   it('is immutable/reproducible: rows read back from DB recompute the same checksum (NFR-7)', async () => {
