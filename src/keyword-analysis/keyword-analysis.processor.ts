@@ -26,6 +26,9 @@ const PHASE_PERCENT = { fetch: 40, metrics: 60, intent: 100 } as const;
  * concurrency（NFR-8）、LLM p-limit（T3.7）為三個獨立維度。
  *
  * 範圍邊界：ResultSnapshot 固化（`resultSnapshotId`）為 T3.10——本 task 仍只回 `{count}` + 貼標。
+ * ⚠ T3.10 注意：`expandStream` 採 first-occurrence 去重，`keywords[]` 為**較低保真**（跨批 seedOrigins
+ * union / 指標 merge 未套用）；固化 snapshot 時須改用 `GoogleAdsService.expand`（dedupeMerge 權威），
+ * 不可直接重用此處 `expandStream` 來源的 `keywords[]`。
  */
 @Processor(KEYWORD_ANALYSIS_QUEUE)
 export class KeywordAnalysisProcessor extends WorkerHost {

@@ -93,24 +93,24 @@ export class IntentService {
   ): Promise<LabelResult> {
     const limit = pLimit(this.llmConcurrency);
     const tasks: Promise<ChunkOutcome>[] = [];
+    // allInputs 為 append-only（postProcess 用）；cursor 標記已派批位置 → O(n) 不重配置。
     const allInputs: string[] = [];
-    let buffer: string[] = [];
+    let cursor = 0;
 
     const dispatchFullChunks = (): void => {
-      while (buffer.length >= this.batchSize) {
-        const chunk = buffer.slice(0, this.batchSize);
-        buffer = buffer.slice(this.batchSize);
+      while (allInputs.length - cursor >= this.batchSize) {
+        const chunk = allInputs.slice(cursor, cursor + this.batchSize); // 立即取值（避免閉包看到位移後的 cursor）
+        cursor += this.batchSize;
         tasks.push(limit(() => this.labelChunkResilient(chunk)));
       }
     };
 
     for await (const batch of textBatches) {
       allInputs.push(...batch);
-      buffer.push(...batch);
       dispatchFullChunks(); // 滿一批即送 → 與後續拓展重疊
     }
-    if (buffer.length > 0) {
-      tasks.push(limit(() => this.labelChunkResilient(buffer)));
+    if (allInputs.length > cursor) {
+      tasks.push(limit(() => this.labelChunkResilient(allInputs.slice(cursor))));
     }
 
     const outcomes = await Promise.all(tasks);
