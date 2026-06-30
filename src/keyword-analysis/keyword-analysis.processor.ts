@@ -186,7 +186,11 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
         }
       }
       const labels = await this.intent.labelStream(texts());
-      return { keywords: this.ads.mergeExpansion(candidates, params), labels };
+      // 權威合併（dedupeMerge）→ **回寫 metrics 快取**（T4.4）：expand 須打 Ads 取數，但結果回寫後，未來
+      // 同字的 exact 查詢/重跑即命中、省 Ads（兩階段皆 cache-first 的「回寫」半邊）。
+      const keywords = this.ads.mergeExpansion(candidates, params);
+      await this.metricsCache.mset(keywords, params);
+      return { keywords, labels };
     }
     if (mode === 'exact') {
       const keywords = await this.fetchExactCached(seeds, params);

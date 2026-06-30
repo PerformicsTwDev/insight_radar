@@ -267,6 +267,20 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     expect(fetchHistorical).not.toHaveBeenCalled();
   });
 
+  it('writes expand-mode metrics back to the cache (populates for future hits, T4.4)', async () => {
+    const { processor, metricsMset } = buildHarness();
+    // 預設 payload 為 expand 模式；mergeExpansion 回 [running shoes, trail shoes] → 回寫快取。
+    await processor.process(fakeJob(buildPayload()) as never);
+
+    expect(metricsMset).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ normalizedText: 'running shoes' }),
+        expect.objectContaining({ normalizedText: 'trail shoes' }),
+      ],
+      expect.objectContaining({ geo: 'geoTargetConstants/2158' }),
+    );
+  });
+
   it('routes mode=exact to GoogleAdsService.fetchHistoricalMetrics only (TC-35)', async () => {
     const { processor, expandStreamRaw, fetchHistorical } = buildHarness();
 
