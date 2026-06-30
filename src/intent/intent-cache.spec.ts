@@ -217,4 +217,24 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
 
     expect(await service.mget(['unseen'])).toEqual([undefined]); // 皆 miss → caller 落 LLM，不 throw
   });
+
+  // ── M4-R3：寫入時 Redis 與 DB 各自獨立 best-effort（Redis reject 不可短路丟棄 in-flight DB upsert）──
+  it('awaits the DB upsert even when a Redis set rejects (durable backstop not abandoned, M4-R3)', async () => {
+    const { service, set, upsert } = buildCache();
+    set.mockRejectedValueOnce(new Error('redis down')); // Redis 先 reject
+    let upsertSettled = false;
+    upsert.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setImmediate(() => {
+            upsertSettled = true;
+            resolve({});
+          });
+        }),
+    );
+
+    await service.mset([{ keyword: 'running shoes', labels: ['informational'] }]);
+    // 修正前：單一 Promise.all 因 Redis reject 短路 → mset 在 upsert 完成前就 resolve（upsertSettled=false）。
+    expect(upsertSettled).toBe(true);
+  });
 });

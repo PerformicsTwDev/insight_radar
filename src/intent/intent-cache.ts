@@ -123,23 +123,31 @@ export class IntentCache {
     const valid = entries
       .filter((e) => e.labels.length > 0)
       .map((e) => ({ nt: normalizeText(e.keyword), labels: e.labels }));
-    await this.bestEffort(
-      Promise.all([
-        ...valid.map((e) => this.cache.set(this.keyFor(e.nt), e.labels, this.config.intentTtlMs)),
-        ...valid.map((e) =>
-          this.prisma.keywordIntent.upsert({
-            where: {
-              normalizedText_modelVersion: {
-                normalizedText: e.nt,
-                modelVersion: this.modelVersion,
-              },
-            },
-            create: { normalizedText: e.nt, modelVersion: this.modelVersion, labels: e.labels },
-            update: { labels: e.labels, labeledAt: new Date() },
-          }),
+    // Redis 與 DB 各自獨立 best-effort（M4-R3）：Redis-set reject 不可短路丟棄 in-flight DB upsert。
+    await Promise.all([
+      this.bestEffort(
+        Promise.all(
+          valid.map((e) => this.cache.set(this.keyFor(e.nt), e.labels, this.config.intentTtlMs)),
         ),
-      ]),
-      'intent cache writeback',
-    );
+        'intent cache writeback (redis)',
+      ),
+      this.bestEffort(
+        Promise.all(
+          valid.map((e) =>
+            this.prisma.keywordIntent.upsert({
+              where: {
+                normalizedText_modelVersion: {
+                  normalizedText: e.nt,
+                  modelVersion: this.modelVersion,
+                },
+              },
+              create: { normalizedText: e.nt, modelVersion: this.modelVersion, labels: e.labels },
+              update: { labels: e.labels, labeledAt: new Date() },
+            }),
+          ),
+        ),
+        'intent cache writeback (db)',
+      ),
+    ]);
   }
 }
