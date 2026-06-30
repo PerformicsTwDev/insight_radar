@@ -96,15 +96,21 @@ export class MetricsCache {
    * （無資料 seed 列）→ Redis 退回 `normalizedText`。
    */
   async mset(keywords: Keyword[], params: MetricsCacheParams): Promise<void> {
+    // 只回寫**有指標**者（比照 intent 不快取空標籤）：無指標列（expand 未取數的 user seed = noMetrics()）
+    // 既無快取價值，又會（a）覆蓋既有有指標 canonical row、（b）成為壓制未來真實抓取的 false null 命中（M4-R1）。
+    const persistable = keywords.filter(hasMetrics);
+    if (persistable.length === 0) {
+      return;
+    }
     await this.bestEffort(
       Promise.all([
-        ...keywords.flatMap((kw) => {
+        ...persistable.flatMap((kw) => {
           const inputs = kw.seedOrigins?.length ? kw.seedOrigins : [kw.normalizedText];
           return inputs.map((input) =>
             this.cache.set(this.keyFor(params, input), kw, this.config.metricsTtlMs),
           );
         }),
-        this.upsertDb(keywords, params),
+        this.upsertDb(persistable, params),
       ]),
       'metrics cache writeback',
     );
@@ -115,12 +121,17 @@ export class MetricsCache {
    * ⚠ 拓展字的 `seedOrigins` = **來源 seed**（非指標等價輸入），不可用 {@link mset}（會污染 seed 自身指標）。
    */
   async msetByText(keywords: Keyword[], params: MetricsCacheParams): Promise<void> {
+    // 同 {@link mset}：跳過無指標列，避免 expand 攤平的 noMetrics() seed 污染 canonical（M4-R1）。
+    const persistable = keywords.filter(hasMetrics);
+    if (persistable.length === 0) {
+      return;
+    }
     await this.bestEffort(
       Promise.all([
-        ...keywords.map((kw) =>
+        ...persistable.map((kw) =>
           this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
         ),
-        this.upsertDb(keywords, params),
+        this.upsertDb(persistable, params),
       ]),
       'metrics cache writeback',
     );
@@ -145,6 +156,21 @@ export class MetricsCache {
       }),
     );
   }
+}
+
+/**
+ * 此 keyword 是否帶任何指標訊號（M4-R1）。`noMetrics()`（全 null + 空 volumes + competition UNSPECIFIED）→ `false`。
+ * 任一指標欄非空即視為有指標——回寫只持久有指標者，無指標列不入快取/canonical（防污染 + 防 false null 命中）。
+ */
+function hasMetrics(kw: Keyword): boolean {
+  return (
+    kw.avgMonthlySearches !== null ||
+    kw.competitionIndex !== null ||
+    kw.cpcLowMicros !== null ||
+    kw.cpcHighMicros !== null ||
+    kw.competition !== 'UNSPECIFIED' ||
+    kw.monthlyVolumes.length > 0
+  );
 }
 
 /** DB `keywords` 列 → 領域 `Keyword`（micros→金額經共用 mapper，缺值≠0；source 不存於 canonical，預設 seed）。 */

@@ -269,4 +269,50 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     const got = await service.mget(['running shoes'], params);
     expect(got[0]?.normalizedText).toBe('running shoes'); // 讀取成功不因暖機失敗而失敗
   });
+
+  // ── M4-R1：無指標 keyword 不回寫（防 canonical 污染 / false null 命中，比照 intent 不快取空標籤）──
+  const noMetricsOverrides = {
+    avgMonthlySearches: null,
+    competition: 'UNSPECIFIED' as const,
+    competitionIndex: null,
+    cpcLow: null,
+    cpcHigh: null,
+    cpcLowMicros: null,
+    cpcHighMicros: null,
+    currencyCode: undefined,
+    monthlyVolumes: [],
+  };
+
+  it('msetByText skips a no-metrics keyword so it cannot clobber canonical or become a false null hit (M4-R1)', async () => {
+    const { service, setCalls, upsert } = buildCache();
+    // expand 把 Ads 未回指標的 user seed 攤平為 noMetrics()（全 null）——回寫須跳過。
+    await service.msetByText([keyword('niche phrase', noMetricsOverrides)], params);
+
+    expect(upsert).not.toHaveBeenCalled(); // 不 upsert DB canonical（不覆蓋既有有指標 row）
+    expect(setCalls).toHaveLength(0); // 不寫 Redis（不建立壓制真實抓取的 null 命中）
+  });
+
+  it('mset skips a no-metrics keyword (exact-mode writeback, M4-R1)', async () => {
+    const { service, setCalls, upsert } = buildCache();
+    await service.mset([keyword('niche phrase', noMetricsOverrides)], params);
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(setCalls).toHaveLength(0);
+  });
+
+  it('persists only metrics-bearing keywords in a mixed writeback batch (M4-R1)', async () => {
+    const { service, setCalls, upsert } = buildCache();
+    await service.msetByText(
+      [keyword('running shoes'), keyword('niche phrase', noMetricsOverrides)],
+      params,
+    );
+
+    // 只快取/upsert 有指標者；無指標的 'niche phrase' 全略過。
+    expect(setCalls.map((c) => c.key)).toEqual([
+      'metrics:geoTargetConstants/2158:languageConstants/1018:running shoes',
+    ]);
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const arg = (upsert.mock.calls[0] as unknown[])[0] as { create: { normalizedText: string } };
+    expect(arg.create.normalizedText).toBe('running shoes');
+  });
 });
