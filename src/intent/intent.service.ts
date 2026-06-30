@@ -98,7 +98,9 @@ export class IntentService {
   async labelStream(
     textBatches: AsyncIterable<string[]> | Iterable<string[]>,
   ): Promise<LabelResult> {
-    const limit = this.limit; // 共用全域 limiter（M3-R2）：多 job 並發共享上限，不隨 worker concurrency 倍增。
+    // 共用全域 limiter（M3-R2）：多 job 並發共享上限，不隨 worker concurrency 倍增。單一 FIFO 佇列＝
+    // 全域 RPM cap（非 per-job 公平）；先派批者先跑，可接受（Ads ~1 QPS 涓流派批本就交錯）。
+    const limit = this.limit;
     const tasks: Promise<ChunkOutcome>[] = [];
     // allInputs 為 append-only（postProcess 用）；cursor 標記已派批位置 → O(n) 不重配置。
     const allInputs: string[] = [];

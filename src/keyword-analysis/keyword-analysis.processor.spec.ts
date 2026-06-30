@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
@@ -406,12 +407,21 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       expect(worker.run).toHaveBeenCalledTimes(1);
     });
 
-    it('does not throw if the worker run() rejects (logs, never crashes bootstrap)', async () => {
+    it('logs a scrubbed error and does not crash bootstrap if worker run() rejects', async () => {
       const { processor } = buildHarness();
       const worker = withFakeWorker(processor);
-      worker.run.mockRejectedValueOnce(new Error('redis down'));
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      // 錯誤訊息夾帶連線字串密碼 → log 須遮罩（NFR-5；catch 存在的理由）。
+      worker.run.mockRejectedValueOnce(new Error('boot failed: redis://user:s3cr3t@host:6379'));
 
       await expect(processor.onApplicationBootstrap()).resolves.toBeUndefined();
+      await new Promise((resolve) => setImmediate(resolve)); // 等 run().catch 的 microtask 跑完
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = String(errorSpy.mock.calls[0]?.[0]);
+      expect(logged).not.toContain('s3cr3t');
+      expect(logged).toContain('[Redacted]');
+      errorSpy.mockRestore();
     });
   });
 
