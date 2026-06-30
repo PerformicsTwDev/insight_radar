@@ -35,7 +35,12 @@ export interface LatencyEstimate {
   tTotalMs: number;
 }
 
-/** 依 Design §13 公式估算單 job 的延遲預算（A/B 階段重疊）。 */
+/**
+ * 依 Design §13 公式估算單 job 的延遲預算（A/B 階段重疊）。
+ *
+ * **定義域**：`nSeeds/batchSize/nKeywords/kKwPerPrompt/cLlm/tPromptMs/tailMs` 為正、`qpsAds > 0`、
+ * `0 ≤ cacheHitRate ≤ 1`。純規劃函式（無 runtime/HTTP 輸入）故不做守衛；T7.2 從 ConfigService 餵值時再加驗證。
+ */
 export function estimateLatency(p: LatencyParams): LatencyEstimate {
   const nAdsRequests = Math.ceil(p.nSeeds / p.batchSize);
   const tExpandMs = (nAdsRequests / p.qpsAds) * 1000; // 被 1 QPS 綁死、序列化

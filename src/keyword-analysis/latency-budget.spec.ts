@@ -44,12 +44,18 @@ describe('estimateLatency — pipeline latency budget (T4.5 / TC-27 / NFR-1)', (
     expect(e.tTotalMs).toBe(Math.max(e.tExpandMs, e.tLabelMs) + 2000);
   });
 
-  it('A/B overlap: expand-bound when Ads dominates (many seeds, fully cached labels)', () => {
-    // 大量 seeds + 全命中（無貼標）→ T_expand 主導 → T_total = T_expand + tail。
-    const e = estimateLatency({ ...CANONICAL, nSeeds: 600, cacheHitRate: 1 });
-    expect(e.tLabelMs).toBe(0); // 全命中 → 不貼標
+  it('A/B overlap: expand-bound when Ads dominates, with both phases positive', () => {
+    // 大量 seeds + 少量待貼標字（非全命中）→ T_expand > T_label > 0 → max() 須取較大的 T_expand。
+    const e = estimateLatency({ ...CANONICAL, nSeeds: 600, nKeywords: 60, cacheHitRate: 0 });
     expect(e.tExpandMs).toBeGreaterThan(e.tLabelMs);
+    expect(e.tLabelMs).toBeGreaterThan(0); // 兩相皆正 → 證 max 取大者（非 0 取巧）
     expect(e.tTotalMs).toBe(e.tExpandMs + 2000);
+  });
+
+  it('fully-cached labels contribute zero label cost (T_label = 0)', () => {
+    const e = estimateLatency({ ...CANONICAL, cacheHitRate: 1 });
+    expect(e.nLlmKeywords).toBe(0);
+    expect(e.tLabelMs).toBe(0);
   });
 
   it('the canonical single-job workload stays under the 30s p95 budget (NFR-1)', () => {
