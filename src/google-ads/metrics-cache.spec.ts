@@ -37,16 +37,17 @@ interface SetCall {
 function buildCache() {
   const store = new Map<string, unknown>();
   const setCalls: SetCall[] = [];
+  const set = jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
+    store.set(key, value);
+    setCalls.push({ key, value, ttlMs });
+    return Promise.resolve();
+  });
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
     mget: jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
       Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
     ),
-    set: jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
-      store.set(key, value);
-      setCalls.push({ key, value, ttlMs });
-      return Promise.resolve();
-    }),
+    set,
   } as unknown as CacheService;
   const config: ConfigType<typeof cacheConfig> = {
     metricsTtlMs: TTL_MS,
@@ -75,6 +76,7 @@ function buildCache() {
     dbRows,
     findMany,
     upsert,
+    set,
   };
 }
 
@@ -225,5 +227,46 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     expect(got[1]).toBeUndefined(); // Redis + DB 皆 miss
     // warm Redis：回填後同字 Redis 命中。
     expect(store.has(`metrics:${params.geo}:${params.language}:running shoes`)).toBe(true);
+  });
+
+  it('stamps a fresh metricsFetchedAt on both create and update so canonical freshness is bumped (T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    await service.mset([keyword('running shoes')], params);
+
+    const arg = (upsert.mock.calls[0] as unknown[])[0] as {
+      create: { metricsFetchedAt: Date };
+      update: { metricsFetchedAt: Date };
+    };
+    // upsert 的 update 分支若沿用 create 的 @default(now()) 不會重新蓋時間 → 必須顯式寫入新鮮時間戳。
+    expect(arg.create.metricsFetchedAt).toBeInstanceOf(Date);
+    expect(arg.update.metricsFetchedAt).toBeInstanceOf(Date);
+  });
+
+  it('mset does not reject when the DB upsert fails (best-effort writeback; the paid job still completes, T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    upsert.mockRejectedValueOnce(new Error('db down'));
+    // 回寫純屬快取暖機：DB upsert 失敗不可拖垮已付費（Ads/LLM）的 job——降級為下次重抓。
+    await expect(service.mset([keyword('running shoes')], params)).resolves.toBeUndefined();
+  });
+
+  it('mget returns the DB hit even when warming Redis fails (best-effort; a successful read never fails, T4.6)', async () => {
+    const { service, dbRows, set } = buildCache();
+    dbRows.push({
+      geo: params.geo,
+      language: params.language,
+      normalizedText: 'running shoes',
+      text: 'running shoes',
+      avgMonthlySearches: 100,
+      competition: 'LOW',
+      competitionIndex: 10,
+      cpcLowMicros: 1_230_000n,
+      cpcHighMicros: null,
+      monthlyVolumes: [],
+      currencyCode: 'TWD',
+    });
+    set.mockRejectedValueOnce(new Error('redis down')); // warm Redis 失敗
+
+    const got = await service.mget(['running shoes'], params);
+    expect(got[0]?.normalizedText).toBe('running shoes'); // 讀取成功不因暖機失敗而失敗
   });
 });

@@ -31,16 +31,17 @@ function buildCache(
   dbRows: DbRow[] = [],
 ) {
   const setCalls: SetCall[] = [];
+  const set = jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
+    store.set(key, value);
+    setCalls.push({ key, value, ttlMs });
+    return Promise.resolve();
+  });
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
     mget: jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
       Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
     ),
-    set: jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
-      store.set(key, value);
-      setCalls.push({ key, value, ttlMs });
-      return Promise.resolve();
-    }),
+    set,
   } as unknown as CacheService;
   const config: ConfigType<typeof cacheConfig> = {
     metricsTtlMs: 1,
@@ -66,6 +67,7 @@ function buildCache(
     setCalls,
     findMany,
     upsert,
+    set,
   };
 }
 
@@ -174,5 +176,24 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
 
     // 舊版本仍命中（舊結果隔離、不被污染）。
     expect((await v1.mget(['running shoes']))[0]).toEqual(['informational']);
+  });
+
+  it('mset does not reject when the DB upsert fails (best-effort writeback; the paid LLM job still completes, T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    upsert.mockRejectedValueOnce(new Error('db down'));
+    // 回寫純屬快取暖機：DB upsert 失敗不可拖垮已付費（LLM）的 job——降級為下次重打。
+    await expect(
+      service.mset([{ keyword: 'running shoes', labels: ['informational'] }]),
+    ).resolves.toBeUndefined();
+  });
+
+  it('mget returns the DB hit even when warming Redis fails (best-effort; a successful read never fails, T4.6)', async () => {
+    const store = new Map<string, unknown>();
+    const { service, set } = buildCache('v1', store, [
+      { normalizedText: 'running shoes', modelVersion: MODEL_VERSION, labels: ['commercial'] },
+    ]);
+    set.mockRejectedValueOnce(new Error('redis down')); // warm Redis 失敗
+
+    expect((await service.mget(['running shoes']))[0]).toEqual(['commercial']);
   });
 });

@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma, type Keyword as KeywordRow } from '@prisma/client';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { cacheConfig } from '../config/cache.config';
+import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
 import type { Keyword } from './keyword.types';
 import type { CompetitionLevel } from './mapping/map-competition';
@@ -28,6 +29,8 @@ export interface MetricsCacheParams {
  */
 @Injectable()
 export class MetricsCache {
+  private readonly logger = new Logger(MetricsCache.name);
+
   constructor(
     private readonly cache: CacheService,
     @Inject(cacheConfig.KEY) private readonly config: ConfigType<typeof cacheConfig>,
@@ -36,6 +39,18 @@ export class MetricsCache {
 
   private keyFor(params: MetricsCacheParams, normalizedText: string): string {
     return this.cache.buildKey(CacheNamespace.METRICS, params.geo, params.language, normalizedText);
+  }
+
+  /**
+   * 回寫純屬**快取暖機**（writeback）：Redis/DB 寫入失敗只降級為「下次重抓」，**不可**拖垮已付費（Ads/LLM）
+   * 的 job——吞錯記 warn（祕密經 {@link scrubSecrets} 清洗），與 markStatus 的 best-effort 一致（M3-R6）。
+   */
+  private async bestEffort(work: Promise<unknown>, context: string): Promise<void> {
+    try {
+      await work;
+    } catch (error) {
+      this.logger.warn(`${context} failed (best-effort): ${scrubSecrets(String(error))}`);
+    }
   }
 
   /** 批次查 metrics（依 `normalizedTexts` 對齊；Redis miss 落 DB 後備、命中即 warm Redis；皆 miss = `undefined`）。 */
@@ -63,10 +78,14 @@ export class MetricsCache {
       },
     });
     const dbByNt = new Map(rows.map((r) => [r.normalizedText, rowToKeyword(r)]));
-    await Promise.all(
-      [...dbByNt.values()].map((kw) =>
-        this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
+    // warm Redis：best-effort——暖機失敗不可拖垮這次成功的讀取（T4.6）。
+    await this.bestEffort(
+      Promise.all(
+        [...dbByNt.values()].map((kw) =>
+          this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
+        ),
       ),
+      'metrics cache warm',
     );
     return normalizedTexts.map((nt, i) => redis[i] ?? dbByNt.get(nt));
   }
@@ -77,15 +96,18 @@ export class MetricsCache {
    * （無資料 seed 列）→ Redis 退回 `normalizedText`。
    */
   async mset(keywords: Keyword[], params: MetricsCacheParams): Promise<void> {
-    await Promise.all([
-      ...keywords.flatMap((kw) => {
-        const inputs = kw.seedOrigins?.length ? kw.seedOrigins : [kw.normalizedText];
-        return inputs.map((input) =>
-          this.cache.set(this.keyFor(params, input), kw, this.config.metricsTtlMs),
-        );
-      }),
-      this.upsertDb(keywords, params),
-    ]);
+    await this.bestEffort(
+      Promise.all([
+        ...keywords.flatMap((kw) => {
+          const inputs = kw.seedOrigins?.length ? kw.seedOrigins : [kw.normalizedText];
+          return inputs.map((input) =>
+            this.cache.set(this.keyFor(params, input), kw, this.config.metricsTtlMs),
+          );
+        }),
+        this.upsertDb(keywords, params),
+      ]),
+      'metrics cache writeback',
+    );
   }
 
   /**
@@ -93,12 +115,15 @@ export class MetricsCache {
    * ⚠ 拓展字的 `seedOrigins` = **來源 seed**（非指標等價輸入），不可用 {@link mset}（會污染 seed 自身指標）。
    */
   async msetByText(keywords: Keyword[], params: MetricsCacheParams): Promise<void> {
-    await Promise.all([
-      ...keywords.map((kw) =>
-        this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
-      ),
-      this.upsertDb(keywords, params),
-    ]);
+    await this.bestEffort(
+      Promise.all([
+        ...keywords.map((kw) =>
+          this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
+        ),
+        this.upsertDb(keywords, params),
+      ]),
+      'metrics cache writeback',
+    );
   }
 
   /** upsert 進 DB canonical `keywords`（持久後備；以各字自身 nt + geo/language 為 PK）。 */
@@ -144,7 +169,10 @@ function rowToKeyword(row: KeywordRow): Keyword {
   };
 }
 
-/** 領域 `Keyword` → DB `keywords` 寫入資料（micros→BigInt 經共用 mapper）。 */
+/**
+ * 領域 `Keyword` → DB `keywords` 寫入資料（micros→BigInt 經共用 mapper）。`metricsFetchedAt` 顯式寫入
+ * 「現在」：upsert 的 **update** 分支不會重跑 `@default(now())`，故須在此蓋上新鮮時間戳以追蹤 canonical 新鮮度。
+ */
 function keywordToRow(kw: Keyword, params: MetricsCacheParams): Prisma.KeywordUncheckedCreateInput {
   return {
     geo: params.geo,
@@ -158,5 +186,6 @@ function keywordToRow(kw: Keyword, params: MetricsCacheParams): Prisma.KeywordUn
     cpcHighMicros: parseMicros(kw.cpcHighMicros),
     monthlyVolumes: kw.monthlyVolumes as unknown as Prisma.InputJsonValue,
     currencyCode: kw.currencyCode,
+    metricsFetchedAt: new Date(),
   };
 }

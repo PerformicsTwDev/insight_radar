@@ -1,10 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { sha256Hex } from '../common/sha256';
 import { cacheConfig } from '../config/cache.config';
 import { normalizeText } from '../google-ads/normalize';
+import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
 import { AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
 
@@ -26,6 +27,8 @@ export interface IntentCacheEntry {
  */
 @Injectable()
 export class IntentCache {
+  private readonly logger = new Logger(IntentCache.name);
+
   constructor(
     private readonly cache: CacheService,
     @Inject(cacheConfig.KEY) private readonly config: ConfigType<typeof cacheConfig>,
@@ -36,6 +39,18 @@ export class IntentCache {
   /** DB canonical（`keyword_intents`）的版本維度——對齊 Redis namespace（schema 或 prompt 變更皆 bump）。 */
   private get modelVersion(): string {
     return `${this.config.intentSchemaVersion}:${this.deployment}`;
+  }
+
+  /**
+   * 回寫純屬**快取暖機**（writeback）：Redis/DB 寫入失敗只降級為「下次重打 LLM」，**不可**拖垮已付費的 job
+   * ——吞錯記 warn（祕密經 {@link scrubSecrets} 清洗），與 markStatus 的 best-effort 一致（M3-R6）。
+   */
+  private async bestEffort(work: Promise<unknown>, context: string): Promise<void> {
+    try {
+      await work;
+    } catch (error) {
+      this.logger.warn(`${context} failed (best-effort): ${scrubSecrets(String(error))}`);
+    }
   }
 
   /** key 一律以 `normalizeText` 後再 sha256（去重 key = 快取 key；LLM 回 echo 大小寫/空白差異不致漏命中）。 */
@@ -65,10 +80,14 @@ export class IntentCache {
       where: { modelVersion: this.modelVersion, normalizedText: { in: [...new Set(missNts)] } },
     });
     const dbByNt = new Map(rows.map((r) => [r.normalizedText, r.labels as string[]]));
-    await Promise.all(
-      [...dbByNt].map(([nt, labels]) =>
-        this.cache.set(this.keyFor(nt), labels, this.config.intentTtlMs),
+    // warm Redis：best-effort——暖機失敗不可拖垮這次成功的讀取（T4.6）。
+    await this.bestEffort(
+      Promise.all(
+        [...dbByNt].map(([nt, labels]) =>
+          this.cache.set(this.keyFor(nt), labels, this.config.intentTtlMs),
+        ),
       ),
+      'intent cache warm',
     );
     return normalized.map((nt, i) => redis[i] ?? dbByNt.get(nt));
   }
@@ -81,17 +100,23 @@ export class IntentCache {
     const valid = entries
       .filter((e) => e.labels.length > 0)
       .map((e) => ({ nt: normalizeText(e.keyword), labels: e.labels }));
-    await Promise.all([
-      ...valid.map((e) => this.cache.set(this.keyFor(e.nt), e.labels, this.config.intentTtlMs)),
-      ...valid.map((e) =>
-        this.prisma.keywordIntent.upsert({
-          where: {
-            normalizedText_modelVersion: { normalizedText: e.nt, modelVersion: this.modelVersion },
-          },
-          create: { normalizedText: e.nt, modelVersion: this.modelVersion, labels: e.labels },
-          update: { labels: e.labels, labeledAt: new Date() },
-        }),
-      ),
-    ]);
+    await this.bestEffort(
+      Promise.all([
+        ...valid.map((e) => this.cache.set(this.keyFor(e.nt), e.labels, this.config.intentTtlMs)),
+        ...valid.map((e) =>
+          this.prisma.keywordIntent.upsert({
+            where: {
+              normalizedText_modelVersion: {
+                normalizedText: e.nt,
+                modelVersion: this.modelVersion,
+              },
+            },
+            create: { normalizedText: e.nt, modelVersion: this.modelVersion, labels: e.labels },
+            update: { labels: e.labels, labeledAt: new Date() },
+          }),
+        ),
+      ]),
+      'intent cache writeback',
+    );
   }
 }
