@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../common/sha256';
 import { normalizeText } from '../google-ads/normalize';
 
 /**
@@ -17,7 +17,7 @@ export function computeIdempotencyKey(seeds: string[], params: Record<string, un
     seeds: canonicalSeeds,
     params: canonicalize(params),
   });
-  return createHash('sha256').update(canonical).digest('hex');
+  return sha256Hex(canonical);
 }
 
 /**

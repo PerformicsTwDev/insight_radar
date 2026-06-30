@@ -47,7 +47,7 @@ function buildCache() {
       return Promise.resolve();
     }),
   } as unknown as CacheService;
-  const config: ConfigType<typeof cacheConfig> = { metricsTtlMs: TTL_MS };
+  const config: ConfigType<typeof cacheConfig> = { metricsTtlMs: TTL_MS, intentTtlMs: 1 };
   return { service: new MetricsCache(cache, config), store, setCalls };
 }
 
