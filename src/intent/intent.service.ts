@@ -53,6 +53,12 @@ function* singleBatch(keywords: string[]): Generator<string[]> {
 export class IntentService {
   private readonly batchSize: number;
   private readonly llmConcurrency: number;
+  /**
+   * 全域 LLM 並發限流器（M3-R2）：**一個** IntentService singleton 上的所有 `labelStream`（多 job 並發
+   * 同時呼叫）共用此 limiter，故全域並發上限 = llmConcurrency，**不**隨 WORKER_CONCURRENCY 倍增。
+   * 若改成 per-call（每次 labelStream 自建 limiter）→ 全域 = llmConcurrency × workerConcurrency，RPM 失控。
+   */
+  private readonly limit: ReturnType<typeof pLimit>;
 
   constructor(
     @Inject(INTENT_LABELER) private readonly labeler: IntentLabeler,
@@ -61,6 +67,7 @@ export class IntentService {
     // floor 後須 ≥1，否則迴圈 i += 0 會無限迴圈（分數 batchSize 如 0.5 會 floor 成 0）。
     this.batchSize = sanitizePositiveInt(config.batchSize, DEFAULT_BATCH_SIZE);
     this.llmConcurrency = sanitizePositiveInt(config.llmConcurrency, DEFAULT_LLM_CONCURRENCY);
+    this.limit = pLimit(this.llmConcurrency);
   }
 
   /** 低階：切批呼叫 LLM，回各批原始結果（不處理 length/filter；T2.3）。 */
@@ -91,7 +98,7 @@ export class IntentService {
   async labelStream(
     textBatches: AsyncIterable<string[]> | Iterable<string[]>,
   ): Promise<LabelResult> {
-    const limit = pLimit(this.llmConcurrency);
+    const limit = this.limit; // 共用全域 limiter（M3-R2）：多 job 並發共享上限，不隨 worker concurrency 倍增。
     const tasks: Promise<ChunkOutcome>[] = [];
     // allInputs 為 append-only（postProcess 用）；cursor 標記已派批位置 → O(n) 不重配置。
     const allInputs: string[] = [];

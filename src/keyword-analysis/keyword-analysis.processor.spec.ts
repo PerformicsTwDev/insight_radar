@@ -1,10 +1,18 @@
+import type { ConfigType } from '@nestjs/config';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { IntentService } from '../intent/intent.service';
 import { PrismaService } from '../prisma';
+import { queueConfig } from '../config/queue.config';
 import { KeywordAnalysisProcessor } from './keyword-analysis.processor';
 import { ResultSnapshotService } from './result-snapshot.service';
 import type { AnalysisJobPayload } from './keyword-analysis.service';
+
+/** worker concurrency 測試值（刻意非 BullMQ 預設 1，驗證 config 確被接上）。 */
+const WORKER_CONCURRENCY = 5;
+const queueCfg = { workerConcurrency: WORKER_CONCURRENCY } as unknown as ConfigType<
+  typeof queueConfig
+>;
 
 function keyword(text: string, overrides: Partial<Keyword> = {}): Keyword {
   return {
@@ -133,7 +141,7 @@ function buildHarness(): Harness {
   const prisma = {
     keywordAnalysis: { updateMany: prismaUpdateMany },
   } as unknown as PrismaService;
-  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma);
+  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma, queueCfg);
 
   return {
     processor,
@@ -206,7 +214,7 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     const prisma = {
       keywordAnalysis: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     } as unknown as PrismaService;
-    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma);
+    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma, queueCfg);
 
     await processor.process(fakeJob(buildPayload()) as never);
 
@@ -372,6 +380,38 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       await expect(
         processor.onFailed(terminalFailedJob() as never, new Error('boom')),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('wires WORKER_CONCURRENCY onto the worker (M3-R2 / NFR-8)', () => {
+    interface FakeWorker {
+      concurrency: number;
+      run: jest.Mock;
+    }
+    /** WorkerHost.worker getter 讀私有 `_worker`（生產由 BullExplorer 設）；測試注入假 worker。 */
+    function withFakeWorker(processor: KeywordAnalysisProcessor): FakeWorker {
+      const worker: FakeWorker = { concurrency: 1, run: jest.fn().mockResolvedValue(undefined) };
+      (processor as unknown as { _worker: FakeWorker })._worker = worker;
+      return worker;
+    }
+
+    it('sets worker.concurrency from config and starts the worker on bootstrap', async () => {
+      const { processor } = buildHarness();
+      const worker = withFakeWorker(processor);
+
+      await processor.onApplicationBootstrap();
+
+      // BullMQ 預設 concurrency=1（autorun:false 故須在此啟動）→ 接上 config 後 = WORKER_CONCURRENCY。
+      expect(worker.concurrency).toBe(WORKER_CONCURRENCY);
+      expect(worker.run).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not throw if the worker run() rejects (logs, never crashes bootstrap)', async () => {
+      const { processor } = buildHarness();
+      const worker = withFakeWorker(processor);
+      worker.run.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(processor.onApplicationBootstrap()).resolves.toBeUndefined();
     });
   });
 

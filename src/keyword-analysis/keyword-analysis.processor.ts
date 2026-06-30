@@ -1,7 +1,9 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
 import type { JobStatus, Prisma } from '@prisma/client';
 import type { Job } from 'bullmq';
+import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { ExpandParams } from '../google-ads/google-ads.service';
@@ -39,8 +41,10 @@ const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'failed', 'cancele
  * union / 指標 merge 未套用）；固化 snapshot 時須改用 `GoogleAdsService.expand`（dedupeMerge 權威），
  * 不可直接重用此處 `expandStream` 來源的 `keywords[]`。
  */
-@Processor(KEYWORD_ANALYSIS_QUEUE)
-export class KeywordAnalysisProcessor extends WorkerHost {
+// autorun:false（M3-R2）：BullExplorer 以 decorator 的**靜態** WorkerOptions 建 worker，無法注入 config；
+// 故停用 autostart，待 onApplicationBootstrap 接上 config 的 concurrency 後才 run()，避免啟動瞬間以預設 1 跑。
+@Processor(KEYWORD_ANALYSIS_QUEUE, { autorun: false })
+export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(KeywordAnalysisProcessor.name);
 
   constructor(
@@ -48,8 +52,24 @@ export class KeywordAnalysisProcessor extends WorkerHost {
     private readonly intent: IntentService,
     private readonly snapshots: ResultSnapshotService,
     private readonly prisma: PrismaService,
+    @Inject(queueConfig.KEY) private readonly config: ConfigType<typeof queueConfig>,
   ) {
     super();
+  }
+
+  /**
+   * 接上 WORKER_CONCURRENCY（M3-R2/M-3、NFR-8、T3.1 DoD）。`@Processor` 的 WorkerOptions 為靜態、讀不到
+   * 已驗證 config → 在此 bootstrap（worker 已由 BullExplorer 於 onModuleInit 建好）設 concurrency 後啟動。
+   * BullMQ 預設 concurrency=1，未接上則 NFR-8 的並發失效。run() 在 worker close 前不 resolve，故 fire-and-forget。
+   */
+  onApplicationBootstrap(): Promise<void> {
+    const worker = this.worker;
+    worker.concurrency = this.config.workerConcurrency;
+    // run() 在 worker close 前不 resolve → fire-and-forget；rejection 以 catch 吞掉（不擋 bootstrap）。
+    void worker.run().catch((error: unknown) => {
+      this.logger.error(`worker run() failed: ${scrubSecrets(String(error))}`);
+    });
+    return Promise.resolve();
   }
 
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {
