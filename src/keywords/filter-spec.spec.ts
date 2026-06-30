@@ -112,6 +112,24 @@ describe('buildPredicate / FilterSpec (T5.1 / FR-7 / FR-14 / TC-9)', () => {
     expect(buildPredicate({ intent: [] })(row({ intent: [] }))).toBe(true);
     expect(buildPredicate({ competition: [] })(row({ competition: 'MEDIUM' }))).toBe(true);
   });
+
+  it('honors 0-valued bounds (no falsy-zero footgun: 0 is an active bound, not unset)', () => {
+    // volumeMin:0 為有效下界——0 搜量滿足，null 不滿足（缺值≠0）。
+    expect(buildPredicate({ volumeMin: 0 })(row({ avgMonthlySearches: 0 }))).toBe(true);
+    expect(buildPredicate({ volumeMin: 0 })(row({ avgMonthlySearches: null }))).toBe(false);
+    // cpcMax:0 為有效上界——cpcLow=1 不滿足 1<=0；cpcMin:0 為有效下界——cpcHigh=5 滿足 5>=0。
+    expect(buildPredicate({ cpcMax: 0 })(row())).toBe(false);
+    expect(buildPredicate({ cpcMin: 0 })(row())).toBe(true);
+    // competitionIndexMin:0 為有效下界——null 不滿足。
+    expect(buildPredicate({ competitionIndexMin: 0 })(row({ competitionIndex: null }))).toBe(false);
+    expect(buildPredicate({ competitionIndexMin: 0 })(row({ competitionIndex: 0 }))).toBe(true);
+  });
+
+  it('an empty q string keeps the contains check active and matches consistently', () => {
+    // q='' → includes('') 為真：一致地匹配每列（不視為「未設」而拋出例外或反轉）。
+    expect(buildPredicate({ q: '' })(row())).toBe(true);
+    expect(buildPredicate({ q: '' })(row({ text: 'anything' }))).toBe(true);
+  });
 });
 
 describe('applyFilter — single shared predicate, no view drift (TC-37 / AC-14.1 / AC-7.8)', () => {
