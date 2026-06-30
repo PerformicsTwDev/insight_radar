@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
+import { scrubSecrets } from '../logger/redaction';
 import { JobEventsService } from '../queue/job-events.service';
 import type { JobEvent } from '../queue/job-events.service';
 import { CreateKeywordAnalysisDto } from './dto/create-keyword-analysis.dto';
@@ -112,9 +113,10 @@ export class KeywordAnalysisController {
       if (error instanceof NotFoundException) {
         return null;
       }
+      // 祕密不入 log（NFR-5/M3-R6 #NEW-6）：Prisma 連線錯誤的 stack 可夾帶 DATABASE_URL（含密碼）。
       this.logger.error(
         `SSE status lookup failed for ${id}`,
-        error instanceof Error ? error.stack : String(error),
+        scrubSecrets(error instanceof Error ? error.stack : String(error)),
       );
       return null; // 降級為空串流（與未知 id 同路徑）：不 hang、不殺 process、bug 由日誌可見。
     }

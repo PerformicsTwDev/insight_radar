@@ -124,4 +124,22 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
     expect(logSpy).toHaveBeenCalledTimes(1); // bug 由日誌可見（NFR-6）
     logSpy.mockRestore();
   });
+
+  it('scrubs secrets from the degraded-status-error trace log (NFR-5, M3-R6 #NEW-6)', async () => {
+    const logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    // Prisma 連線錯誤的 stack 可夾帶 DATABASE_URL（含密碼）；trace 參數須遮罩。
+    const getStatus = jest.fn(() =>
+      Promise.reject(new Error('connect failed: postgres://user:s3cr3t@db:5432/app')),
+    );
+    const service = { getStatus } as unknown as KeywordAnalysisService;
+    const events = { forJob: jest.fn() } as unknown as JobEventsService;
+    const controller = new KeywordAnalysisController(service, events);
+
+    await controller.stream('x');
+
+    const logged = logSpy.mock.calls[0]?.map((a) => String(a)).join('\n') ?? '';
+    expect(logged).not.toContain('s3cr3t');
+    expect(logged).toContain('[Redacted]');
+    logSpy.mockRestore();
+  });
 });
