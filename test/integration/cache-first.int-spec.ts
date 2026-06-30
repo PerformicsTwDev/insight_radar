@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ConfigModule } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { CacheModule } from 'src/cache/cache.module';
+import { CacheService } from 'src/cache/cache.service';
 import { cacheConfig } from 'src/config/cache.config';
 import { googleAdsConfig } from 'src/config/google-ads.config';
 import { queueConfig } from 'src/config/queue.config';
@@ -58,6 +59,7 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let processor: KeywordAnalysisProcessor;
+  let cacheService: CacheService;
   const adsCalls = { historical: 0 };
   const labelerCalls = { parse: 0 };
 
@@ -73,7 +75,16 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
   };
 
   const fakeAds: AdsClient = {
-    generateKeywordIdeas: () => Promise.resolve([]),
+    // expand 模式：每個 seed 回一個帶指標的拓展字（`${seed} expanded`）——讓 expand→msetByText→exact-hit
+    // round-trip 可經真實 stack 驗證（M4-R5）。seed 自身不在此回（仍為 noMetrics 攤平）。
+    generateKeywordIdeas: (req) =>
+      Promise.resolve(
+        req.keyword_seed.keywords.map((s) => ({
+          text: `${s} expanded`,
+          keyword_idea_metrics: realMetrics,
+          close_variants: [],
+        })),
+      ),
     generateKeywordHistoricalMetrics: (
       req: GenerateKeywordHistoricalMetricsRequest,
     ): Promise<KeywordHistoricalResult[]> => {
@@ -134,6 +145,7 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     // BullModule/worker）；直接呼叫 process()。PrismaService 為 lazy-connect（首查才連線）。
     prisma = moduleRef.get(PrismaService);
     processor = moduleRef.get(KeywordAnalysisProcessor);
+    cacheService = moduleRef.get(CacheService);
   });
 
   afterAll(async () => {
@@ -147,6 +159,7 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     await prisma.keywordAnalysis.deleteMany();
     await prisma.keyword.deleteMany(); // canonical metrics（T4.6）
     await prisma.keywordIntent.deleteMany(); // canonical intents（T4.6）
+    await cacheService.clear(); // 清 in-memory Keyv：測試隔離，避免跨測試殘留導致假命中（M4-R5）
   });
 
   async function seedRunning(id: string): Promise<void> {
@@ -202,33 +215,50 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     expect(warm.keywordCount).toBe(cold.keywordCount);
   });
 
-  it('a Redis miss falls back to the DB canonical without re-hitting Ads/LLM (T4.6)', async () => {
-    // 預填 DB canonical（Redis 空——用未被前面測試暖過的字）：模擬 Redis 失效後仍有持久後備。
-    const nt = 'db backed kw';
-    await prisma.keyword.create({
-      data: {
-        geo: PARAMS.geo,
-        language: PARAMS.language,
-        normalizedText: nt,
-        text: nt,
-        monthlyVolumes: [],
-      },
-    });
-    await prisma.keywordIntent.create({
-      data: { normalizedText: nt, modelVersion: 'v1:test-deploy', labels: ['informational'] },
-    });
+  it('after the Redis cache is cleared, a repeat job is served from the DB canonical without re-hitting Ads/LLM (T4.6, M4-R5)', async () => {
+    const seeds = ['db fallback kw'];
+
+    // 冷跑：打 Ads + LLM → 回寫 Redis **與** DB canonical（兩層皆有）。
+    const coldId = randomUUID();
+    await seedRunning(coldId);
+    await processor.process(fakeJob(coldId, seeds) as never);
+    expect(adsCalls.historical).toBeGreaterThan(0);
+
+    // 清掉 Redis（模擬 eviction / 失效）——DB canonical 仍在。此處須真清快取，否則暖跑會走 Redis、驗不到 DB 後備。
+    await cacheService.clear();
 
     const adsBefore = adsCalls.historical;
     const labelerBefore = labelerCalls.parse;
-    const id = randomUUID();
-    await seedRunning(id);
-    await processor.process(fakeJob(id, [nt]) as never);
+    const warmId = randomUUID();
+    await seedRunning(warmId);
+    await processor.process(fakeJob(warmId, seeds) as never);
 
-    // Redis 皆 miss → metrics + intent 由 DB canonical 回填 → 不打 Ads/LLM（Redis 失效不致重打全部外部 API）。
+    // Redis 已清 → metrics + intent 由 DB canonical 回填 → 不打 Ads/LLM（Redis 失效不致重打全部外部 API）。
     expect(adsCalls.historical).toBe(adsBefore);
     expect(labelerCalls.parse).toBe(labelerBefore);
-    const snap = await completedSnapshot(id);
+    const snap = await completedSnapshot(warmId);
     expect(snap.keywordCount).toBeGreaterThan(0);
+  });
+
+  it('an expand run writes expansion metrics to canonical; a later exact query hits without re-paying Ads/LLM (T4.4 round-trip, M4-R5)', async () => {
+    const seed = 'roundtrip seed';
+    const expansion = `${seed} expanded`;
+
+    // expand：generateKeywordIdeas 回帶指標的拓展字 → mergeExpansion → msetByText 回寫 Redis + DB canonical。
+    const expandId = randomUUID();
+    await seedRunning(expandId);
+    await processor.process(fakeJob(expandId, [seed], EXPAND_PARAMS) as never);
+    const row = await prisma.keyword.findFirst({ where: { normalizedText: expansion } });
+    expect(row?.avgMonthlySearches).toBe(480); // 拓展字已持久化（有指標）
+
+    // 之後對「拓展字」做 exact 查詢 → 命中（Redis 暖 + DB 後備）→ 不再打 Ads/LLM。
+    const adsBefore = adsCalls.historical;
+    const labelerBefore = labelerCalls.parse;
+    const exactId = randomUUID();
+    await seedRunning(exactId);
+    await processor.process(fakeJob(exactId, [expansion]) as never);
+    expect(adsCalls.historical).toBe(adsBefore); // 命中 metrics 快取 → 不重打 Ads
+    expect(labelerCalls.parse).toBe(labelerBefore); // 命中 intent 快取 → 不重打 LLM
   });
 
   it('an expand run with a no-metrics seed does not clobber canonical metrics from a prior exact run (M4-R1)', async () => {
@@ -241,7 +271,7 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
     const before = await prisma.keyword.findFirst({ where: { normalizedText: seed } });
     expect(before?.avgMonthlySearches).toBe(480); // canonical 有真實指標
 
-    // Run 2（expand，generateKeywordIdeas 回 []）：seed 以 noMetrics() 攤平 → msetByText 須跳過（不覆蓋）。
+    // Run 2（expand）：seed 自身不在 generateKeywordIdeas 回應中 → 以 noMetrics() 攤平 → msetByText 須跳過（不覆蓋）。
     const expandId = randomUUID();
     await seedRunning(expandId);
     await processor.process(fakeJob(expandId, [seed], EXPAND_PARAMS) as never);

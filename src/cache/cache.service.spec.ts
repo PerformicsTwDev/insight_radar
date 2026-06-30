@@ -83,4 +83,13 @@ describe('CacheService', () => {
     await service.set('neg', 'v', -1);
     expect(await service.get('neg')).toBeUndefined();
   });
+
+  // —— M4-R5：clear() 清空整個快取（整合測試隔離用，避免跨測試殘留）——
+  it('clear() flushes all keys (test isolation)', async () => {
+    const service = makeService();
+    await service.set('a', 1);
+    await service.set('b', 2);
+    await service.clear();
+    expect(await service.mget(['a', 'b'])).toEqual([undefined, undefined]);
+  });
 });
