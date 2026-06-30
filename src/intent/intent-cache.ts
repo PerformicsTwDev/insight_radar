@@ -7,6 +7,7 @@ import { cacheConfig } from '../config/cache.config';
 import { normalizeText } from '../google-ads/normalize';
 import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
+import { cleanLabels } from './intent-postprocess';
 import { AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
 
 /** intent 快取項：每字（normalizedText）對應的標籤集。 */
@@ -120,9 +121,11 @@ export class IntentCache {
    * ——否則會變成永久 fallback 命中、永不重試（M2）。
    */
   async mset(entries: IntentCacheEntry[]): Promise<void> {
+    // raw LLM label 視為不可信（strict schema 只在非 refusal/非截斷時保證）：先用 postProcess 同一 `cleanLabels`
+    // 清洗（丟非法值、去重），再濾掉清洗後為空者——避免把越界 label 快取成近乎永久的錯誤 fallback 命中（M4-R4）。
     const valid = entries
-      .filter((e) => e.labels.length > 0)
-      .map((e) => ({ nt: normalizeText(e.keyword), labels: e.labels }));
+      .map((e) => ({ nt: normalizeText(e.keyword), labels: cleanLabels(e.labels) }))
+      .filter((e) => e.labels.length > 0);
     // Redis 與 DB 各自獨立 best-effort（M4-R3）：Redis-set reject 不可短路丟棄 in-flight DB upsert。
     await Promise.all([
       this.bestEffort(
