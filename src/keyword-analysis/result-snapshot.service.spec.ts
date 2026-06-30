@@ -41,13 +41,15 @@ function buildService() {
     return 'update-op';
   });
   const $transaction = jest.fn().mockResolvedValue([]);
+  // 預設：分析尚未完成（無既有 snapshot）→ saveResult 正常建立。
+  const findUnique = jest.fn().mockResolvedValue({ status: 'running', resultSnapshot: null });
   const prisma = {
     resultSnapshot: { create },
     snapshotRow: { createMany },
-    keywordAnalysis: { update },
+    keywordAnalysis: { update, findUnique },
     $transaction,
   } as unknown as PrismaService;
-  return { service: new ResultSnapshotService(prisma), captured, $transaction };
+  return { service: new ResultSnapshotService(prisma), captured, $transaction, create, findUnique };
 }
 
 describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7)', () => {
@@ -89,5 +91,20 @@ describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7)', () => {
     expect(out.count).toBe(0);
     expect(captured.snapshot.data.keywordCount).toBe(0);
     expect(captured.rows.data).toHaveLength(0);
+  });
+
+  it('is idempotent under job retry: returns the existing snapshot, creates nothing (M2)', async () => {
+    const { service, create, findUnique, $transaction } = buildService();
+    // 重試時分析已 completed 且有 snapshot → 不得重建（否則孤兒 rows + FK 漂移）。
+    findUnique.mockResolvedValueOnce({
+      status: 'completed',
+      resultSnapshot: { id: 'snap-existing', keywordCount: 7, checksum: 'abc123' },
+    });
+
+    const out = await service.saveResult('a-1', [row('coffee')]);
+
+    expect(out).toEqual({ resultSnapshotId: 'snap-existing', count: 7, checksum: 'abc123' });
+    expect(create).not.toHaveBeenCalled();
+    expect($transaction).not.toHaveBeenCalled();
   });
 });

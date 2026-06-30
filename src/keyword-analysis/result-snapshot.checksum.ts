@@ -34,6 +34,9 @@ function canonicalize(value: unknown): unknown {
 /**
  * 內容定址 checksum（NFR-7 不可變/可重現）：以 `normalizedText` 為穩定排序 → canonical JSON →
  * sha256。**相同內容（不論列序/鍵序）得相同 checksum**；任一指標/intent 變動則改變。
+ *
+ * 不變式：陣列**保序**（canonical 不排序陣列，因 monthlyVolumes 等為有序序列）。故**集合語意**的
+ * 陣列（如 `intent` 標籤）須由呼叫端先排序再傳入（processor `toSnapshotRow` 已 `[...intent].sort()`）。
  */
 export function computeChecksum(rows: SnapshotRowData[]): string {
   const ordered = [...rows].sort((a, b) =>

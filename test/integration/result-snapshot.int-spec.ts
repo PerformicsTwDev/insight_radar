@@ -20,7 +20,7 @@ function row(normalizedText: string): SnapshotRowData {
   };
 }
 
-describe('ResultSnapshotService (integration · Testcontainers Postgres, TC-17/NFR-7)', () => {
+describe('ResultSnapshotService (integration · Testcontainers Postgres, T3.10 / NFR-7 immutability)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let service: ResultSnapshotService;
@@ -74,7 +74,7 @@ describe('ResultSnapshotService (integration · Testcontainers Postgres, TC-17/N
     expect(updated?.finishedAt).not.toBeNull();
   });
 
-  it('is immutable/reproducible: rows read back from DB recompute the same checksum (NFR-7/TC-17)', async () => {
+  it('is immutable/reproducible: rows read back from DB recompute the same checksum (NFR-7)', async () => {
     const analysisId = await seedRunning('idem-snap-2');
     const rows = [row('a'), row('b'), row('c')];
 

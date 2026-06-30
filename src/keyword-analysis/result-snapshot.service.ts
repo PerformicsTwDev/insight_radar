@@ -22,6 +22,20 @@ export class ResultSnapshotService {
   constructor(private readonly prisma: PrismaService) {}
 
   async saveResult(analysisId: string, rows: SnapshotRowData[]): Promise<SaveResultOutcome> {
+    // 冪等（M2）：BullMQ job 重試時若分析已 completed 且有 snapshot，回既有的、不重建——
+    // 否則每次重試另建一份 snapshot+rows、FK 漂移、舊 rows 變孤兒（snapshot 內容不可變，回既有即正確）。
+    const existing = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: {
+        status: true,
+        resultSnapshot: { select: { id: true, keywordCount: true, checksum: true } },
+      },
+    });
+    if (existing?.status === 'completed' && existing.resultSnapshot) {
+      const snap = existing.resultSnapshot;
+      return { resultSnapshotId: snap.id, count: snap.keywordCount, checksum: snap.checksum };
+    }
+
     const checksum = computeChecksum(rows);
     const keywordCount = rows.length;
     const snapshotId = randomUUID();

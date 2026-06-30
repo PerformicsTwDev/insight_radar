@@ -3,8 +3,10 @@ import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { ExpandParams } from '../google-ads/google-ads.service';
-import type { Keyword } from '../google-ads/keyword.types';
+import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
+import { normalizeText } from '../google-ads/normalize';
 import { IntentService } from '../intent/intent.service';
+import type { LabelResult } from '../intent/intent.service';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
 import type { SnapshotRowData } from './result-snapshot.checksum';
 import { ResultSnapshotService } from './result-snapshot.service';
@@ -46,25 +48,17 @@ export class KeywordAnalysisProcessor extends WorkerHost {
 
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {
     const { analysisId, seeds, params } = job.data;
-    const keywords: Keyword[] = [];
+    const report = (phase: keyof typeof PHASE_PERCENT, total: number): Promise<void> =>
+      this.report(job, phase, total);
 
-    // 依 mode 取得關鍵字串流（expand 串流逐批；exact 指定字已知 → 單批）。unknown mode 同步拋
-    // 非重試性錯誤（job.data 為反序列化 JSON，避免 TypeError 耗盡 attempts）。
-    const source = this.keywordSource(params.mode, seeds, toExpandParams(params));
-
-    // 邊拓展邊貼標：拓展批產出即轉成 normalizedText 餵 labelStream（intent 內 p-limit 控並發）。
-    const report = (phase: keyof typeof PHASE_PERCENT): Promise<void> =>
-      this.report(job, phase, keywords.length);
-    async function* texts(): AsyncGenerator<string[]> {
-      for await (const batch of source) {
-        keywords.push(...batch);
-        await report('fetch'); // 取數階段進度（total 隨拓展遞增）
-        yield batch.map((k) => k.normalizedText);
-      }
-    }
-
-    const labels = await this.intent.labelStream(texts());
-    await report('metrics'); // 指標兩模式皆隨取數回應夾帶（無額外 Ads 呼叫）
+    // 依 mode 取數 + 邊拓展邊貼標（overlap）。**snapshot 用權威 mergeExpansion**（非 first-occurrence）。
+    const { keywords, labels } = await this.fetchAndLabel(
+      params.mode,
+      seeds,
+      toExpandParams(params),
+      report,
+    );
+    await report('metrics', keywords.length); // 指標隨取數回應夾帶（無額外 Ads 呼叫）
 
     // 固化不可變 snapshot（T3.10）：合併 intent（by normalizedText）→ rows → 落 DB + 回填 FK/status。
     const intentByKeyword = new Map(labels.labeled.map((l) => [l.keyword, l.labels]));
@@ -73,7 +67,7 @@ export class KeywordAnalysisProcessor extends WorkerHost {
     );
     const { count } = await this.snapshots.saveResult(analysisId, rows);
 
-    await report('intent'); // 貼標 + 固化完成 → 100%
+    await report('intent', keywords.length); // 貼標 + 固化完成 → 100%
     return { count };
   }
 
@@ -82,17 +76,48 @@ export class KeywordAnalysisProcessor extends WorkerHost {
     this.logger.error(`Analysis ${job?.id ?? 'unknown'} failed: ${error.message}`);
   }
 
-  /** mode → 關鍵字批串流：expand 用 `expandStream`（overlap）、exact 用 `fetchHistoricalMetrics`（單批）。 */
-  private keywordSource(
+  /**
+   * 依 mode 取數並邊取邊貼標（A/B overlap），回**權威**關鍵字（snapshot 用）+ 貼標結果。
+   * - **expand**：`expandStreamRaw` 逐批原始候選 → 取首見 normalizedText 餵 `labelStream`（overlap）→
+   *   累積全部候選後 `mergeExpansion`（dedupeMerge 權威：union seedOrigins、擇非空指標，T3.10/FR-2）。
+   * - **exact**：指定字已知（`fetchHistoricalMetrics` 已 dedupeMerge）→ 單批貼標。
+   * - unknown mode 同步拋非重試性錯誤（job.data 為反序列化 JSON，避免 TypeError 耗盡 attempts）。
+   */
+  private async fetchAndLabel(
     mode: AnalysisParams['mode'],
     seeds: string[],
     params: ExpandParams,
-  ): AsyncIterable<Keyword[]> {
+    report: (phase: keyof typeof PHASE_PERCENT, total: number) => Promise<void>,
+  ): Promise<{ keywords: Keyword[]; labels: LabelResult }> {
     if (mode === 'expand') {
-      return this.ads.expandStream(seeds, params);
+      const candidates: KeywordCandidate[] = [];
+      const seen = new Set<string>();
+      const ads = this.ads;
+      async function* texts(): AsyncGenerator<string[]> {
+        for await (const batch of ads.expandStreamRaw(seeds, params)) {
+          candidates.push(...batch);
+          const fresh: string[] = [];
+          for (const candidate of batch) {
+            const normalized = normalizeText(candidate.text);
+            if (!seen.has(normalized)) {
+              seen.add(normalized);
+              fresh.push(normalized);
+            }
+          }
+          await report('fetch', seen.size);
+          if (fresh.length > 0) {
+            yield fresh;
+          }
+        }
+      }
+      const labels = await this.intent.labelStream(texts());
+      return { keywords: this.ads.mergeExpansion(candidates, params), labels };
     }
     if (mode === 'exact') {
-      return onceStream(() => this.ads.fetchHistoricalMetrics(seeds, params));
+      const keywords = await this.ads.fetchHistoricalMetrics(seeds, params);
+      await report('fetch', keywords.length);
+      const labels = await this.intent.labelStream([keywords.map((kw) => kw.normalizedText)]);
+      return { keywords, labels };
     }
     throw new Error(`Unknown analysis mode: ${String(mode)}`);
   }
@@ -105,11 +130,6 @@ export class KeywordAnalysisProcessor extends WorkerHost {
     const progress: AnalysisProgress = { phase, percent: PHASE_PERCENT[phase], total };
     await job.updateProgress(progress);
   }
-}
-
-/** 把「一次取回」的 fetch 包成單批 async iterable（指定模式無拓展可重疊，仍走同一 labelStream pipeline）。 */
-async function* onceStream(fetch: () => Promise<Keyword[]>): AsyncGenerator<Keyword[]> {
-  yield await fetch();
 }
 
 /** Keyword + intent → snapshot 列（攤平 5 欄 + intent；labels 排序使 checksum 確定，NFR-7）。 */
