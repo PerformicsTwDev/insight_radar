@@ -188,8 +188,10 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       const labels = await this.intent.labelStream(texts());
       // 權威合併（dedupeMerge）→ **回寫 metrics 快取**（T4.4）：expand 須打 Ads 取數，但結果回寫後，未來
       // 同字的 exact 查詢/重跑即命中、省 Ads（兩階段皆 cache-first 的「回寫」半邊）。
+      // ⚠ 用 `msetByText`（各字自身 nt 為 key）**非** `mset`：拓展字的 seedOrigins=來源 seed，用 mset 會把
+      // 拓展字寫到 seed 的 key、污染 seed 指標（exact 命中即回錯字/錯指標，AC-10.5）。
       const keywords = this.ads.mergeExpansion(candidates, params);
-      await this.metricsCache.mset(keywords, params);
+      await this.metricsCache.msetByText(keywords, params);
       return { keywords, labels };
     }
     if (mode === 'exact') {

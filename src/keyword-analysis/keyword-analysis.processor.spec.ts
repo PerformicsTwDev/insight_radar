@@ -104,6 +104,7 @@ interface Harness {
   prismaUpdateMany: jest.Mock;
   metricsMget: jest.Mock;
   metricsMset: jest.Mock;
+  metricsMsetByText: jest.Mock;
   labeledTexts: string[];
 }
 
@@ -138,6 +139,7 @@ function buildHarness(): Harness {
   // 預設全 miss（mget 對齊輸入長度回 undefined），mset no-op：exact 模式落回打 Ads（既有測試行為不變）。
   const metricsMget = jest.fn((nts: string[]) => Promise.resolve(nts.map(() => undefined)));
   const metricsMset = jest.fn().mockResolvedValue(undefined);
+  const metricsMsetByText = jest.fn().mockResolvedValue(undefined);
 
   const ads = {
     expandStreamRaw,
@@ -152,6 +154,7 @@ function buildHarness(): Harness {
   const metricsCache = {
     mget: metricsMget,
     mset: metricsMset,
+    msetByText: metricsMsetByText,
   } as unknown as MetricsCache;
   const processor = new KeywordAnalysisProcessor(
     ads,
@@ -172,6 +175,7 @@ function buildHarness(): Harness {
     prismaUpdateMany,
     metricsMget,
     metricsMset,
+    metricsMsetByText,
     labeledTexts,
   };
 }
@@ -238,6 +242,7 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     const metricsCache = {
       mget: jest.fn((nts: string[]) => Promise.resolve(nts.map(() => undefined))),
       mset: jest.fn().mockResolvedValue(undefined),
+      msetByText: jest.fn().mockResolvedValue(undefined),
     } as unknown as MetricsCache;
     const processor = new KeywordAnalysisProcessor(
       ads,
@@ -267,18 +272,25 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     expect(fetchHistorical).not.toHaveBeenCalled();
   });
 
-  it('writes expand-mode metrics back to the cache (populates for future hits, T4.4)', async () => {
-    const { processor, metricsMset } = buildHarness();
-    // 預設 payload 為 expand 模式；mergeExpansion 回 [running shoes, trail shoes] → 回寫快取。
+  it('writes expand-mode metrics back keyed by own normalizedText, not by seedOrigins (no seed poisoning, T4.4)', async () => {
+    const { processor, mergeExpansion, metricsMset, metricsMsetByText } = buildHarness();
+    // 真實拓展字帶 seedOrigins=[parent seed]；若用 mset（seedOrigins 當 key）會把拓展字寫到 seed 的 key、
+    // 污染 seed 指標。回寫須走 msetByText（各字自身 nt 為 key）。
+    const expansion = keyword('trail running shoes', {
+      source: 'expanded',
+      seedOrigins: ['running shoes'],
+    });
+    const seed = keyword('running shoes', { source: 'seed' });
+    mergeExpansion.mockReturnValueOnce([expansion, seed]);
+
     await processor.process(fakeJob(buildPayload()) as never);
 
-    expect(metricsMset).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({ normalizedText: 'running shoes' }),
-        expect.objectContaining({ normalizedText: 'trail shoes' }),
-      ],
+    expect(metricsMsetByText).toHaveBeenCalledWith(
+      [expansion, seed],
       expect.objectContaining({ geo: 'geoTargetConstants/2158' }),
     );
+    // **不**走 mset（避免拓展字被寫到 seedOrigins=parent seed 的 key）。
+    expect(metricsMset).not.toHaveBeenCalled();
   });
 
   it('routes mode=exact to GoogleAdsService.fetchHistoricalMetrics only (TC-35)', async () => {
