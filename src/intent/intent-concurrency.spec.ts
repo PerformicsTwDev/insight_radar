@@ -48,6 +48,44 @@ describe('IntentService LLM concurrency (T3.7 / TC-33, AC-12.5)', () => {
     expect(peak).toBe(3); // 全程未超過上限（且 >1 → 確有並發）
   });
 
+  it('shares ONE concurrency limiter across concurrent labelStream calls (global cap, M3-R2)', async () => {
+    // 多個 job 並發跑同一 IntentService singleton（worker concurrency>1）。限流器若 per-call，
+    // 全域並發 = llmConcurrency × workerConcurrency（RPM 失控）；須共用單一 limiter，全域上限 = llmConcurrency。
+    let inFlight = 0;
+    let peak = 0;
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const labeler: IntentLabeler = {
+      async parseChat<T>(params: ParseChatParams): Promise<ParseChatResult<T>> {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await gate;
+        inFlight -= 1;
+        const results = extractKeywords(params).map((keyword) => ({
+          keyword,
+          labels: ['informational'],
+        }));
+        return { parsed: { results } as T, refusal: null };
+      },
+    };
+
+    const service = new IntentService(labeler, { batchSize: 1, llmConcurrency: 2 });
+    // 兩個並發 labelStream（模擬兩個 job 同時跑），各 5 批 → 共 10 個可並發呼叫。
+    const jobA = service.labelStream([Array.from({ length: 5 }, (_, i) => `a-${i}`)]);
+    const jobB = service.labelStream([Array.from({ length: 5 }, (_, i) => `b-${i}`)]);
+
+    await flush();
+    expect(peak).toBe(2); // 全域共用上限 = 2（per-call 會是 4）
+
+    openGate();
+    const [outA, outB] = await Promise.all([jobA, jobB]);
+    expect(outA.labeled).toHaveLength(5);
+    expect(outB.labeled).toHaveLength(5);
+    expect(peak).toBe(2); // 全程未超過全域上限
+  });
+
   it('dispatches label chunks while still consuming later text batches (streaming overlap)', async () => {
     const events: string[] = [];
     let releaseBatch2!: () => void;
