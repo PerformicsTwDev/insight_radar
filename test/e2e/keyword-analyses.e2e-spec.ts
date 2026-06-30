@@ -239,4 +239,32 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe('GET /keyword-analyses/:id/stream (TC-18, SSE) — §6.3 wire format over HTTP', () => {
+    it('emits an "event: completed" SSE frame with {resultSnapshotId,count} for a finished job', async () => {
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'done',
+        status: 'completed',
+        progress: { phase: 'done', percent: 100 },
+        resultSnapshot: { id: 'snap-7', keywordCount: 1980 },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/done/stream')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/event-stream');
+      // 終態短路 → 單筆 §6.3 completed 事件 + complete（連線收尾）。
+      expect(res.text).toContain('event: completed');
+      expect(res.text).toContain('"resultSnapshotId":"snap-7"');
+      expect(res.text).toContain('"count":1980');
+    });
+
+    it('requires x-api-key (401 without)', async () => {
+      const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses/done/stream');
+
+      expect(res.status).toBe(401);
+    });
+  });
 });

@@ -1,8 +1,7 @@
-import { NotFoundException, type MessageEvent } from '@nestjs/common';
+import { Logger, NotFoundException, type MessageEvent } from '@nestjs/common';
 import { isObservable, Subject } from 'rxjs';
 import { KeywordAnalysisController } from './keyword-analysis.controller';
-import type { JobEventsService } from '../queue/job-events.service';
-import type { JobEvent } from '../queue/job-events.service';
+import type { JobEvent, JobEventsService } from '../queue/job-events.service';
 import type {
   AnalysisStatus,
   AnalysisStatusResponse,
@@ -17,24 +16,25 @@ function statusResponse(status: AnalysisStatus): AnalysisStatusResponse {
   };
 }
 
-function buildController(status: AnalysisStatusResponse | 'notfound') {
+function buildController(status: AnalysisStatusResponse | 'notfound' | 'error') {
   const subjects = new Map<string, Subject<JobEvent>>();
-  const events = {
-    forJob: (id: string) => {
-      let subject = subjects.get(id);
-      if (!subject) {
-        subject = new Subject<JobEvent>();
-        subjects.set(id, subject);
-      }
-      return subject.asObservable();
-    },
-  } as unknown as JobEventsService;
-  const getStatus = jest.fn((_id: string) =>
-    status === 'notfound' ? Promise.reject(new NotFoundException()) : Promise.resolve(status),
-  );
+  const forJob = jest.fn((id: string) => {
+    let subject = subjects.get(id);
+    if (!subject) {
+      subject = new Subject<JobEvent>();
+      subjects.set(id, subject);
+    }
+    return subject.asObservable();
+  });
+  const events = { forJob } as unknown as JobEventsService;
+  const getStatus = jest.fn((_id: string) => {
+    if (status === 'notfound') return Promise.reject(new NotFoundException());
+    if (status === 'error') return Promise.reject(new Error('db down'));
+    return Promise.resolve(status);
+  });
   const service = { getStatus } as unknown as KeywordAnalysisService;
   const controller = new KeywordAnalysisController(service, events);
-  return { controller, subjects, getStatus };
+  return { controller, subjects, forJob };
 }
 
 function collect(obs: import('rxjs').Observable<MessageEvent>) {
@@ -45,7 +45,7 @@ function collect(obs: import('rxjs').Observable<MessageEvent>) {
 }
 
 describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
-  it('maps forJob events to MessageEvents and completes on completed (takeWhile inclusive)', async () => {
+  it('maps forJob events to MessageEvents (event=type, data=payload, §6.3) and completes on completed', async () => {
     const { controller, subjects } = buildController(statusResponse('running'));
     const obs = await controller.stream('a-1');
     expect(isObservable(obs)).toBe(true);
@@ -54,64 +54,74 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
     const subject = subjects.get('a-1')!;
     subject.next({ type: 'progress', data: { phase: 'fetch', percent: 40 } });
     subject.next({ type: 'completed', data: { count: 3 } });
-    // 終結後再發不應收到（已 complete）
-    subject.next({ type: 'progress', data: { phase: 'x', percent: 99 } });
+    subject.next({ type: 'progress', data: { phase: 'x', percent: 99 } }); // 終結後不應收到
 
-    expect(events.map((e) => e.data)).toEqual([
+    expect(events).toEqual([
       { type: 'progress', data: { phase: 'fetch', percent: 40 } },
       { type: 'completed', data: { count: 3 } },
     ]);
     expect(isDone()).toBe(true);
   });
 
-  it('completes on failed too (takeWhile inclusive)', async () => {
+  it('wraps a failed reason as {error} and completes (takeWhile inclusive)', async () => {
     const { controller, subjects } = buildController(statusResponse('running'));
     const obs = await controller.stream('a-1');
     const { events, isDone } = collect(obs);
     subjects.get('a-1')!.next({ type: 'failed', data: 'boom' });
-    expect(events.map((e) => e.data)).toEqual([{ type: 'failed', data: 'boom' }]);
+    expect(events).toEqual([{ type: 'failed', data: { error: 'boom' } }]);
     expect(isDone()).toBe(true);
   });
 
-  it('isolates clients: two subscribers on the same job both receive; a different job does not', async () => {
+  it('isolates jobs: two clients on the same job both receive; a different job receives nothing', async () => {
     const { controller, subjects } = buildController(statusResponse('running'));
-    const obsA1 = await controller.stream('a-1');
-    const obsA2 = await controller.stream('a-1'); // 同 job 第二個 client
-    const c1 = collect(obsA1);
-    const c2 = collect(obsA2);
+    const a1 = collect(await controller.stream('a-1'));
+    const a2 = collect(await controller.stream('a-1')); // 同 job 第二個 client
+    const b1 = collect(await controller.stream('b-2')); // 不同 job
 
     subjects.get('a-1')!.next({ type: 'progress', data: { percent: 10 } });
-    expect(c1.events).toHaveLength(1);
-    expect(c2.events).toHaveLength(1); // 同 job 多 client 互不干擾、皆收到
+
+    expect(a1.events).toHaveLength(1);
+    expect(a2.events).toHaveLength(1); // 同 job 多 client 皆收
+    expect(b1.events).toHaveLength(0); // 不同 job 不收
   });
 
-  it('short-circuits an already-terminal job to one event + complete (no forJob hang)', async () => {
-    const { controller, subjects } = buildController(statusResponse('completed'));
+  it('short-circuits an already-completed job to a §6.3 completed snapshot + complete', async () => {
+    const { controller, subjects, forJob } = buildController(statusResponse('completed'));
     const obs = await controller.stream('done-1');
     const { events, isDone } = collect(obs);
 
-    expect(events).toHaveLength(1);
-    expect((events[0].data as { status: string }).status).toBe('completed');
+    expect(events).toEqual([{ type: 'completed', data: { resultSnapshotId: null, count: null } }]);
     expect(isDone()).toBe(true);
-    expect(subjects.has('done-1')).toBe(false); // 未開 forJob 串流
+    expect(forJob).not.toHaveBeenCalled(); // 未開 forJob 串流
+    expect(subjects.has('done-1')).toBe(false);
+  });
+
+  it('short-circuits a failed/canceled job to a §6.3 failed snapshot', async () => {
+    const { controller } = buildController(statusResponse('canceled'));
+    const obs = await controller.stream('cx');
+    const { events, isDone } = collect(obs);
+    expect(events).toEqual([{ type: 'failed', data: { error: 'canceled' } }]);
+    expect(isDone()).toBe(true);
   });
 
   it('returns an empty completing stream for an unknown id (GET owns the 404)', async () => {
-    const { controller } = buildController('notfound');
+    const { controller, forJob } = buildController('notfound');
     const obs = await controller.stream('ghost');
     const { events, isDone } = collect(obs);
     expect(events).toEqual([]);
     expect(isDone()).toBe(true);
+    expect(forJob).not.toHaveBeenCalled();
   });
 
-  it('propagates an unexpected (non-NotFound) status-lookup error (no silent swallow)', async () => {
-    const forJob = jest.fn();
-    const events = { forJob } as unknown as JobEventsService;
-    const service = {
-      getStatus: () => Promise.reject(new Error('db down')),
-    } as unknown as KeywordAnalysisService;
-    const controller = new KeywordAnalysisController(service, events);
-    await expect(controller.stream('x')).rejects.toThrow('db down');
+  it('degrades an unexpected (non-NotFound) status error to an empty stream + logs it (no hang/crash)', async () => {
+    const logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { controller, forJob } = buildController('error');
+    const obs = await controller.stream('x'); // resolves（不 reject → 不 hang/不殺 process）
+    const { events, isDone } = collect(obs);
+    expect(events).toEqual([]);
+    expect(isDone()).toBe(true);
     expect(forJob).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1); // bug 由日誌可見（NFR-6）
+    logSpy.mockRestore();
   });
 });
