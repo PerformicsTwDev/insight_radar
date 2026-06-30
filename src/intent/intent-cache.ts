@@ -53,6 +53,19 @@ export class IntentCache {
     }
   }
 
+  /**
+   * 讀取 best-effort（cache-aside，M4-R2）：快取/後備**讀取錯誤 = miss**（回 `fallback`），降級落 LLM，
+   * **不**拖垮 job——與寫入 best-effort 對稱。讀取失敗只是少一次命中，不應讓已付費的 job 失敗、重打全部 LLM。
+   */
+  private async bestEffortRead<T>(work: Promise<T>, fallback: T, context: string): Promise<T> {
+    try {
+      return await work;
+    } catch (error) {
+      this.logger.warn(`${context} failed (best-effort): ${scrubSecrets(String(error))}`);
+      return fallback;
+    }
+  }
+
   /** key 一律以 `normalizeText` 後再 sha256（去重 key = 快取 key；LLM 回 echo 大小寫/空白差異不致漏命中）。 */
   private keyFor(normalizedText: string): string {
     return this.cache.buildKey(
@@ -69,16 +82,26 @@ export class IntentCache {
       return [];
     }
     const normalized = normalizedTexts.map(normalizeText);
-    const redis = await this.cache.mget<string[]>(normalized.map((nt) => this.keyFor(nt)));
+    // Redis 讀取 best-effort：錯誤 = 全 miss（落 DB 後備 / LLM），不拖垮 job（M4-R2）。
+    const redis = await this.bestEffortRead<(string[] | undefined)[]>(
+      this.cache.mget<string[]>(normalized.map((nt) => this.keyFor(nt))),
+      normalized.map(() => undefined),
+      'intent cache read',
+    );
 
     const missNts = normalized.filter((_nt, i) => redis[i] === undefined);
     if (missNts.length === 0) {
       return redis;
     }
     // DB 後備：以 [normalizedText, modelVersion] 查 canonical；命中回填 Redis（Redis 失效不重打 LLM）。
-    const rows = await this.prisma.keywordIntent.findMany({
-      where: { modelVersion: this.modelVersion, normalizedText: { in: [...new Set(missNts)] } },
-    });
+    // 讀取 best-effort：DB 錯誤 = 無後備命中（caller 落 LLM），不拖垮 job（M4-R2）。
+    const rows = await this.bestEffortRead<{ normalizedText: string; labels: unknown }[]>(
+      this.prisma.keywordIntent.findMany({
+        where: { modelVersion: this.modelVersion, normalizedText: { in: [...new Set(missNts)] } },
+      }),
+      [],
+      'intent DB fallback read',
+    );
     const dbByNt = new Map(rows.map((r) => [r.normalizedText, r.labels as string[]]));
     // warm Redis：best-effort——暖機失敗不可拖垮這次成功的讀取（T4.6）。
     await this.bestEffort(

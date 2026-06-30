@@ -42,11 +42,12 @@ function buildCache() {
     setCalls.push({ key, value, ttlMs });
     return Promise.resolve();
   });
+  const mget = jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
+    Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
+  );
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
-    mget: jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
-      Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
-    ),
+    mget,
     set,
   } as unknown as CacheService;
   const config: ConfigType<typeof cacheConfig> = {
@@ -77,6 +78,7 @@ function buildCache() {
     findMany,
     upsert,
     set,
+    mget,
   };
 }
 
@@ -314,5 +316,37 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     expect(upsert).toHaveBeenCalledTimes(1);
     const arg = (upsert.mock.calls[0] as unknown[])[0] as { create: { normalizedText: string } };
     expect(arg.create.normalizedText).toBe('running shoes');
+  });
+
+  // ── M4-R2：快取讀取 best-effort（cache-aside：讀取錯誤 = miss，降級落 origin，不拖垮 job）──
+  it('mget treats a Redis read error as a miss and still falls back to the DB canonical (M4-R2)', async () => {
+    const { service, dbRows, mget } = buildCache();
+    dbRows.push({
+      geo: params.geo,
+      language: params.language,
+      normalizedText: 'running shoes',
+      text: 'running shoes',
+      avgMonthlySearches: 100,
+      competition: 'LOW',
+      competitionIndex: 10,
+      cpcLowMicros: 1_230_000n,
+      cpcHighMicros: null,
+      monthlyVolumes: [],
+      currencyCode: 'TWD',
+    });
+    mget.mockRejectedValueOnce(new Error('redis read down')); // Redis 讀取錯誤
+
+    // Redis 讀取錯誤視為 miss → 仍落 DB 後備命中（不 throw、不拖垮 job）。
+    const got = await service.mget(['running shoes'], params);
+    expect(got[0]?.normalizedText).toBe('running shoes');
+    expect(got[0]?.cpcLow).toBe(1.23);
+  });
+
+  it('mget treats a DB read error as a miss (returns undefined, does not throw, falls to origin) (M4-R2)', async () => {
+    const { service, findMany } = buildCache();
+    findMany.mockRejectedValueOnce(new Error('db read down')); // Redis miss → DB 也錯
+
+    const got = await service.mget(['unseen'], params);
+    expect(got).toEqual([undefined]); // 皆 miss → caller 落 origin（Ads），不 throw
   });
 });

@@ -36,11 +36,12 @@ function buildCache(
     setCalls.push({ key, value, ttlMs });
     return Promise.resolve();
   });
+  const mget = jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
+    Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
+  );
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
-    mget: jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
-      Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
-    ),
+    mget,
     set,
   } as unknown as CacheService;
   const config: ConfigType<typeof cacheConfig> = {
@@ -68,6 +69,7 @@ function buildCache(
     findMany,
     upsert,
     set,
+    mget,
   };
 }
 
@@ -195,5 +197,24 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
     set.mockRejectedValueOnce(new Error('redis down')); // warm Redis 失敗
 
     expect((await service.mget(['running shoes']))[0]).toEqual(['commercial']);
+  });
+
+  // ── M4-R2：快取讀取 best-effort（cache-aside：讀取錯誤 = miss，降級落 LLM，不拖垮 job）──
+  it('mget treats a Redis read error as a miss and still falls back to the DB canonical (M4-R2)', async () => {
+    const store = new Map<string, unknown>();
+    const { service, mget } = buildCache('v1', store, [
+      { normalizedText: 'running shoes', modelVersion: MODEL_VERSION, labels: ['commercial'] },
+    ]);
+    mget.mockRejectedValueOnce(new Error('redis read down')); // Redis 讀取錯誤
+
+    // Redis 讀取錯誤視為 miss → 仍落 DB 後備命中（不 throw）。
+    expect((await service.mget(['running shoes']))[0]).toEqual(['commercial']);
+  });
+
+  it('mget treats a DB read error as a miss (returns undefined, does not throw, falls to LLM) (M4-R2)', async () => {
+    const { service, findMany } = buildCache('v1', new Map(), []);
+    findMany.mockRejectedValueOnce(new Error('db read down')); // Redis miss → DB 也錯
+
+    expect(await service.mget(['unseen'])).toEqual([undefined]); // 皆 miss → caller 落 LLM，不 throw
   });
 });
