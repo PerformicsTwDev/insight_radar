@@ -34,7 +34,10 @@ function buildService(opts: Options = {}) {
   const captured = {} as {
     snapshot?: { data: { id: string; analysisId: string; keywordCount: number; checksum: string } };
     rows?: { data: Array<{ snapshotId: string; rowIndex: number; data: unknown }> };
-    updateMany?: { where: { id: string; status: { notIn: string[] } }; data: { status: string } };
+    updateMany?: {
+      where: { id: string; status: { notIn: string[] } };
+      data: { status: string; progress?: { phase: string; percent: number } };
+    };
   };
   const create = jest.fn((args: NonNullable<typeof captured.snapshot>) => {
     captured.snapshot = args;
@@ -90,6 +93,9 @@ describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7 / M3-R3)', () =
       expect.arrayContaining(['completed', 'failed', 'canceled']),
     );
     expect(captured.updateMany?.data.status).toBe('completed');
+    // progress 與 status='completed' **同筆原子寫入**（M3-R5）：completed job 的 DB progress 達 intent/100，
+    // 不再停在 processor 最後一筆 metrics/60（processor 的 report('intent') DB 鏡像因已終態會 no-op）。
+    expect(captured.updateMany?.data.progress).toEqual({ phase: 'intent', percent: 100 });
     expect(updateMany).toHaveBeenCalledTimes(1);
     expect(out).toEqual({
       resultSnapshotId: captured.snapshot?.data.id,

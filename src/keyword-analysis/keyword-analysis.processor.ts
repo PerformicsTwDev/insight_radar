@@ -96,7 +96,9 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     );
     const { count } = await this.snapshots.saveResult(analysisId, rows);
 
-    await report('intent', keywords.length); // 貼標 + 固化完成 → 100%
+    // 報 intent/100：DB progress 已由 saveResult 與 status='completed' **原子寫入**（M3-R5）；此處 report 僅
+    // 為 SSE/QueueEvents 即時事件（job.updateProgress），其 DB 鏡像因已終態 no-op（不重複寫、亦不覆寫）。
+    await report('intent', keywords.length);
     return { count };
   }
 

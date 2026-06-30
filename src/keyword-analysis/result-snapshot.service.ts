@@ -15,6 +15,13 @@ export interface SaveResultOutcome {
 const TERMINAL_STATUSES = new Set<JobStatus>(['completed', 'failed', 'canceled']);
 
 /**
+ * 完成時的終態進度（M3-R5）。與 `status='completed'` **同筆原子寫入**：processor 在 saveResult 後才報
+ * intent/100，但屆時 status 已終態 → 其 DB 鏡像 no-op，故 completed job 的 DB progress 須在此處落地，
+ * 否則永遠停在 processor 最後一筆 metrics/60（FR-8 輪詢以 DB 為真實來源 → 「completed 但 60%」自相矛盾）。
+ */
+const COMPLETED_PROGRESS = { phase: 'intent', percent: 100 } as const;
+
+/**
  * 結果快照固化（T3.10，FR-6/NFR-7）：把分析結果列寫成**不可變** `ResultSnapshot`（content-addressed
  * checksum + keywordCount **落 DB**，非僅 Redis）+ `SnapshotRow`，並回填 `KeywordAnalysis.resultSnapshotId`
  * （FK）與 `status='completed'`。三寫於單一交易內原子完成（NFR-7：snapshot 落地後不漂移）。
@@ -60,7 +67,12 @@ export class ResultSnapshotService {
         });
         const { count } = await tx.keywordAnalysis.updateMany({
           where: { id: analysisId, status: { notIn: [...TERMINAL_STATUSES] } },
-          data: { resultSnapshotId: snapshotId, status: 'completed', finishedAt: new Date() },
+          data: {
+            resultSnapshotId: snapshotId,
+            status: 'completed',
+            finishedAt: new Date(),
+            progress: COMPLETED_PROGRESS,
+          },
         });
         if (count === 0) {
           throw new TerminalRaceError(); // 中途終態 → 回滾整筆固化
