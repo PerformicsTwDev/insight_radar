@@ -54,7 +54,14 @@ export class JobEventsService implements OnModuleInit, OnModuleDestroy {
     await this.queueEvents.close();
   }
 
-  /** 該 analysisId 的事件流（只收自己；completed/failed 後串流 complete）。 */
+  /**
+   * 該 analysisId 的事件流（只收自己；收到 completed/failed 後串流 `complete()`）。
+   *
+   * ⚠ **契約**：僅對「**尚未終結**」的 job 呼叫。終結事件後本服務會釋放對應 Subject，故對**已完成**
+   * 的 job 呼叫 `forJob` 會得到一條**不會自行 complete** 的空串流（Subject 不 replay）。T3.9 的 `@Sse`
+   * 須**先查 GET 狀態（DB 為真實來源，T3.4）**：已 completed/failed 者直接回終態、不開 `forJob`；
+   * 仍在進行者才訂閱此串流。輪詢（FR-8）為 SSE 的後備。
+   */
   forJob(analysisId: string): Observable<JobEvent> {
     return this.subjectFor(analysisId).asObservable();
   }
@@ -65,7 +72,12 @@ export class JobEventsService implements OnModuleInit, OnModuleDestroy {
     if (typeof jobId !== 'string') {
       return; // 防呆：缺 jobId 的事件不路由。
     }
-    const payload = type === 'progress' ? data : type === 'completed' ? returnvalue : failedReason;
+    const payload =
+      type === 'progress'
+        ? data
+        : type === 'completed'
+          ? parseReturnValue(returnvalue) // BullMQ 把 returnvalue 序列化為字串 → 還原
+          : failedReason;
     const subject = this.subjectFor(jobId);
     subject.next({ type, data: payload });
     if (type === 'completed' || type === 'failed') {
@@ -81,5 +93,17 @@ export class JobEventsService implements OnModuleInit, OnModuleDestroy {
       this.subjects.set(analysisId, subject);
     }
     return subject;
+  }
+}
+
+/** BullMQ QueueEvents 的 `returnvalue` 為**序列化字串**；還原為結構化物件（空/非 JSON 原樣回）。 */
+function parseReturnValue(returnvalue: unknown): unknown {
+  if (typeof returnvalue !== 'string' || returnvalue.length === 0) {
+    return returnvalue;
+  }
+  try {
+    return JSON.parse(returnvalue);
+  } catch {
+    return returnvalue;
   }
 }

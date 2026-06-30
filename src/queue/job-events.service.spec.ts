@@ -34,14 +34,15 @@ describe('JobEventsService (T3.8 / TC-18 partial)', () => {
     service.forJob('b-2').subscribe({ next: (e) => b.push(e) });
 
     qe.trigger('progress', { jobId: 'a-1', data: { phase: 'fetch', percent: 40 } });
-    qe.trigger('completed', { jobId: 'b-2', returnvalue: { count: 5 } });
+    // BullMQ QueueEvents 把 returnvalue **序列化為字串** 帶在 stream 上 → 須 JSON.parse 還原。
+    qe.trigger('completed', { jobId: 'b-2', returnvalue: JSON.stringify({ count: 5 }) });
     qe.trigger('progress', { jobId: 'a-1', data: { phase: 'intent', percent: 100 } });
 
     expect(a).toEqual([
       { type: 'progress', data: { phase: 'fetch', percent: 40 } },
       { type: 'progress', data: { phase: 'intent', percent: 100 } },
     ]);
-    expect(b).toEqual([{ type: 'completed', data: { count: 5 } }]); // 只收自己 job 的事件
+    expect(b).toEqual([{ type: 'completed', data: { count: 5 } }]); // 還原成物件、只收自己 job
   });
 
   it('emits the terminal event then completes the stream on completed/failed', () => {
@@ -69,8 +70,20 @@ describe('JobEventsService (T3.8 / TC-18 partial)', () => {
         aCompleted = true;
       },
     });
-    qe.trigger('completed', { jobId: 'b-2', returnvalue: { count: 1 } });
+    qe.trigger('completed', { jobId: 'b-2', returnvalue: JSON.stringify({ count: 1 }) });
     expect(aCompleted).toBe(false);
+  });
+
+  it('passes empty/undefined and non-JSON returnvalue through unchanged (robust)', () => {
+    const { qe, service } = setup();
+    const a: JobEvent[] = [];
+    const b: JobEvent[] = [];
+    service.forJob('a-1').subscribe({ next: (e) => a.push(e) });
+    service.forJob('b-2').subscribe({ next: (e) => b.push(e) });
+    qe.trigger('completed', { jobId: 'a-1', returnvalue: undefined });
+    qe.trigger('completed', { jobId: 'b-2', returnvalue: 'not-json{' }); // JSON.parse 失敗 → 原樣
+    expect(a).toEqual([{ type: 'completed', data: undefined }]);
+    expect(b).toEqual([{ type: 'completed', data: 'not-json{' }]);
   });
 
   it('ignores events without a string jobId', () => {
