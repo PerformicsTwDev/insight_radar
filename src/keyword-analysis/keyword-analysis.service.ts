@@ -184,12 +184,21 @@ export class KeywordAnalysisService {
       return { status: row.status };
     }
 
-    await this.prisma.keywordAnalysis.update({
-      where: { id: analysisId },
+    // 條件更新（M3-R3）：只在仍非終態時轉 canceled——與 saveResult 的條件 updateMany 互斥，
+    // 先 commit 者勝、不互相覆寫（防 cancel-vs-processor race 雙向）。命中 0 列 → 已被轉終態 → 回讀現狀。
+    const { count } = await this.prisma.keywordAnalysis.updateMany({
+      where: { id: analysisId, status: { notIn: [...TERMINAL_STATUSES] } },
       data: { status: 'canceled', finishedAt: new Date() },
     });
-    // jobId === analysisId。best-effort：active job 鎖住無法 remove（預期），記 debug；其餘記 warn
-    // （DB status='canceled' 為權威信號；processor saveResult 對終態不覆寫，防 cancel-race resurrection）。
+    if (count === 0) {
+      const current = await this.prisma.keywordAnalysis.findUnique({
+        where: { id: analysisId },
+        select: { status: true },
+      });
+      return { status: current?.status ?? 'canceled' };
+    }
+    // jobId === analysisId。best-effort：active job 鎖住無法 remove（預期）→ 記 warn
+    // （DB status='canceled' 為權威信號；saveResult 對終態不固化，防 resurrection）。
     await this.queue.remove(analysisId).catch((error: unknown) => {
       this.logger.warn(
         `queue.remove(${analysisId}) failed (job may be active/locked): ${String(error)}`,

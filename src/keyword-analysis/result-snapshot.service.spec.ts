@@ -15,108 +15,140 @@ function row(normalizedText: string): SnapshotRowData {
   };
 }
 
-interface Captured {
-  snapshot: { data: { id: string; analysisId: string; keywordCount: number; checksum: string } };
-  rows: {
-    data: Array<{ snapshotId: string; analysisId: string; rowIndex: number; data: unknown }>;
-  };
-  analysisUpdate: {
-    where: { id: string };
-    data: { resultSnapshotId: string; status: string; finishedAt: Date };
-  };
+interface SnapshotRef {
+  id: string;
+  keywordCount: number;
+  checksum: string;
 }
 
-function buildService() {
-  const captured = {} as Captured;
-  const create = jest.fn((args: Captured['snapshot']) => {
+interface Options {
+  /** tx 內 status 守門讀到的列（預設非終態 running）。 */
+  existing?: { status: string; resultSnapshot: SnapshotRef | null };
+  /** 末筆 updateMany 命中列數（0 = 中途被轉終態 → 回滾）。 */
+  updateCount?: number;
+  /** 回滾後 tx 外回讀（race 用）。 */
+  afterRollback?: { resultSnapshot: SnapshotRef | null };
+}
+
+function buildService(opts: Options = {}) {
+  const captured = {} as {
+    snapshot?: { data: { id: string; analysisId: string; keywordCount: number; checksum: string } };
+    rows?: { data: Array<{ snapshotId: string; rowIndex: number; data: unknown }> };
+    updateMany?: { where: { id: string; status: { notIn: string[] } }; data: { status: string } };
+  };
+  const create = jest.fn((args: NonNullable<typeof captured.snapshot>) => {
     captured.snapshot = args;
-    return 'snapshot-op';
+    return Promise.resolve();
   });
-  const createMany = jest.fn((args: Captured['rows']) => {
+  const createMany = jest.fn((args: NonNullable<typeof captured.rows>) => {
     captured.rows = args;
-    return 'rows-op';
+    return Promise.resolve();
   });
-  const update = jest.fn((args: Captured['analysisUpdate']) => {
-    captured.analysisUpdate = args;
-    return 'update-op';
+  const updateMany = jest.fn((args: NonNullable<typeof captured.updateMany>) => {
+    captured.updateMany = args;
+    return Promise.resolve({ count: opts.updateCount ?? 1 });
   });
-  const $transaction = jest.fn().mockResolvedValue([]);
-  // 預設：分析尚未完成（無既有 snapshot）→ saveResult 正常建立。
-  const findUnique = jest.fn().mockResolvedValue({ status: 'running', resultSnapshot: null });
-  const prisma = {
+  const txFindUnique = jest
+    .fn()
+    .mockResolvedValue(opts.existing ?? { status: 'running', resultSnapshot: null });
+  const outerFindUnique = jest
+    .fn()
+    .mockResolvedValue(opts.afterRollback ?? { resultSnapshot: null });
+
+  const tx = {
+    keywordAnalysis: { findUnique: txFindUnique, updateMany },
     resultSnapshot: { create },
     snapshotRow: { createMany },
-    keywordAnalysis: { update, findUnique },
+  };
+  const $transaction = jest.fn((cb: (t: typeof tx) => Promise<unknown>) => cb(tx));
+  const prisma = {
+    keywordAnalysis: { findUnique: outerFindUnique },
     $transaction,
   } as unknown as PrismaService;
-  return { service: new ResultSnapshotService(prisma), captured, $transaction, create, findUnique };
+
+  return {
+    service: new ResultSnapshotService(prisma),
+    captured,
+    create,
+    updateMany,
+    outerFindUnique,
+  };
 }
 
-describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7)', () => {
-  it('persists checksum + keywordCount to result_snapshots and backfills the analysis FK + completed status', async () => {
-    const { service, captured, $transaction } = buildService();
+describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7 / M3-R3)', () => {
+  it('persists checksum + keywordCount, rows, and conditionally completes the analysis', async () => {
+    const { service, captured, updateMany } = buildService();
     const rows = [row('coffee'), row('latte')];
 
     const out = await service.saveResult('a-1', rows);
 
-    // 落 DB：checksum + keywordCount 必在 result_snapshots（NFR-7，非僅 Redis）。
-    expect(captured.snapshot.data.checksum).toBe(computeChecksum(rows));
-    expect(captured.snapshot.data.keywordCount).toBe(2);
-    expect(captured.snapshot.data.analysisId).toBe('a-1');
-
-    // snapshot_rows：每列含 rowIndex + data。
-    expect(captured.rows.data).toHaveLength(2);
-    expect(captured.rows.data[0]).toMatchObject({ snapshotId: out.resultSnapshotId, rowIndex: 0 });
-    expect(captured.rows.data[1].rowIndex).toBe(1);
-
-    // job 回填 FK + status='completed'。
-    expect(captured.analysisUpdate.where.id).toBe('a-1');
-    expect(captured.analysisUpdate.data.resultSnapshotId).toBe(out.resultSnapshotId);
-    expect(captured.analysisUpdate.data.status).toBe('completed');
-
-    // 三寫一致的 snapshot id + 原子交易。
-    expect(captured.snapshot.data.id).toBe(out.resultSnapshotId);
-    expect($transaction).toHaveBeenCalledTimes(1);
-
+    expect(captured.snapshot?.data.checksum).toBe(computeChecksum(rows));
+    expect(captured.snapshot?.data.keywordCount).toBe(2);
+    expect(captured.rows?.data).toHaveLength(2);
+    // 條件更新：只在仍非終態時轉 completed（M3-R3 原子守門）。
+    expect(captured.updateMany?.where.status.notIn).toEqual(
+      expect.arrayContaining(['completed', 'failed', 'canceled']),
+    );
+    expect(captured.updateMany?.data.status).toBe('completed');
+    expect(updateMany).toHaveBeenCalledTimes(1);
     expect(out).toEqual({
-      resultSnapshotId: captured.snapshot.data.id,
+      resultSnapshotId: captured.snapshot?.data.id,
       count: 2,
       checksum: computeChecksum(rows),
     });
   });
 
-  it('writes an empty snapshot (count 0) without creating rows', async () => {
+  it('writes an empty snapshot (count 0) without rows', async () => {
     const { service, captured } = buildService();
     const out = await service.saveResult('a-2', []);
     expect(out.count).toBe(0);
-    expect(captured.snapshot.data.keywordCount).toBe(0);
-    expect(captured.rows.data).toHaveLength(0);
+    expect(captured.snapshot?.data.keywordCount).toBe(0);
+    expect(captured.rows?.data).toHaveLength(0);
   });
 
-  it('does not overwrite a terminal canceled/failed analysis to completed (cancel-vs-processor race)', async () => {
-    const { service, create, $transaction, findUnique } = buildService();
-    // 取消後 active job 仍跑完 → saveResult 看到 canceled，**不得**覆寫成 completed（§6.8 終態不可逆）。
-    findUnique.mockResolvedValueOnce({ status: 'canceled', resultSnapshot: null });
-
-    const out = await service.saveResult('a-1', [row('coffee')]);
-
-    expect(out).toEqual({ resultSnapshotId: null, count: 0, checksum: '' }); // 不固化
-    expect(create).not.toHaveBeenCalled();
-    expect($transaction).not.toHaveBeenCalled();
-  });
-
-  it('is idempotent under job retry: returns the existing snapshot, creates nothing (M2)', async () => {
-    const { service, create, findUnique, $transaction } = buildService();
-    // 重試時分析已 completed 且有 snapshot → 不得重建（否則孤兒 rows + FK 漂移）。
-    findUnique.mockResolvedValueOnce({
-      status: 'completed',
-      resultSnapshot: { id: 'snap-existing', keywordCount: 7, checksum: 'abc123' },
+  it('is idempotent under job retry: a completed analysis returns its existing snapshot, creates nothing', async () => {
+    const { service, create } = buildService({
+      existing: {
+        status: 'completed',
+        resultSnapshot: { id: 'snap-existing', keywordCount: 7, checksum: 'abc123' },
+      },
     });
 
     const out = await service.saveResult('a-1', [row('coffee')]);
 
     expect(out).toEqual({ resultSnapshotId: 'snap-existing', count: 7, checksum: 'abc123' });
     expect(create).not.toHaveBeenCalled();
-    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not materialize a snapshot for an already-canceled/failed analysis (no-op)', async () => {
+    const { service, create } = buildService({
+      existing: { status: 'canceled', resultSnapshot: null },
+    });
+
+    const out = await service.saveResult('a-1', [row('coffee')]);
+
+    expect(out).toEqual({ resultSnapshotId: null, count: 0, checksum: '' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rolls back and does not resurrect when the job goes terminal mid-transaction (TOCTOU, M3-R3)', async () => {
+    // tx 內守門讀到 running（未終態），但末筆 updateMany 命中 0 列 = cancel 在交易中途 commit canceled。
+    const { service, updateMany } = buildService({
+      existing: { status: 'running', resultSnapshot: null },
+      updateCount: 0,
+      afterRollback: { resultSnapshot: null }, // 回讀：canceled、無 snapshot
+    });
+
+    const out = await service.saveResult('a-1', [row('coffee')]);
+
+    // 條件 updateMany 命中 0 → 拋出回滾 → **不**轉 completed（無 resurrection），回讀回 no-op。
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ resultSnapshotId: null, count: 0, checksum: '' });
+  });
+
+  it('re-throws an unexpected transaction error (not a terminal race)', async () => {
+    const { service, create } = buildService();
+    create.mockRejectedValueOnce(new Error('db down'));
+    await expect(service.saveResult('a-1', [row('x')])).rejects.toThrow('db down');
   });
 });

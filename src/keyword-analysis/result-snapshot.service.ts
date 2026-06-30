@@ -26,45 +26,73 @@ export class ResultSnapshotService {
   constructor(private readonly prisma: PrismaService) {}
 
   async saveResult(analysisId: string, rows: SnapshotRowData[]): Promise<SaveResultOutcome> {
-    // 已終態（§6.8）不固化/不覆寫——終態不可逆：
-    // - completed + 既有 snapshot → 回既有（BullMQ job 重試冪等，M2；否則孤兒 rows + FK 漂移）；
-    // - canceled / failed → **不**轉 completed（cancel-vs-processor race：取消後 active job 仍跑完）。
-    const existing = await this.prisma.keywordAnalysis.findUnique({
-      where: { id: analysisId },
-      select: {
-        status: true,
-        resultSnapshot: { select: { id: true, keywordCount: true, checksum: true } },
-      },
-    });
-    if (existing && TERMINAL_STATUSES.has(existing.status)) {
-      const snap = existing.resultSnapshot;
-      return snap
-        ? { resultSnapshotId: snap.id, count: snap.keywordCount, checksum: snap.checksum }
-        : { resultSnapshotId: null, count: 0, checksum: '' };
-    }
-
     const checksum = computeChecksum(rows);
     const keywordCount = rows.length;
     const snapshotId = randomUUID();
 
-    await this.prisma.$transaction([
-      this.prisma.resultSnapshot.create({
-        data: { id: snapshotId, analysisId, keywordCount, checksum },
-      }),
-      this.prisma.snapshotRow.createMany({
-        data: rows.map((data, rowIndex) => ({
-          snapshotId,
-          analysisId,
-          rowIndex,
-          data: data as unknown as Prisma.InputJsonValue,
-        })),
-      }),
-      this.prisma.keywordAnalysis.update({
-        where: { id: analysisId },
-        data: { resultSnapshotId: snapshotId, status: 'completed', finishedAt: new Date() },
-      }),
-    ]);
+    // 終態守門 + 固化於**同一互動式交易**（M3-R3，TOCTOU 原子化，§6.8 終態不可逆）：
+    // - 進場已終態：completed+snapshot → 回既有（重試冪等，M2）；canceled/failed → no-op、不固化。
+    // - 中途被 cancel/fail：末筆**條件 updateMany（status notIn terminal）**命中 0 列 → 拋出回滾
+    //   （不留孤兒 snapshot），catch 後回讀現狀。避免 cancel-vs-processor resurrection。
+    const outcome = await this.prisma
+      .$transaction(async (tx) => {
+        const existing = await tx.keywordAnalysis.findUnique({
+          where: { id: analysisId },
+          select: {
+            status: true,
+            resultSnapshot: { select: { id: true, keywordCount: true, checksum: true } },
+          },
+        });
+        if (existing && TERMINAL_STATUSES.has(existing.status)) {
+          return terminalOutcomeFrom(existing.resultSnapshot);
+        }
 
-    return { resultSnapshotId: snapshotId, count: keywordCount, checksum };
+        await tx.resultSnapshot.create({
+          data: { id: snapshotId, analysisId, keywordCount, checksum },
+        });
+        await tx.snapshotRow.createMany({
+          data: rows.map((data, rowIndex) => ({
+            snapshotId,
+            analysisId,
+            rowIndex,
+            data: data as unknown as Prisma.InputJsonValue,
+          })),
+        });
+        const { count } = await tx.keywordAnalysis.updateMany({
+          where: { id: analysisId, status: { notIn: [...TERMINAL_STATUSES] } },
+          data: { resultSnapshotId: snapshotId, status: 'completed', finishedAt: new Date() },
+        });
+        if (count === 0) {
+          throw new TerminalRaceError(); // 中途終態 → 回滾整筆固化
+        }
+        return { resultSnapshotId: snapshotId, count: keywordCount, checksum };
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TerminalRaceError) {
+          return null; // 回滾後於 tx 外回讀現狀
+        }
+        throw error;
+      });
+
+    if (outcome) {
+      return outcome;
+    }
+    const row = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { resultSnapshot: { select: { id: true, keywordCount: true, checksum: true } } },
+    });
+    return terminalOutcomeFrom(row?.resultSnapshot ?? null);
   }
+}
+
+/** 固化交易中途偵測到終態（updateMany 命中 0 列）→ 拋此以回滾整筆固化（不留孤兒 snapshot）。 */
+class TerminalRaceError extends Error {}
+
+/** 既有 snapshot → 回既有 outcome；無 → no-op（canceled/failed 不固化）。 */
+function terminalOutcomeFrom(
+  snapshot: { id: string; keywordCount: number; checksum: string } | null,
+): SaveResultOutcome {
+  return snapshot
+    ? { resultSnapshotId: snapshot.id, count: snapshot.keywordCount, checksum: snapshot.checksum }
+    : { resultSnapshotId: null, count: 0, checksum: '' };
 }
