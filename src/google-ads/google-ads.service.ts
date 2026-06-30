@@ -99,6 +99,59 @@ export class GoogleAdsService {
   }
 
   /**
+   * 串流式拓展（T3.7，A/B overlap 來源，FR-12/NFR-1）：每個 Ads 批回應即 `yield` 該批**新發現**
+   * （first-occurrence 跨批去重）的關鍵字，未出現於任何結果的 seed 於結尾補一批（無指標、不漏輸入）。
+   * 供 processor 邊拓展邊貼標，讓 expand 與 label 階段時間重疊。
+   *
+   * 註：labeling 只看 `normalizedText`，故採 first-occurrence 去重即可；`expand()` 的跨批
+   * `seedOrigins` union / 指標 merge 仍由 `dedupeMerge` 為權威（snapshot 用，T3.10）。每批 Ads 呼叫
+   * 同樣經 `callAds`（T3.6 集中式限流器）。
+   */
+  async *expandStream(seeds: string[], params: ExpandParams): AsyncGenerator<Keyword[]> {
+    const seedKeys = new Set(seeds.map(normalizeText));
+    const seen = new Set<string>();
+    const batchSize = params.batchSize ?? this.config?.seedBatchSize;
+
+    for (const batch of chunkSeeds(seeds, batchSize)) {
+      const req = buildGenerateKeywordIdeasRequest(batch, params);
+      const results = await this.callAds(() => this.client.generateKeywordIdeas(req));
+      const batchOrigins = batch.map(normalizeText);
+      const fresh: KeywordCandidate[] = [];
+      for (const result of results) {
+        const normalized = normalizeText(result.text);
+        if (seen.has(normalized)) {
+          continue; // 跨批去重：只取首次出現。
+        }
+        seen.add(normalized);
+        const isSeed = seedKeys.has(normalized);
+        fresh.push({
+          text: result.text,
+          source: isSeed ? 'seed' : 'expanded',
+          metrics: this.toMetrics(result.keyword_idea_metrics, params.currencyCode),
+          seedOrigins: isSeed ? undefined : batchOrigins,
+        });
+      }
+      if (fresh.length > 0) {
+        yield dedupeMerge(fresh).map((kw) => this.flatten(kw, params));
+      }
+    }
+
+    // 未出現於任何結果的 seed → 結尾補無指標 seed 列。
+    const leftover: KeywordCandidate[] = [];
+    for (const text of seeds) {
+      const normalized = normalizeText(text);
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      leftover.push({ text, source: 'seed' });
+    }
+    if (leftover.length > 0) {
+      yield dedupeMerge(leftover).map((kw) => this.flatten(kw, params));
+    }
+  }
+
+  /**
    * 指定模式（FR-13，TC-34）：對使用者指定關鍵字取歷史指標，**不拓展**，輸出全部 `source='seed'`。
    *
    * - 批次 ≤ `GOOGLE_ADS_HISTORICAL_BATCH_SIZE`（預設 1000，硬上限 10,000）。

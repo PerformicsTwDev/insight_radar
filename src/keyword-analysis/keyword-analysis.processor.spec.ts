@@ -48,44 +48,61 @@ function buildPayload(overrides: Partial<AnalysisJobPayload> = {}): AnalysisJobP
   };
 }
 
+/** 把多批關鍵字包成 generator（模擬 expandStream 逐批產出；`for await` 接受 sync iterable）。 */
+function* gen(batches: Keyword[][]): Generator<Keyword[]> {
+  for (const batch of batches) {
+    yield batch;
+  }
+}
+
 interface Harness {
   processor: KeywordAnalysisProcessor;
-  expand: jest.Mock;
+  expandStream: jest.Mock;
   fetchHistorical: jest.Mock;
-  labelKeywords: jest.Mock;
+  labelStream: jest.Mock;
+  labeledTexts: string[];
 }
 
 function buildHarness(): Harness {
-  const expand = jest.fn().mockResolvedValue([keyword('running shoes'), keyword('trail shoes')]);
+  const expandStream = jest.fn(() => gen([[keyword('running shoes'), keyword('trail shoes')]]));
   const fetchHistorical = jest
     .fn()
     .mockResolvedValue([keyword('running shoes', { source: 'seed' })]);
-  // Matches the real IntentService.labelKeywords contract → LabeledKeyword[].
-  const labelKeywords = jest.fn().mockResolvedValue([
-    { keyword: 'running shoes', labels: ['commercial'] },
-    { keyword: 'trail shoes', labels: ['informational'] },
-  ]);
+  const labeledTexts: string[] = [];
+  // Matches IntentService.labelStream: drains the text batches, returns LabelResult.
+  const labelStream = jest.fn(async (batches: AsyncIterable<string[]>) => {
+    for await (const batch of batches) {
+      labeledTexts.push(...batch);
+    }
+    return {
+      labeled: labeledTexts.map((t) => ({ keyword: t, labels: ['informational'] })),
+      needsReview: [],
+    };
+  });
 
-  const ads = { expand, fetchHistoricalMetrics: fetchHistorical } as unknown as GoogleAdsService;
-  const intent = { labelKeywords } as unknown as IntentService;
+  const ads = {
+    expandStream,
+    fetchHistoricalMetrics: fetchHistorical,
+  } as unknown as GoogleAdsService;
+  const intent = { labelStream } as unknown as IntentService;
   const processor = new KeywordAnalysisProcessor(ads, intent);
 
-  return { processor, expand, fetchHistorical, labelKeywords };
+  return { processor, expandStream, fetchHistorical, labelStream, labeledTexts };
 }
 
-describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
+describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
   it('runs fetch → metrics → intent in order and reports progress ending at 100 (TC-11)', async () => {
-    const { processor, expand, labelKeywords } = buildHarness();
+    const { processor, expandStream, labelStream } = buildHarness();
     const job = fakeJob(buildPayload());
 
     const result = await processor.process(job as never);
 
-    // fetch happened before labeling
-    expect(expand).toHaveBeenCalledTimes(1);
-    expect(labelKeywords).toHaveBeenCalledTimes(1);
-    const expandOrder = expand.mock.invocationCallOrder[0];
-    const labelOrder = labelKeywords.mock.invocationCallOrder[0];
-    expect(expandOrder).toBeLessThan(labelOrder);
+    // expansion stream created before labeling consumes it
+    expect(expandStream).toHaveBeenCalledTimes(1);
+    expect(labelStream).toHaveBeenCalledTimes(1);
+    expect(expandStream.mock.invocationCallOrder[0]).toBeLessThan(
+      labelStream.mock.invocationCallOrder[0],
+    );
 
     // progress reported through phases, terminating at percent:100
     const progressCalls = job.updateProgress.mock.calls as Array<
@@ -99,8 +116,44 @@ describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
     expect(result).toEqual({ count: 2 });
   });
 
-  it('routes mode=expand to GoogleAdsService.expand only (TC-35)', async () => {
-    const { processor, expand, fetchHistorical } = buildHarness();
+  it('overlaps labeling with expansion — A/B pipeline (TC-33)', async () => {
+    const events: string[] = [];
+    let releaseBatch2!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseBatch2 = resolve;
+    });
+    async function* twoBatches(): AsyncGenerator<Keyword[]> {
+      events.push('expand:batch1');
+      yield [keyword('a')];
+      await gate; // 第二批拓展等待釋放
+      events.push('expand:batch2');
+      yield [keyword('b')];
+    }
+    const expandStream = jest.fn(() => twoBatches());
+    const labelStream = jest.fn(async (batches: AsyncIterable<string[]>) => {
+      for await (const batch of batches) {
+        events.push(`label:${batch.join(',')}`);
+        if (batch.includes('a')) {
+          releaseBatch2(); // 收到第一批即釋放第二批拓展
+        }
+      }
+      return { labeled: [], needsReview: [] };
+    });
+    const ads = {
+      expandStream,
+      fetchHistoricalMetrics: jest.fn(),
+    } as unknown as GoogleAdsService;
+    const intent = { labelStream } as unknown as IntentService;
+    const processor = new KeywordAnalysisProcessor(ads, intent);
+
+    await processor.process(fakeJob(buildPayload()) as never);
+
+    // 第一批貼標發生在第二批拓展之前 → 階段重疊（非「全拓展完才貼標」）。
+    expect(events.indexOf('label:a')).toBeLessThan(events.indexOf('expand:batch2'));
+  });
+
+  it('routes mode=expand to GoogleAdsService.expandStream only (TC-35)', async () => {
+    const { processor, expandStream, fetchHistorical } = buildHarness();
 
     await processor.process(
       fakeJob(
@@ -108,12 +161,12 @@ describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
       ) as never,
     );
 
-    expect(expand).toHaveBeenCalledTimes(1);
+    expect(expandStream).toHaveBeenCalledTimes(1);
     expect(fetchHistorical).not.toHaveBeenCalled();
   });
 
   it('routes mode=exact to GoogleAdsService.fetchHistoricalMetrics only (TC-35)', async () => {
-    const { processor, expand, fetchHistorical } = buildHarness();
+    const { processor, expandStream, fetchHistorical } = buildHarness();
 
     await processor.process(
       fakeJob(
@@ -122,27 +175,27 @@ describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
     );
 
     expect(fetchHistorical).toHaveBeenCalledTimes(1);
-    expect(expand).not.toHaveBeenCalled();
+    expect(expandStream).not.toHaveBeenCalled();
   });
 
-  it('passes seeds + params through to the fetch method', async () => {
-    const { processor, expand } = buildHarness();
+  it('passes seeds + params through to the fetch source', async () => {
+    const { processor, expandStream } = buildHarness();
     const payload = buildPayload();
 
     await processor.process(fakeJob(payload) as never);
 
-    expect(expand).toHaveBeenCalledWith(
+    expect(expandStream).toHaveBeenCalledWith(
       payload.seeds,
       expect.objectContaining({ geo: payload.params.geo }),
     );
   });
 
-  it('labels the fetched keywords by normalizedText', async () => {
-    const { processor, labelKeywords } = buildHarness();
+  it('feeds the fetched keywords to labeling by normalizedText', async () => {
+    const { processor, labeledTexts } = buildHarness();
 
     await processor.process(fakeJob(buildPayload()) as never);
 
-    expect(labelKeywords).toHaveBeenCalledWith(['running shoes', 'trail shoes']);
+    expect(labeledTexts).toEqual(['running shoes', 'trail shoes']);
   });
 
   it('logs (does not throw) on the failed worker event', () => {
@@ -153,7 +206,7 @@ describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
   });
 
   it('throws a clear error for an unknown mode (malformed payload, no TypeError loop)', async () => {
-    const { processor, expand, fetchHistorical } = buildHarness();
+    const { processor, expandStream, fetchHistorical } = buildHarness();
     const payload = buildPayload({
       params: { geo: 'g', language: 'l', mode: 'bogus' as never, includeAdult: false },
     });
@@ -161,7 +214,7 @@ describe('KeywordAnalysisProcessor (T3.5, TC-11/TC-35)', () => {
     await expect(processor.process(fakeJob(payload) as never)).rejects.toThrow(
       /Unknown analysis mode: bogus/,
     );
-    expect(expand).not.toHaveBeenCalled();
+    expect(expandStream).not.toHaveBeenCalled();
     expect(fetchHistorical).not.toHaveBeenCalled();
   });
 });
