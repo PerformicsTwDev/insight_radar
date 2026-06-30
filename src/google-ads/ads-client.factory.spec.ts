@@ -12,6 +12,9 @@ const CONFIG: GoogleAdsConfig = {
   customerId: '4445556666',
   seedBatchSize: 15,
   historicalBatchSize: 1000,
+  qps: 1,
+  adsMaxRetries: 5,
+  adsBackoffBaseMs: 5000,
 };
 
 describe('createAdsClient (T1.8)', () => {

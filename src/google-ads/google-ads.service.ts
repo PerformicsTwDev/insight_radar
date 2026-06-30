@@ -7,6 +7,8 @@ import {
 } from './ads-request.builder';
 import { ADS_CLIENT } from './ads-client.port';
 import type { AdsClient, RawKeywordIdeaMetrics } from './ads-client.port';
+import { ADS_RATE_LIMITER } from './ads-rate-limiter.constants';
+import type { AdsThrottle } from './ads-rate-limiter';
 import type { Keyword, KeywordCandidate, KeywordMetrics } from './keyword.types';
 import { mapCompetition, mapCompetitionIndex } from './mapping/map-competition';
 import { mapMetrics } from './mapping/map-metrics';
@@ -54,7 +56,21 @@ export class GoogleAdsService {
     @Optional()
     @Inject(googleAdsConfig.KEY)
     private readonly config?: ConfigType<typeof googleAdsConfig>,
+    // 集中式 per-CID ~1 QPS 限流器（T3.6）。`@Optional`：純映射/去重單元測試不注入則 pass-through；
+    // 正式 DI 一律提供（見 GoogleAdsModule），確保每個 Ads client 呼叫都被節流。
+    @Optional()
+    @Inject(ADS_RATE_LIMITER)
+    private readonly throttle?: AdsThrottle,
   ) {}
+
+  /** 包住每次 Ads client 呼叫：有限流器 → 經 per-CID 節流 + 退避；無 → 直接呼叫。 */
+  private callAds<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.throttle) {
+      return fn();
+    }
+    const cid = this.config?.customerId ?? 'default';
+    return this.throttle.schedule(cid, fn);
+  }
 
   async expand(seeds: string[], params: ExpandParams): Promise<Keyword[]> {
     const seedKeys = new Set(seeds.map(normalizeText));
@@ -64,7 +80,7 @@ export class GoogleAdsService {
     const batchSize = params.batchSize ?? this.config?.seedBatchSize;
     for (const batch of chunkSeeds(seeds, batchSize)) {
       const req = buildGenerateKeywordIdeasRequest(batch, params);
-      const results = await this.client.generateKeywordIdeas(req);
+      const results = await this.callAds(() => this.client.generateKeywordIdeas(req));
       const batchOrigins = batch.map(normalizeText);
       for (const result of results) {
         const normalized = normalizeText(result.text);
@@ -98,7 +114,7 @@ export class GoogleAdsService {
     const batchSize = params.batchSize ?? this.config?.historicalBatchSize;
     for (const batch of chunkHistorical(keywords, batchSize)) {
       const req = buildHistoricalMetricsRequest(batch, params);
-      const results = await this.client.generateKeywordHistoricalMetrics(req);
+      const results = await this.callAds(() => this.client.generateKeywordHistoricalMetrics(req));
       const batchKeys = batch.map(normalizeText);
       for (const result of results) {
         // 把此列對回它涵蓋的原始輸入（text 自身 + close_variants），限定在本批輸入內。

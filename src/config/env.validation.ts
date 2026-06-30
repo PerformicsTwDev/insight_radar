@@ -34,6 +34,9 @@ export const validationSchema = Joi.object({
   GOOGLE_ADS_SEED_BATCH_SIZE: Joi.number().integer().min(1).max(20).default(15),
   GOOGLE_ADS_HISTORICAL_BATCH_SIZE: Joi.number().integer().min(1).max(10000).default(1000),
   GOOGLE_ADS_QPS: Joi.number().positive().default(1),
+  // job 內 Ads 暫時性錯誤就地退避重試（與 BullMQ job-level JOB_ATTEMPTS 為兩個獨立維度；Design §11/§14）。
+  GOOGLE_ADS_MAX_RETRIES: Joi.number().integer().min(0).default(5),
+  GOOGLE_ADS_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(5000),
 
   // —— Azure OpenAI ——
   AZURE_OPENAI_ENDPOINT: Joi.string().uri().required(),

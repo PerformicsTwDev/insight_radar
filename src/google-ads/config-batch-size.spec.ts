@@ -38,6 +38,9 @@ const config = (seed: number, historical: number): GoogleAdsConfig => ({
   customerId: '1234567890',
   seedBatchSize: seed,
   historicalBatchSize: historical,
+  qps: 1,
+  adsMaxRetries: 5,
+  adsBackoffBaseMs: 5000,
 });
 
 describe('GoogleAdsService batch size from config (M1-R3)', () => {
