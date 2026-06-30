@@ -53,6 +53,19 @@ export class MetricsCache {
     }
   }
 
+  /**
+   * 讀取 best-effort（cache-aside，M4-R2）：快取/後備**讀取錯誤 = miss**（回 `fallback`），降級落 origin（Ads），
+   * **不**拖垮 job——與寫入 best-effort 對稱。讀取失敗只是少一次命中，不應讓已付費的 job 失敗、重打全部 Ads。
+   */
+  private async bestEffortRead<T>(work: Promise<T>, fallback: T, context: string): Promise<T> {
+    try {
+      return await work;
+    } catch (error) {
+      this.logger.warn(`${context} failed (best-effort): ${scrubSecrets(String(error))}`);
+      return fallback;
+    }
+  }
+
   /** 批次查 metrics（依 `normalizedTexts` 對齊；Redis miss 落 DB 後備、命中即 warm Redis；皆 miss = `undefined`）。 */
   async mget(
     normalizedTexts: string[],
@@ -61,8 +74,11 @@ export class MetricsCache {
     if (normalizedTexts.length === 0) {
       return [];
     }
-    const redis = await this.cache.mget<Keyword>(
-      normalizedTexts.map((nt) => this.keyFor(params, nt)),
+    // Redis 讀取 best-effort：錯誤 = 全 miss（落 DB 後備 / origin），不拖垮 job（M4-R2）。
+    const redis = await this.bestEffortRead<(Keyword | undefined)[]>(
+      this.cache.mget<Keyword>(normalizedTexts.map((nt) => this.keyFor(params, nt))),
+      normalizedTexts.map(() => undefined),
+      'metrics cache read',
     );
 
     const missNts = normalizedTexts.filter((_nt, i) => redis[i] === undefined);
@@ -70,13 +86,18 @@ export class MetricsCache {
       return redis;
     }
     // DB 後備：以 [geo, language, normalizedText] 查 canonical；命中回填 Redis（Redis 失效不重打 Ads）。
-    const rows = await this.prisma.keyword.findMany({
-      where: {
-        geo: params.geo,
-        language: params.language,
-        normalizedText: { in: [...new Set(missNts)] },
-      },
-    });
+    // 讀取 best-effort：DB 錯誤 = 無後備命中（caller 落 origin），不拖垮 job（M4-R2）。
+    const rows = await this.bestEffortRead(
+      this.prisma.keyword.findMany({
+        where: {
+          geo: params.geo,
+          language: params.language,
+          normalizedText: { in: [...new Set(missNts)] },
+        },
+      }),
+      [] as KeywordRow[],
+      'metrics DB fallback read',
+    );
     const dbByNt = new Map(rows.map((r) => [r.normalizedText, rowToKeyword(r)]));
     // warm Redis：best-effort——暖機失敗不可拖垮這次成功的讀取（T4.6）。
     await this.bestEffort(
