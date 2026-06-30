@@ -1,6 +1,7 @@
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { IntentService } from '../intent/intent.service';
+import { PrismaService } from '../prisma';
 import { KeywordAnalysisProcessor } from './keyword-analysis.processor';
 import { ResultSnapshotService } from './result-snapshot.service';
 import type { AnalysisJobPayload } from './keyword-analysis.service';
@@ -71,6 +72,7 @@ interface Harness {
   fetchHistorical: jest.Mock;
   labelStream: jest.Mock;
   saveResult: jest.Mock;
+  prismaUpdateMany: jest.Mock;
   labeledTexts: string[];
 }
 
@@ -100,6 +102,8 @@ function buildHarness(): Harness {
     Promise.resolve({ resultSnapshotId: 'snap-1', count: rows.length, checksum: 'sum' }),
   );
 
+  const prismaUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+
   const ads = {
     expandStreamRaw,
     mergeExpansion,
@@ -107,7 +111,10 @@ function buildHarness(): Harness {
   } as unknown as GoogleAdsService;
   const intent = { labelStream } as unknown as IntentService;
   const snapshots = { saveResult } as unknown as ResultSnapshotService;
-  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots);
+  const prisma = {
+    keywordAnalysis: { updateMany: prismaUpdateMany },
+  } as unknown as PrismaService;
+  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma);
 
   return {
     processor,
@@ -116,6 +123,7 @@ function buildHarness(): Harness {
     fetchHistorical,
     labelStream,
     saveResult,
+    prismaUpdateMany,
     labeledTexts,
   };
 }
@@ -176,7 +184,10 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     const snapshots = {
       saveResult: jest.fn().mockResolvedValue({ resultSnapshotId: 's', count: 2, checksum: 'x' }),
     } as unknown as ResultSnapshotService;
-    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots);
+    const prisma = {
+      keywordAnalysis: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    } as unknown as PrismaService;
+    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots, prisma);
 
     await processor.process(fakeJob(buildPayload()) as never);
 
@@ -244,11 +255,73 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     ]);
   });
 
-  it('logs (does not throw) on the failed worker event', () => {
+  it('logs and persists without throwing on the failed worker event', async () => {
     const { processor } = buildHarness();
     const job = fakeJob(buildPayload());
 
-    expect(() => processor.onFailed(job as never, new Error('boom'))).not.toThrow();
+    await expect(processor.onFailed(job as never, new Error('boom'))).resolves.toBeUndefined();
+  });
+
+  describe('advances the DB state machine (M3-R1)', () => {
+    interface UpdateManyArg {
+      where: { id: string; status?: { notIn: string[] } };
+      data: { status?: string; error?: string; progress?: { phase: string; percent: number } };
+    }
+    const argsOf = (mock: jest.Mock): UpdateManyArg[] =>
+      (mock.mock.calls as unknown[][]).map((call) => call[0] as UpdateManyArg);
+
+    it('marks running + startedAt at job start (conditional, not overwriting terminal)', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      await processor.process(fakeJob(buildPayload()) as never);
+
+      const running = argsOf(prismaUpdateMany).find((a) => a.data.status === 'running');
+      expect(running).toBeDefined();
+      expect(running?.where.id).toBe('a-1');
+      expect(running?.where.status?.notIn).toEqual(
+        expect.arrayContaining(['completed', 'failed', 'canceled']),
+      );
+    });
+
+    it('mirrors progress to the DB (poll source of truth), ending at intent/100', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      await processor.process(fakeJob(buildPayload()) as never);
+
+      const progress = argsOf(prismaUpdateMany)
+        .map((a) => a.data.progress)
+        .filter((p): p is { phase: string; percent: number } => p !== undefined);
+      expect(progress.length).toBeGreaterThan(0);
+      expect(progress.at(-1)).toMatchObject({ phase: 'intent', percent: 100 });
+    });
+
+    it('persists status=failed + error on the failed worker event (FR-8 poll)', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      prismaUpdateMany.mockClear();
+
+      await processor.onFailed(fakeJob(buildPayload()) as never, new Error('boom'));
+
+      const failed = argsOf(prismaUpdateMany).find((a) => a.data.status === 'failed');
+      expect(failed?.data.error).toBe('boom');
+      expect(failed?.where.status?.notIn).toEqual(
+        expect.arrayContaining(['completed', 'failed', 'canceled']),
+      );
+    });
+
+    it('skips the failed-status write when the job has no analysisId', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      prismaUpdateMany.mockClear();
+      await processor.onFailed({ id: 'x', data: {} } as never, new Error('boom'));
+      expect(prismaUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('swallows a persist error on the failed event (logs, never re-throws into the worker)', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      prismaUpdateMany.mockRejectedValueOnce(new Error('db down'));
+
+      // onFailed 自身不得拋——再拋會讓 worker 的 failed 事件處理崩潰（吞錯只記 log）。
+      await expect(
+        processor.onFailed(fakeJob(buildPayload()) as never, new Error('boom')),
+      ).resolves.toBeUndefined();
+    });
   });
 
   it('throws a clear error for an unknown mode (malformed payload, no TypeError loop)', async () => {
