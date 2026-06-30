@@ -1,5 +1,5 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import type { Cache } from 'cache-manager';
 
 /**
@@ -16,8 +16,13 @@ interface Envelope<T> {
  * 所有 TTL 一律**毫秒**（cache-manager v6 / Keyv 原生單位）。
  */
 @Injectable()
-export class CacheService {
+export class CacheService implements OnModuleDestroy {
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
+
+  /** Graceful shutdown（T3.11/NFR-9）：收回底層 Keyv/Redis 連線（測試為記憶體 Keyv → no-op；防洩漏/hang）。 */
+  async onModuleDestroy(): Promise<void> {
+    await this.cache.disconnect();
+  }
 
   /** 以 `:` 串接 namespace 與片段作為 cache key（如 `metrics:cid:hash`）。 */
   buildKey(namespace: string, ...parts: (string | number)[]): string {

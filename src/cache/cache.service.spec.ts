@@ -16,6 +16,13 @@ describe('CacheService', () => {
     expect(service.buildKey('intent', 42)).toBe('intent:42');
   });
 
+  it('disconnects the cache on module destroy (NFR-9 / TC-26, no connection leak)', async () => {
+    const disconnect = jest.fn().mockResolvedValue(undefined);
+    const service = new CacheService({ disconnect } as unknown as Cache);
+    await service.onModuleDestroy();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('set then get round-trips a value', async () => {
     const service = makeService();
     await service.set('k', { a: 1 });
