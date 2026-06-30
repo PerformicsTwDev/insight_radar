@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -65,6 +66,13 @@ export class KeywordAnalysisController {
   @Get(':id')
   getStatus(@Param('id') id: string): Promise<AnalysisStatusResponse> {
     return this.service.getStatus(id);
+  }
+
+  /** 取消分析（T3.12，FR-8）。不存在 → 404；回最終 `status`（canceled，或已終態則回現狀）。 */
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  cancel(@Param('id') id: string): Promise<{ status: AnalysisStatus }> {
+    return this.service.cancel(id);
   }
 
   /**

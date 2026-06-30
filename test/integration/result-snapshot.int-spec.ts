@@ -59,9 +59,10 @@ describe('ResultSnapshotService (integration · Testcontainers Postgres, T3.10 /
     const rows = [row('coffee'), row('latte')];
 
     const out = await service.saveResult(analysisId, rows);
+    expect(out.resultSnapshotId).not.toBeNull(); // 非終態 → 必固化
 
     const snap = await prisma.resultSnapshot.findUnique({
-      where: { id: out.resultSnapshotId },
+      where: { id: out.resultSnapshotId as string },
       include: { rows: true },
     });
     expect(snap?.checksum).toBe(computeChecksum(rows)); // checksum + count 落 DB（非僅 Redis）
@@ -81,7 +82,7 @@ describe('ResultSnapshotService (integration · Testcontainers Postgres, T3.10 /
     const out = await service.saveResult(analysisId, rows);
 
     const persisted = await prisma.snapshotRow.findMany({
-      where: { snapshotId: out.resultSnapshotId },
+      where: { snapshotId: out.resultSnapshotId as string },
       orderBy: { rowIndex: 'asc' },
     });
     const readBack = persisted.map((r) => r.data as unknown as SnapshotRowData);

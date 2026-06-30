@@ -68,6 +68,11 @@ class FakePrisma {
       if (idx >= 0) this.rows.splice(idx, 1);
       return Promise.resolve(undefined);
     }),
+    update: jest.fn((args: { where: { id: string }; data: Partial<Row> }) => {
+      const row = this.rows.find((r) => r.id === args.where.id);
+      if (row) Object.assign(row, args.data);
+      return Promise.resolve(row ?? null);
+    }),
   };
 }
 
@@ -85,6 +90,7 @@ interface Harness {
   prisma: FakePrisma;
   queueAdd: jest.Mock;
   queueGetJob: jest.Mock;
+  queueRemove: jest.Mock;
 }
 
 async function buildHarness(queueAdd?: jest.Mock): Promise<Harness> {
@@ -92,11 +98,12 @@ async function buildHarness(queueAdd?: jest.Mock): Promise<Harness> {
   const prisma = new FakePrisma();
   const add = queueAdd ?? jest.fn().mockResolvedValue({ id: 'job-1' });
   const getJob = jest.fn();
+  const remove = jest.fn().mockResolvedValue(undefined);
 
   const moduleRef = await Test.createTestingModule({
     providers: [
       KeywordAnalysisService,
-      { provide: getQueueToken(KEYWORD_ANALYSIS_QUEUE), useValue: { add, getJob } },
+      { provide: getQueueToken(KEYWORD_ANALYSIS_QUEUE), useValue: { add, getJob, remove } },
       { provide: CacheService, useValue: cache },
       { provide: PrismaService, useValue: prisma },
       { provide: queueConfig.KEY, useValue: QUEUE_CONFIG },
@@ -109,6 +116,7 @@ async function buildHarness(queueAdd?: jest.Mock): Promise<Harness> {
     prisma,
     queueAdd: add,
     queueGetJob: getJob,
+    queueRemove: remove,
   };
 }
 
@@ -363,5 +371,51 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     const res = await service.getStatus('id-1');
 
     expect(res.progress).toEqual({ phase: 'queued', percent: 0 });
+  });
+});
+
+describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
+  it('cancels an in-progress job: status=canceled + releases the queue job', async () => {
+    const { service, prisma, queueRemove } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'running' });
+
+    const out = await service.cancel('id-1');
+
+    expect(out).toEqual({ status: 'canceled' });
+    expect(prisma.rows[0].status).toBe('canceled');
+    expect(queueRemove).toHaveBeenCalledWith('id-1'); // jobId === analysisId
+  });
+
+  it('cancels a queued job too', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'queued' });
+    expect((await service.cancel('id-1')).status).toBe('canceled');
+  });
+
+  it('throws NotFound (404) for an unknown analysisId', async () => {
+    const { service } = await buildHarness();
+    await expect(service.cancel('ghost')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('does not re-cancel a terminal job (returns current status, no queue removal)', async () => {
+    const { service, prisma, queueRemove } = await buildHarness();
+    seedRow(prisma, { id: 'id-1', status: 'completed' });
+
+    const out = await service.cancel('id-1');
+
+    expect(out).toEqual({ status: 'completed' });
+    expect(prisma.rows[0].status).toBe('completed'); // 不覆寫已完成
+    expect(queueRemove).not.toHaveBeenCalled();
+  });
+
+  it('tolerates a queue removal failure (DB status is the authoritative signal)', async () => {
+    const { service, prisma, queueRemove } = await buildHarness();
+    queueRemove.mockRejectedValueOnce(new Error('job is locked'));
+    seedRow(prisma, { id: 'id-1', status: 'running' });
+
+    const out = await service.cancel('id-1');
+
+    expect(out).toEqual({ status: 'canceled' });
+    expect(prisma.rows[0].status).toBe('canceled');
   });
 });

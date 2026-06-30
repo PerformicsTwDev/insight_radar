@@ -93,6 +93,18 @@ describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7)', () => {
     expect(captured.rows.data).toHaveLength(0);
   });
 
+  it('does not overwrite a terminal canceled/failed analysis to completed (cancel-vs-processor race)', async () => {
+    const { service, create, $transaction, findUnique } = buildService();
+    // 取消後 active job 仍跑完 → saveResult 看到 canceled，**不得**覆寫成 completed（§6.8 終態不可逆）。
+    findUnique.mockResolvedValueOnce({ status: 'canceled', resultSnapshot: null });
+
+    const out = await service.saveResult('a-1', [row('coffee')]);
+
+    expect(out).toEqual({ resultSnapshotId: null, count: 0, checksum: '' }); // 不固化
+    expect(create).not.toHaveBeenCalled();
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
   it('is idempotent under job retry: returns the existing snapshot, creates nothing (M2)', async () => {
     const { service, create, findUnique, $transaction } = buildService();
     // 重試時分析已 completed 且有 snapshot → 不得重建（否則孤兒 rows + FK 漂移）。
