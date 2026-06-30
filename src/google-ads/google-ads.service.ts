@@ -73,82 +73,51 @@ export class GoogleAdsService {
   }
 
   async expand(seeds: string[], params: ExpandParams): Promise<Keyword[]> {
-    const seedKeys = new Set(seeds.map(normalizeText));
-    // 使用者原字一律納入（source=seed）。
-    const candidates: KeywordCandidate[] = seeds.map((text) => ({ text, source: 'seed' }));
-
-    const batchSize = params.batchSize ?? this.config?.seedBatchSize;
-    for (const batch of chunkSeeds(seeds, batchSize)) {
-      const req = buildGenerateKeywordIdeasRequest(batch, params);
-      const results = await this.callAds(() => this.client.generateKeywordIdeas(req));
-      const batchOrigins = batch.map(normalizeText);
-      for (const result of results) {
-        const normalized = normalizeText(result.text);
-        const isSeed = seedKeys.has(normalized);
-        candidates.push({
-          text: result.text,
-          source: isSeed ? 'seed' : 'expanded',
-          metrics: this.toMetrics(result.keyword_idea_metrics, params.currencyCode),
-          // 拓展字記 seedOrigins = 產生它的那批 seeds（跨批由 dedupeMerge union）。
-          seedOrigins: isSeed ? undefined : batchOrigins,
-        });
-      }
+    const candidates: KeywordCandidate[] = [];
+    for await (const batch of this.expandStreamRaw(seeds, params)) {
+      candidates.push(...batch);
     }
-
-    return dedupeMerge(candidates).map((kw) => this.flatten(kw, params));
+    return this.mergeExpansion(candidates, params);
   }
 
   /**
-   * 串流式拓展（T3.7，A/B overlap 來源，FR-12/NFR-1）：每個 Ads 批回應即 `yield` 該批**新發現**
-   * （first-occurrence 跨批去重）的關鍵字，未出現於任何結果的 seed 於結尾補一批（無指標、不漏輸入）。
-   * 供 processor 邊拓展邊貼標，讓 expand 與 label 階段時間重疊。
-   *
-   * 註：labeling 只看 `normalizedText`，故採 first-occurrence 去重即可；`expand()` 的跨批
-   * `seedOrigins` union / 指標 merge 仍由 `dedupeMerge` 為權威（snapshot 用，T3.10）。每批 Ads 呼叫
-   * 同樣經 `callAds`（T3.6 集中式限流器）。
+   * 串流式拓展**原始候選**（T3.7 A/B overlap 來源，FR-12/NFR-1）：先 `yield` 使用者 seed 候選，
+   * 再每個 Ads 批回應即 `yield` 該批 result 候選（含指標）。**不去重、不攤平**——交由消費端：
+   * labeling 取 `normalizedText`（first-occurrence 即可），snapshot 用 {@link mergeExpansion}
+   * （`dedupeMerge` 權威：跨批 union `seedOrigins` 並**擇非空指標**，T3.10/FR-2/FR-6）。
+   * 每批 Ads 呼叫經 `callAds`（T3.6 集中式限流器）。
    */
-  async *expandStream(seeds: string[], params: ExpandParams): AsyncGenerator<Keyword[]> {
-    const seedKeys = new Set(seeds.map(normalizeText));
-    const seen = new Set<string>();
-    const batchSize = params.batchSize ?? this.config?.seedBatchSize;
+  async *expandStreamRaw(
+    seeds: string[],
+    params: ExpandParams,
+  ): AsyncGenerator<KeywordCandidate[]> {
+    // 使用者原字一律納入（source=seed、無指標）；與 expand() 一致、不漏輸入。
+    yield seeds.map((text) => ({ text, source: 'seed' as const }));
 
+    const seedKeys = new Set(seeds.map(normalizeText));
+    const batchSize = params.batchSize ?? this.config?.seedBatchSize;
     for (const batch of chunkSeeds(seeds, batchSize)) {
       const req = buildGenerateKeywordIdeasRequest(batch, params);
       const results = await this.callAds(() => this.client.generateKeywordIdeas(req));
       const batchOrigins = batch.map(normalizeText);
-      const fresh: KeywordCandidate[] = [];
-      for (const result of results) {
-        const normalized = normalizeText(result.text);
-        if (seen.has(normalized)) {
-          continue; // 跨批去重：只取首次出現。
-        }
-        seen.add(normalized);
-        const isSeed = seedKeys.has(normalized);
-        fresh.push({
+      yield results.map((result): KeywordCandidate => {
+        const isSeed = seedKeys.has(normalizeText(result.text));
+        return {
           text: result.text,
           source: isSeed ? 'seed' : 'expanded',
           metrics: this.toMetrics(result.keyword_idea_metrics, params.currencyCode),
           seedOrigins: isSeed ? undefined : batchOrigins,
-        });
-      }
-      if (fresh.length > 0) {
-        yield dedupeMerge(fresh).map((kw) => this.flatten(kw, params));
-      }
+        };
+      });
     }
+  }
 
-    // 未出現於任何結果的 seed → 結尾補無指標 seed 列。
-    const leftover: KeywordCandidate[] = [];
-    for (const text of seeds) {
-      const normalized = normalizeText(text);
-      if (seen.has(normalized)) {
-        continue;
-      }
-      seen.add(normalized);
-      leftover.push({ text, source: 'seed' });
-    }
-    if (leftover.length > 0) {
-      yield dedupeMerge(leftover).map((kw) => this.flatten(kw, params));
-    }
+  /**
+   * 權威合併（snapshot 真實來源，T3.10/NFR-7）：跨批 `dedupeMerge`（union `seedOrigins`、**擇非空指標**）
+   * + 攤平為 `Keyword[]`。消費端累積 {@link expandStreamRaw} 的所有候選後呼叫之，**不重打 Ads**。
+   */
+  mergeExpansion(candidates: KeywordCandidate[], params: ExpandParams): Keyword[] {
+    return dedupeMerge(candidates).map((kw) => this.flatten(kw, params));
   }
 
   /**

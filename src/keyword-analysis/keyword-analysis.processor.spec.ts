@@ -1,7 +1,8 @@
 import { GoogleAdsService } from '../google-ads/google-ads.service';
-import type { Keyword } from '../google-ads/keyword.types';
+import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { IntentService } from '../intent/intent.service';
 import { KeywordAnalysisProcessor } from './keyword-analysis.processor';
+import { ResultSnapshotService } from './result-snapshot.service';
 import type { AnalysisJobPayload } from './keyword-analysis.service';
 
 function keyword(text: string, overrides: Partial<Keyword> = {}): Keyword {
@@ -48,23 +49,38 @@ function buildPayload(overrides: Partial<AnalysisJobPayload> = {}): AnalysisJobP
   };
 }
 
-/** 把多批關鍵字包成 generator（模擬 expandStream 逐批產出；`for await` 接受 sync iterable）。 */
-function* gen(batches: Keyword[][]): Generator<Keyword[]> {
+function candidate(text: string): KeywordCandidate {
+  return { text, source: 'expanded' };
+}
+
+/** 把多批候選包成 generator（模擬 expandStreamRaw 逐批產出；`for await` 接受 sync iterable）。 */
+function* candGen(batches: KeywordCandidate[][]): Generator<KeywordCandidate[]> {
   for (const batch of batches) {
     yield batch;
   }
 }
 
+interface SavedRow {
+  normalizedText: string;
+  intent: string[];
+}
 interface Harness {
   processor: KeywordAnalysisProcessor;
-  expandStream: jest.Mock;
+  expandStreamRaw: jest.Mock;
+  mergeExpansion: jest.Mock;
   fetchHistorical: jest.Mock;
   labelStream: jest.Mock;
+  saveResult: jest.Mock;
   labeledTexts: string[];
 }
 
 function buildHarness(): Harness {
-  const expandStream = jest.fn(() => gen([[keyword('running shoes'), keyword('trail shoes')]]));
+  // 候選 text 為混合大小寫（'Running Shoes'）→ normalizeText 'running shoes'：驗證合併以 normalizedText 為 key。
+  const expandStreamRaw = jest.fn(() =>
+    candGen([[candidate('Running Shoes'), candidate('trail shoes')]]),
+  );
+  // mergeExpansion 回權威 Keyword[]（normalizedText = lowercase）。
+  const mergeExpansion = jest.fn(() => [keyword('Running Shoes'), keyword('trail shoes')]);
   const fetchHistorical = jest
     .fn()
     .mockResolvedValue([keyword('running shoes', { source: 'seed' })]);
@@ -79,30 +95,41 @@ function buildHarness(): Harness {
       needsReview: [],
     };
   });
+  // Matches ResultSnapshotService.saveResult: count = rows.length, returns the snapshot id.
+  const saveResult = jest.fn((_analysisId: string, rows: SavedRow[]) =>
+    Promise.resolve({ resultSnapshotId: 'snap-1', count: rows.length, checksum: 'sum' }),
+  );
 
   const ads = {
-    expandStream,
+    expandStreamRaw,
+    mergeExpansion,
     fetchHistoricalMetrics: fetchHistorical,
   } as unknown as GoogleAdsService;
   const intent = { labelStream } as unknown as IntentService;
-  const processor = new KeywordAnalysisProcessor(ads, intent);
+  const snapshots = { saveResult } as unknown as ResultSnapshotService;
+  const processor = new KeywordAnalysisProcessor(ads, intent, snapshots);
 
-  return { processor, expandStream, fetchHistorical, labelStream, labeledTexts };
+  return {
+    processor,
+    expandStreamRaw,
+    mergeExpansion,
+    fetchHistorical,
+    labelStream,
+    saveResult,
+    labeledTexts,
+  };
 }
 
 describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
   it('runs fetch → metrics → intent in order and reports progress ending at 100 (TC-11)', async () => {
-    const { processor, expandStream, labelStream } = buildHarness();
+    const { processor, expandStreamRaw, labelStream } = buildHarness();
     const job = fakeJob(buildPayload());
 
     const result = await processor.process(job as never);
 
-    // expansion stream created before labeling consumes it
-    expect(expandStream).toHaveBeenCalledTimes(1);
+    // expansion + labeling both run (labelStream drives the raw stream lazily → overlap; see TC-33)
+    expect(expandStreamRaw).toHaveBeenCalledTimes(1);
     expect(labelStream).toHaveBeenCalledTimes(1);
-    expect(expandStream.mock.invocationCallOrder[0]).toBeLessThan(
-      labelStream.mock.invocationCallOrder[0],
-    );
 
     // progress reported through phases, terminating at percent:100
     const progressCalls = job.updateProgress.mock.calls as Array<
@@ -122,14 +149,15 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     const gate = new Promise<void>((resolve) => {
       releaseBatch2 = resolve;
     });
-    async function* twoBatches(): AsyncGenerator<Keyword[]> {
+    async function* twoBatches(): AsyncGenerator<KeywordCandidate[]> {
       events.push('expand:batch1');
-      yield [keyword('a')];
+      yield [candidate('a')];
       await gate; // 第二批拓展等待釋放
       events.push('expand:batch2');
-      yield [keyword('b')];
+      yield [candidate('b')];
     }
-    const expandStream = jest.fn(() => twoBatches());
+    const expandStreamRaw = jest.fn(() => twoBatches());
+    const mergeExpansion = jest.fn(() => []);
     const labelStream = jest.fn(async (batches: AsyncIterable<string[]>) => {
       for await (const batch of batches) {
         events.push(`label:${batch.join(',')}`);
@@ -140,11 +168,15 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       return { labeled: [], needsReview: [] };
     });
     const ads = {
-      expandStream,
+      expandStreamRaw,
+      mergeExpansion,
       fetchHistoricalMetrics: jest.fn(),
     } as unknown as GoogleAdsService;
     const intent = { labelStream } as unknown as IntentService;
-    const processor = new KeywordAnalysisProcessor(ads, intent);
+    const snapshots = {
+      saveResult: jest.fn().mockResolvedValue({ resultSnapshotId: 's', count: 2, checksum: 'x' }),
+    } as unknown as ResultSnapshotService;
+    const processor = new KeywordAnalysisProcessor(ads, intent, snapshots);
 
     await processor.process(fakeJob(buildPayload()) as never);
 
@@ -152,8 +184,8 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     expect(events.indexOf('label:a')).toBeLessThan(events.indexOf('expand:batch2'));
   });
 
-  it('routes mode=expand to GoogleAdsService.expandStream only (TC-35)', async () => {
-    const { processor, expandStream, fetchHistorical } = buildHarness();
+  it('routes mode=expand to GoogleAdsService.expandStreamRaw only (TC-35)', async () => {
+    const { processor, expandStreamRaw, fetchHistorical } = buildHarness();
 
     await processor.process(
       fakeJob(
@@ -161,12 +193,12 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       ) as never,
     );
 
-    expect(expandStream).toHaveBeenCalledTimes(1);
+    expect(expandStreamRaw).toHaveBeenCalledTimes(1);
     expect(fetchHistorical).not.toHaveBeenCalled();
   });
 
   it('routes mode=exact to GoogleAdsService.fetchHistoricalMetrics only (TC-35)', async () => {
-    const { processor, expandStream, fetchHistorical } = buildHarness();
+    const { processor, expandStreamRaw, fetchHistorical } = buildHarness();
 
     await processor.process(
       fakeJob(
@@ -175,16 +207,16 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     );
 
     expect(fetchHistorical).toHaveBeenCalledTimes(1);
-    expect(expandStream).not.toHaveBeenCalled();
+    expect(expandStreamRaw).not.toHaveBeenCalled();
   });
 
   it('passes seeds + params through to the fetch source', async () => {
-    const { processor, expandStream } = buildHarness();
+    const { processor, expandStreamRaw } = buildHarness();
     const payload = buildPayload();
 
     await processor.process(fakeJob(payload) as never);
 
-    expect(expandStream).toHaveBeenCalledWith(
+    expect(expandStreamRaw).toHaveBeenCalledWith(
       payload.seeds,
       expect.objectContaining({ geo: payload.params.geo }),
     );
@@ -198,6 +230,20 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     expect(labeledTexts).toEqual(['running shoes', 'trail shoes']);
   });
 
+  it('persists a snapshot with keywords merged with their intent labels (T3.10)', async () => {
+    const { processor, saveResult } = buildHarness();
+
+    await processor.process(fakeJob(buildPayload()) as never);
+
+    expect(saveResult).toHaveBeenCalledTimes(1);
+    const [analysisId, rows] = saveResult.mock.calls[0] as [string, SavedRow[]];
+    expect(analysisId).toBe('a-1');
+    expect(rows).toEqual([
+      expect.objectContaining({ normalizedText: 'running shoes', intent: ['informational'] }),
+      expect.objectContaining({ normalizedText: 'trail shoes', intent: ['informational'] }),
+    ]);
+  });
+
   it('logs (does not throw) on the failed worker event', () => {
     const { processor } = buildHarness();
     const job = fakeJob(buildPayload());
@@ -206,7 +252,7 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
   });
 
   it('throws a clear error for an unknown mode (malformed payload, no TypeError loop)', async () => {
-    const { processor, expandStream, fetchHistorical } = buildHarness();
+    const { processor, expandStreamRaw, fetchHistorical } = buildHarness();
     const payload = buildPayload({
       params: { geo: 'g', language: 'l', mode: 'bogus' as never, includeAdult: false },
     });
@@ -214,7 +260,7 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     await expect(processor.process(fakeJob(payload) as never)).rejects.toThrow(
       /Unknown analysis mode: bogus/,
     );
-    expect(expandStream).not.toHaveBeenCalled();
+    expect(expandStreamRaw).not.toHaveBeenCalled();
     expect(fetchHistorical).not.toHaveBeenCalled();
   });
 });
