@@ -7,6 +7,7 @@ import type { App } from 'supertest/types';
 import { configureApp } from 'src/bootstrap';
 import { AppModule } from 'src/app.module';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
+import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
 
@@ -40,6 +41,10 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       // back to a real Redis (ECONNREFUSED on CI). ioredis-mock keeps it fully in-memory.
       .overrideProvider(BULL_CONNECTION)
       .useValue(new RedisMock())
+      .overrideProvider(JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(JOB_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(PrismaService)
       .useValue({
         keywordAnalysis: { create: prismaCreate, findUnique: prismaFindUnique, delete: jest.fn() },
@@ -230,6 +235,34 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
 
     it('requires x-api-key (401 without)', async () => {
       const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses/some-id');
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('GET /keyword-analyses/:id/stream (TC-18, SSE) — §6.3 wire format over HTTP', () => {
+    it('emits an "event: completed" SSE frame with {resultSnapshotId,count} for a finished job', async () => {
+      prismaFindUnique.mockResolvedValueOnce({
+        id: 'done',
+        status: 'completed',
+        progress: { phase: 'done', percent: 100 },
+        resultSnapshot: { id: 'snap-7', keywordCount: 1980 },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/done/stream')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/event-stream');
+      // 終態短路 → 單筆 §6.3 completed 事件 + complete（連線收尾）。
+      expect(res.text).toContain('event: completed');
+      expect(res.text).toContain('"resultSnapshotId":"snap-7"');
+      expect(res.text).toContain('"count":1980');
+    });
+
+    it('requires x-api-key (401 without)', async () => {
+      const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses/done/stream');
 
       expect(res.status).toBe(401);
     });

@@ -34,9 +34,14 @@ interface QueueEventArgs {
  * 避免每 job 一個 QueueEvents（重構重點）；`onModuleDestroy` 關閉連線並結束所有開啟串流（NFR-8、防 hang）。
  * SSE 串流（T3.9）與輪詢（FR-8）皆建於此之上。
  */
+/** 已終結 Subject 的保留上限（FIFO 驅逐）；防無界成長，同時讓 race/late forJob 立即 complete。 */
+const MAX_RETAINED_TERMINATED = 1024;
+
 @Injectable()
 export class JobEventsService implements OnModuleInit, OnModuleDestroy {
   private readonly subjects = new Map<string, Subject<JobEvent>>();
+  /** 已終結 jobId 的插入序（FIFO）；只驅逐**已完成**的 Subject，不動進行中的。 */
+  private readonly terminatedOrder: string[] = [];
 
   constructor(@Inject(JOB_QUEUE_EVENTS) private readonly queueEvents: QueueEventsLike) {}
 
@@ -51,22 +56,23 @@ export class JobEventsService implements OnModuleInit, OnModuleDestroy {
       subject.complete();
     }
     this.subjects.clear();
+    this.terminatedOrder.length = 0;
     await this.queueEvents.close();
   }
 
   /**
    * 該 analysisId 的事件流（只收自己；收到 completed/failed 後串流 `complete()`）。
    *
-   * ⚠ **契約**：僅對「**尚未終結**」的 job 呼叫。終結事件後本服務會釋放對應 Subject，故對**已完成**
-   * 的 job 呼叫 `forJob` 會得到一條**不會自行 complete** 的空串流（Subject 不 replay）。T3.9 的 `@Sse`
-   * 須**先查 GET 狀態（DB 為真實來源，T3.4）**：已 completed/failed 者直接回終態、不開 `forJob`；
-   * 仍在進行者才訂閱此串流。輪詢（FR-8）為 SSE 的後備。
+   * 已終結的 job：對應 Subject 被**保留為已完成**（FIFO 上限驅逐），故**對已完成 job 呼叫 `forJob`
+   * 會立即收到 `complete()`**（不 replay 既往 next 值）——避免 SSE 在「getStatus 與 forJob 之間 job
+   * 完成」的 race 下開出永不完成的串流。仍建議 `@Sse` 先查 GET 狀態取終態快照資料（T3.4 為真實來源），
+   * 本保留僅保證**不 hang**。
    */
   forJob(analysisId: string): Observable<JobEvent> {
     return this.subjectFor(analysisId).asObservable();
   }
 
-  /** 把單一 QueueEvents 事件路由到對應 job 的 Subject；終結事件後 complete + 釋放。 */
+  /** 把單一 QueueEvents 事件路由到對應 job 的 Subject；終結事件後 complete 並保留（FIFO 驅逐）。 */
   private route(type: JobEventType, args: unknown): void {
     const { jobId, data, returnvalue, failedReason } = (args ?? {}) as QueueEventArgs;
     if (typeof jobId !== 'string') {
@@ -82,7 +88,18 @@ export class JobEventsService implements OnModuleInit, OnModuleDestroy {
     subject.next({ type, data: payload });
     if (type === 'completed' || type === 'failed') {
       subject.complete();
-      this.subjects.delete(jobId);
+      this.retainTerminated(jobId);
+    }
+  }
+
+  /** 保留已完成 Subject 供 late/racing forJob 立即 complete；逾上限驅逐最舊（只驅逐已終結者）。 */
+  private retainTerminated(jobId: string): void {
+    this.terminatedOrder.push(jobId);
+    while (this.terminatedOrder.length > MAX_RETAINED_TERMINATED) {
+      const evicted = this.terminatedOrder.shift();
+      if (evicted !== undefined) {
+        this.subjects.delete(evicted);
+      }
     }
   }
 

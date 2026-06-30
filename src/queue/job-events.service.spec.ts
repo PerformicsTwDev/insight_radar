@@ -62,6 +62,22 @@ describe('JobEventsService (T3.8 / TC-18 partial)', () => {
     expect(completed).toBe(true);
   });
 
+  it('forJob after a terminal event returns an already-completed stream (race/late subscribe, no hang)', () => {
+    const { qe, service } = setup();
+    // 終態事件先到（forJob 尚未呼叫）——模擬 SSE getStatus 與 forJob 之間 job 完成的 race。
+    qe.trigger('completed', { jobId: 'a-1', returnvalue: JSON.stringify({ count: 2 }) });
+
+    let completed = false;
+    const events: JobEvent[] = [];
+    service.forJob('a-1').subscribe({
+      next: (e) => events.push(e),
+      complete: () => (completed = true),
+    });
+
+    expect(completed).toBe(true); // 立即 complete（保留已完成 Subject）→ 不開永不完成的串流
+    expect(events).toEqual([]); // Subject 不 replay next 值，只 replay 完成
+  });
+
   it('does not cross-deliver: a completed on one job leaves another job open', () => {
     const { qe, service } = setup();
     let aCompleted = false;
@@ -84,6 +100,22 @@ describe('JobEventsService (T3.8 / TC-18 partial)', () => {
     qe.trigger('completed', { jobId: 'b-2', returnvalue: 'not-json{' }); // JSON.parse 失敗 → 原樣
     expect(a).toEqual([{ type: 'completed', data: undefined }]);
     expect(b).toEqual([{ type: 'completed', data: 'not-json{' }]);
+  });
+
+  it('evicts the oldest terminated subjects beyond the retention cap (bounded memory)', () => {
+    const { qe, service } = setup();
+    // 觸發超過保留上限（1024）的終態 job。
+    for (let i = 0; i <= 1024; i += 1) {
+      qe.trigger('completed', { jobId: `job-${i}`, returnvalue: JSON.stringify({ count: i }) });
+    }
+    // 最舊（job-0）已被 FIFO 驅逐 → late forJob 得到新的未完成串流（不立即 complete）。
+    let job0Completed = false;
+    service.forJob('job-0').subscribe({ complete: () => (job0Completed = true) });
+    expect(job0Completed).toBe(false);
+    // 最新（job-1024）仍保留 → late forJob 立即 complete。
+    let lastCompleted = false;
+    service.forJob('job-1024').subscribe({ complete: () => (lastCompleted = true) });
+    expect(lastCompleted).toBe(true);
   });
 
   it('ignores events without a string jobId', () => {

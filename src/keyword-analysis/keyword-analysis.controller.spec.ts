@@ -8,9 +8,10 @@ describe('KeywordAnalysisController (T3.3)', () => {
 
   beforeEach(() => {
     create = jest.fn().mockResolvedValue({ analysisId: 'id-1' });
-    controller = new KeywordAnalysisController({
-      create,
-    } as unknown as KeywordAnalysisService);
+    controller = new KeywordAnalysisController(
+      { create } as unknown as KeywordAnalysisService,
+      { forJob: jest.fn() } as unknown as import('../queue/job-events.service').JobEventsService,
+    );
   });
 
   it('applies defaults (mode=expand, includeAdult=false, network=GOOGLE_SEARCH) when omitted', async () => {

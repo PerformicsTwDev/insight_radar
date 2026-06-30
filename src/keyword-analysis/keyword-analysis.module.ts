@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { queueConfig } from '../config/queue.config';
 import { GoogleAdsModule } from '../google-ads/google-ads.module';
 import { IntentModule } from '../intent/intent.module';
+import { JobEventsModule } from '../queue/job-events.module';
 import { QueueModule } from '../queue/queue.module';
 import { KeywordAnalysisController } from './keyword-analysis.controller';
 import { KeywordAnalysisProcessor } from './keyword-analysis.processor';
@@ -16,7 +17,13 @@ import { KeywordAnalysisService } from './keyword-analysis.service';
  * CacheService、PrismaService 為全域模組（@Global），無需在此 import。
  */
 @Module({
-  imports: [QueueModule, ConfigModule.forFeature(queueConfig), GoogleAdsModule, IntentModule],
+  imports: [
+    QueueModule,
+    JobEventsModule,
+    ConfigModule.forFeature(queueConfig),
+    GoogleAdsModule,
+    IntentModule,
+  ],
   controllers: [KeywordAnalysisController],
   providers: [KeywordAnalysisService, KeywordAnalysisProcessor],
   exports: [KeywordAnalysisService],
