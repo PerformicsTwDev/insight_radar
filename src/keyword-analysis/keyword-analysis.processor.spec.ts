@@ -311,14 +311,19 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       );
     });
 
-    it('mirrors progress to the DB (poll source of truth), ending at intent/100', async () => {
+    it('mirrors intermediate progress (fetch/metrics) to the DB via the guarded path', async () => {
       const { processor, prismaUpdateMany } = buildHarness();
       await processor.process(fakeJob(buildPayload()) as never);
 
       const progressWrites = argsOf(prismaUpdateMany).filter((a) => a.data.progress !== undefined);
       expect(progressWrites.length).toBeGreaterThan(0);
-      expect(progressWrites.at(-1)?.data.progress).toMatchObject({ phase: 'intent', percent: 100 });
-      // 進度鏡像亦須條件式（notIn 終態）——否則已 cancel 但仍在跑的 job 會被推回 intent/100（M3-R1 review）。
+      // 中間階段（fetch/metrics）由 processor 鏡像 DB。終態 intent/100 **不**由此驗證——它由 saveResult 與
+      // status='completed' 原子寫入（見 result-snapshot.service.spec）；processor 的 report('intent') DB 鏡像
+      // 在 production 因已終態 no-op（M3-R5）。SSE 達 100 由 TC-11 的 job.updateProgress 覆蓋。
+      expect(progressWrites.map((w) => w.data.progress?.phase)).toEqual(
+        expect.arrayContaining(['fetch', 'metrics']),
+      );
+      // 進度鏡像須條件式（notIn 終態）——已 cancel 但仍在跑的 job 不被推回進度（M3-R1 review）。
       for (const write of progressWrites) {
         expect(write.where.status?.notIn).toEqual(
           expect.arrayContaining(['completed', 'failed', 'canceled']),
