@@ -119,4 +119,23 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     const { service } = buildCache();
     expect(await service.mget([], params)).toEqual([]);
   });
+
+  it('msetByText keys each keyword by its OWN normalizedText, ignoring seedOrigins (T4.4 expand)', async () => {
+    const { service, setCalls } = buildCache();
+    // 拓展字：seedOrigins=[parent seed]（**非**指標等價輸入）。回寫須以自身 nt 為 key，不可寫到 seed 的 key。
+    const expansion = keyword('trail running shoes', {
+      source: 'expanded',
+      seedOrigins: ['running shoes'],
+    });
+    await service.msetByText([expansion], params);
+
+    const keys = setCalls.map((c) => c.key);
+    // 寫在拓展字自身 key；**不**寫在 parent seed 'running shoes' 的 key（否則污染 seed 指標）。
+    expect(keys).toEqual([
+      'metrics:geoTargetConstants/2158:languageConstants/1018:trail running shoes',
+    ]);
+    expect(keys).not.toContain(
+      'metrics:geoTargetConstants/2158:languageConstants/1018:running shoes',
+    );
+  });
 });

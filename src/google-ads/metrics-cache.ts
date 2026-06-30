@@ -56,4 +56,17 @@ export class MetricsCache {
       }),
     );
   }
+
+  /**
+   * 回寫（以**各字自身** `normalizedText` 為 key）：**expand** 拓展字用此（T4.4）。
+   * ⚠ 拓展字的 `seedOrigins` = **來源 seed**（非指標等價輸入），故**不可**用 {@link mset}——否則把拓展字
+   * 寫到 seed 的 key、覆寫並污染 seed 自身指標（cache 命中即回錯字/錯指標，違反 AC-10.5）。
+   */
+  async msetByText(keywords: Keyword[], params: MetricsCacheParams): Promise<void> {
+    await Promise.all(
+      keywords.map((kw) =>
+        this.cache.set(this.keyFor(params, kw.normalizedText), kw, this.config.metricsTtlMs),
+      ),
+    );
+  }
 }
