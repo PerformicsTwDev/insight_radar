@@ -18,6 +18,9 @@ const ENV: Record<string, string> = {
   GOOGLE_ADS_CUSTOMER_ID: '0987654321',
   GOOGLE_ADS_SEED_BATCH_SIZE: '15',
   GOOGLE_ADS_HISTORICAL_BATCH_SIZE: '1000',
+  GOOGLE_ADS_QPS: '1',
+  GOOGLE_ADS_MAX_RETRIES: '5',
+  GOOGLE_ADS_BACKOFF_BASE_MS: '5000',
   AZURE_OPENAI_ENDPOINT: 'https://x.openai.azure.com',
   AZURE_OPENAI_API_KEY: 'akey',
   AZURE_OPENAI_DEPLOYMENT: 'gpt-4o-mini',
@@ -54,7 +57,7 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('googleAdsConfig maps the six credentials + batch sizes (coerced to number)', () => {
+  it('googleAdsConfig maps the six credentials + batch sizes + Ads throttle/backoff (coerced to number)', () => {
     expect(googleAdsConfig()).toEqual({
       clientId: 'cid',
       clientSecret: 'sec',
@@ -64,6 +67,9 @@ describe('config namespaces (registerAs, typed)', () => {
       customerId: '0987654321',
       seedBatchSize: 15,
       historicalBatchSize: 1000,
+      qps: 1,
+      adsMaxRetries: 5,
+      adsBackoffBaseMs: 5000,
     });
   });
 
