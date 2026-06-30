@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import type { ConfigType } from '@nestjs/config';
 import type { CacheService } from '../cache/cache.service';
 import type { cacheConfig } from '../config/cache.config';
+import type { PrismaService } from '../prisma';
 import { IntentCache } from './intent-cache';
 
 const TTL_MS = 5_184_000_000; // 60 天
 const DEPLOYMENT = 'gpt-4o-mini';
+const MODEL_VERSION = `v1:${DEPLOYMENT}`;
 
 function sha(s: string): string {
   return createHash('sha256').update(s).digest('hex');
@@ -17,25 +19,56 @@ interface SetCall {
   ttlMs?: number;
 }
 
-function buildCache(intentSchemaVersion = 'v1', store = new Map<string, unknown>()) {
+interface DbRow {
+  normalizedText: string;
+  modelVersion: string;
+  labels: string[];
+}
+
+function buildCache(
+  intentSchemaVersion = 'v1',
+  store = new Map<string, unknown>(),
+  dbRows: DbRow[] = [],
+) {
   const setCalls: SetCall[] = [];
+  const set = jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
+    store.set(key, value);
+    setCalls.push({ key, value, ttlMs });
+    return Promise.resolve();
+  });
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
     mget: jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
       Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
     ),
-    set: jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
-      store.set(key, value);
-      setCalls.push({ key, value, ttlMs });
-      return Promise.resolve();
-    }),
+    set,
   } as unknown as CacheService;
   const config: ConfigType<typeof cacheConfig> = {
     metricsTtlMs: 1,
     intentTtlMs: TTL_MS,
     intentSchemaVersion,
   };
-  return { service: new IntentCache(cache, config, DEPLOYMENT), store, setCalls };
+  // DB canonical 替身（keyword_intents）：findMany 依 modelVersion + normalizedText∈ 過濾；記錄 upsert。
+  const upsert = jest.fn().mockResolvedValue({});
+  const findMany = jest.fn(
+    (args: { where: { modelVersion: string; normalizedText: { in: string[] } } }) =>
+      Promise.resolve(
+        dbRows.filter(
+          (r) =>
+            r.modelVersion === args.where.modelVersion &&
+            args.where.normalizedText.in.includes(r.normalizedText),
+        ),
+      ),
+  );
+  const prisma = { keywordIntent: { findMany, upsert } } as unknown as PrismaService;
+  return {
+    service: new IntentCache(cache, config, DEPLOYMENT, prisma),
+    store,
+    setCalls,
+    findMany,
+    upsert,
+    set,
+  };
 }
 
 describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
@@ -95,6 +128,42 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
     expect(await service.mget([])).toEqual([]);
   });
 
+  it('upserts labels to the DB canonical keyword_intents by [normalizedText, modelVersion] (T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    await service.mset([{ keyword: 'Running Shoes', labels: ['informational'] }]);
+
+    const arg = (upsert.mock.calls[0] as unknown[])[0] as {
+      where: { normalizedText_modelVersion: { normalizedText: string; modelVersion: string } };
+      create: { normalizedText: string; modelVersion: string; labels: string[] };
+    };
+    expect(arg.where.normalizedText_modelVersion).toEqual({
+      normalizedText: 'running shoes', // LLM echo 'Running Shoes' → normalizeText
+      modelVersion: MODEL_VERSION,
+    });
+    expect(arg.create).toMatchObject({
+      normalizedText: 'running shoes',
+      modelVersion: MODEL_VERSION,
+      labels: ['informational'],
+    });
+  });
+
+  it('falls back to the DB canonical on a Redis miss and warms Redis (T4.6)', async () => {
+    const store = new Map<string, unknown>();
+    const { service, findMany } = buildCache('v1', store, [
+      { normalizedText: 'running shoes', modelVersion: MODEL_VERSION, labels: ['commercial'] },
+    ]);
+    // Redis 空 → DB 後備命中（Redis 失效不重打 LLM）。
+    expect((await service.mget(['running shoes']))[0]).toEqual(['commercial']);
+    expect(findMany).toHaveBeenCalled();
+    // warm Redis：回填後同字 Redis 命中。
+    expect(store.has(`intent:v1:${DEPLOYMENT}:${sha('running shoes')}`)).toBe(true);
+  });
+
+  it('returns undefined when both Redis and DB miss', async () => {
+    const { service } = buildCache('v1', new Map(), []);
+    expect((await service.mget(['unseen']))[0]).toBeUndefined();
+  });
+
   it('bumping intentSchemaVersion isolates the namespace: old keys miss, old results not polluted (T4.3)', async () => {
     const store = new Map<string, unknown>();
     const { service: v1 } = buildCache('v1', store);
@@ -107,5 +176,24 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
 
     // 舊版本仍命中（舊結果隔離、不被污染）。
     expect((await v1.mget(['running shoes']))[0]).toEqual(['informational']);
+  });
+
+  it('mset does not reject when the DB upsert fails (best-effort writeback; the paid LLM job still completes, T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    upsert.mockRejectedValueOnce(new Error('db down'));
+    // 回寫純屬快取暖機：DB upsert 失敗不可拖垮已付費（LLM）的 job——降級為下次重打。
+    await expect(
+      service.mset([{ keyword: 'running shoes', labels: ['informational'] }]),
+    ).resolves.toBeUndefined();
+  });
+
+  it('mget returns the DB hit even when warming Redis fails (best-effort; a successful read never fails, T4.6)', async () => {
+    const store = new Map<string, unknown>();
+    const { service, set } = buildCache('v1', store, [
+      { normalizedText: 'running shoes', modelVersion: MODEL_VERSION, labels: ['commercial'] },
+    ]);
+    set.mockRejectedValueOnce(new Error('redis down')); // warm Redis 失敗
+
+    expect((await service.mget(['running shoes']))[0]).toEqual(['commercial']);
   });
 });

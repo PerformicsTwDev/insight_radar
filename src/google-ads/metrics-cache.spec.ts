@@ -1,6 +1,7 @@
 import type { ConfigType } from '@nestjs/config';
 import type { CacheService } from '../cache/cache.service';
 import type { cacheConfig } from '../config/cache.config';
+import type { PrismaService } from '../prisma';
 import type { Keyword } from './keyword.types';
 import { MetricsCache } from './metrics-cache';
 
@@ -36,23 +37,62 @@ interface SetCall {
 function buildCache() {
   const store = new Map<string, unknown>();
   const setCalls: SetCall[] = [];
+  const set = jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
+    store.set(key, value);
+    setCalls.push({ key, value, ttlMs });
+    return Promise.resolve();
+  });
   const cache = {
     buildKey: (namespace: string, ...parts: (string | number)[]) => [namespace, ...parts].join(':'),
     mget: jest.fn(<T>(keys: string[]): Promise<(T | undefined)[]> =>
       Promise.resolve(keys.map((k) => (store.has(k) ? (store.get(k) as T) : undefined))),
     ),
-    set: jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
-      store.set(key, value);
-      setCalls.push({ key, value, ttlMs });
-      return Promise.resolve();
-    }),
+    set,
   } as unknown as CacheService;
   const config: ConfigType<typeof cacheConfig> = {
     metricsTtlMs: TTL_MS,
     intentTtlMs: 1,
     intentSchemaVersion: 'v1',
   };
-  return { service: new MetricsCache(cache, config), store, setCalls };
+  // DB canonical 替身（keywords）：findMany 依 geo/language + normalizedText∈ 過濾；記錄 upsert。
+  const dbRows: KeywordRow[] = [];
+  const upsert = jest.fn().mockResolvedValue({});
+  const findMany = jest.fn(
+    (args: { where: { geo: string; language: string; normalizedText: { in: string[] } } }) =>
+      Promise.resolve(
+        dbRows.filter(
+          (r) =>
+            r.geo === args.where.geo &&
+            r.language === args.where.language &&
+            args.where.normalizedText.in.includes(r.normalizedText),
+        ),
+      ),
+  );
+  const prisma = { keyword: { findMany, upsert } } as unknown as PrismaService;
+  return {
+    service: new MetricsCache(cache, config, prisma),
+    store,
+    setCalls,
+    dbRows,
+    findMany,
+    upsert,
+    set,
+  };
+}
+
+/** DB `keywords` 列形狀（測試用最小子集）。 */
+interface KeywordRow {
+  geo: string;
+  language: string;
+  normalizedText: string;
+  text: string;
+  avgMonthlySearches: number | null;
+  competition: string | null;
+  competitionIndex: number | null;
+  cpcLowMicros: bigint | null;
+  cpcHighMicros: bigint | null;
+  monthlyVolumes: unknown;
+  currencyCode: string | null;
 }
 
 const params = { geo: 'geoTargetConstants/2158', language: 'languageConstants/1018' };
@@ -137,5 +177,96 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     expect(keys).not.toContain(
       'metrics:geoTargetConstants/2158:languageConstants/1018:running shoes',
     );
+  });
+
+  it('upserts metrics to the DB canonical keywords by [geo,language,nt], micros as BigInt (T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    await service.mset(
+      [keyword('running shoes', { cpcLowMicros: '500000', cpcHighMicros: null })],
+      params,
+    );
+
+    const arg = (upsert.mock.calls[0] as unknown[])[0] as {
+      where: {
+        geo_language_normalizedText: { geo: string; language: string; normalizedText: string };
+      };
+      create: { normalizedText: string; cpcLowMicros: bigint | null; cpcHighMicros: bigint | null };
+    };
+    expect(arg.where.geo_language_normalizedText).toEqual({
+      geo: params.geo,
+      language: params.language,
+      normalizedText: 'running shoes',
+    });
+    expect(arg.create.normalizedText).toBe('running shoes');
+    expect(arg.create.cpcLowMicros).toBe(500000n); // micros → BigInt
+    expect(arg.create.cpcHighMicros).toBeNull(); // 缺值≠0
+  });
+
+  it('falls back to the DB canonical on a Redis miss, reconstructs CPC from micros, warms Redis (T4.6)', async () => {
+    const { service, store, dbRows, findMany } = buildCache();
+    dbRows.push({
+      geo: params.geo,
+      language: params.language,
+      normalizedText: 'running shoes',
+      text: 'running shoes',
+      avgMonthlySearches: 100,
+      competition: 'LOW',
+      competitionIndex: 10,
+      cpcLowMicros: 1_230_000n,
+      cpcHighMicros: null,
+      monthlyVolumes: [],
+      currencyCode: 'TWD',
+    });
+
+    const got = await service.mget(['running shoes', 'unseen'], params);
+
+    expect(findMany).toHaveBeenCalled();
+    expect(got[0]?.normalizedText).toBe('running shoes');
+    expect(got[0]?.cpcLow).toBe(1.23); // micros 1,230,000 ÷ 1e6
+    expect(got[0]?.cpcHigh).toBeNull(); // null micros → null（缺值≠0）
+    expect(got[1]).toBeUndefined(); // Redis + DB 皆 miss
+    // warm Redis：回填後同字 Redis 命中。
+    expect(store.has(`metrics:${params.geo}:${params.language}:running shoes`)).toBe(true);
+  });
+
+  it('stamps a fresh metricsFetchedAt on both create and update so canonical freshness is bumped (T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    await service.mset([keyword('running shoes')], params);
+
+    const arg = (upsert.mock.calls[0] as unknown[])[0] as {
+      create: { metricsFetchedAt: Date };
+      update: { metricsFetchedAt: Date };
+    };
+    // upsert 的 update 分支若沿用 create 的 @default(now()) 不會重新蓋時間 → 必須顯式寫入新鮮時間戳。
+    expect(arg.create.metricsFetchedAt).toBeInstanceOf(Date);
+    expect(arg.update.metricsFetchedAt).toBeInstanceOf(Date);
+  });
+
+  it('mset does not reject when the DB upsert fails (best-effort writeback; the paid job still completes, T4.6)', async () => {
+    const { service, upsert } = buildCache();
+    upsert.mockRejectedValueOnce(new Error('db down'));
+    // 回寫純屬快取暖機：DB upsert 失敗不可拖垮已付費（Ads/LLM）的 job——降級為下次重抓。
+    await expect(service.mset([keyword('running shoes')], params)).resolves.toBeUndefined();
+  });
+
+  it('mget returns the DB hit even when warming Redis fails (best-effort; a successful read never fails, T4.6)', async () => {
+    const { service, dbRows, set } = buildCache();
+    dbRows.push({
+      geo: params.geo,
+      language: params.language,
+      normalizedText: 'running shoes',
+      text: 'running shoes',
+      avgMonthlySearches: 100,
+      competition: 'LOW',
+      competitionIndex: 10,
+      cpcLowMicros: 1_230_000n,
+      cpcHighMicros: null,
+      monthlyVolumes: [],
+      currencyCode: 'TWD',
+    });
+    set.mockRejectedValueOnce(new Error('redis down')); // warm Redis 失敗
+
+    const got = await service.mget(['running shoes'], params);
+    expect(got[0]?.normalizedText).toBe('running shoes'); // 讀取成功不因暖機失敗而失敗
   });
 });
