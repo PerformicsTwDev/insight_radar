@@ -70,6 +70,23 @@ describe('IntentCache (T4.2 / FR-10 / NFR-4 / TC-13)', () => {
     expect(store.has(`intent:v1:other-deploy:${sha('running shoes')}`)).toBe(false);
   });
 
+  it('keys by normalizeText(keyword) on writeback so a non-normalized LLM echo still hits later', async () => {
+    const { service } = buildCache();
+    // LLM 回 echo 帶大小寫差異 'Running Shoes'；查正規化字 'running shoes' 仍須命中（key 經 normalizeText）。
+    await service.mset([{ keyword: 'Running Shoes', labels: ['informational'] }]);
+    expect((await service.mget(['running shoes']))[0]).toEqual(['informational']);
+  });
+
+  it('does not cache empty labels (would otherwise become a permanent fallback hit)', async () => {
+    const { service, setCalls } = buildCache();
+    await service.mset([
+      { keyword: 'x', labels: [] },
+      { keyword: 'y', labels: ['informational'] },
+    ]);
+    // 只快取非空標籤的 'y'。
+    expect(setCalls.map((c) => c.key)).toEqual([`intent:v1:${DEPLOYMENT}:${sha('y')}`]);
+  });
+
   it('mget on an empty list returns [] without touching the cache', async () => {
     const { service } = buildCache();
     expect(await service.mget([])).toEqual([]);

@@ -4,6 +4,7 @@ import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { sha256Hex } from '../common/sha256';
 import { cacheConfig } from '../config/cache.config';
+import { normalizeText } from '../google-ads/normalize';
 import { AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
 import { INTENT_SCHEMA_VERSION } from './intent.schema';
 
@@ -29,12 +30,13 @@ export class IntentCache {
     @Inject(AZURE_OPENAI_DEPLOYMENT) private readonly deployment: string,
   ) {}
 
-  private keyFor(normalizedText: string): string {
+  /** key 一律以 `normalizeText` 後再 sha256（去重 key = 快取 key；LLM 回 echo 大小寫/空白差異不致漏命中）。 */
+  private keyFor(text: string): string {
     return this.cache.buildKey(
       CacheNamespace.INTENT,
       INTENT_SCHEMA_VERSION,
       this.deployment,
-      sha256Hex(normalizedText),
+      sha256Hex(normalizeText(text)),
     );
   }
 
@@ -46,10 +48,15 @@ export class IntentCache {
     return this.cache.mget<string[]>(normalizedTexts.map((nt) => this.keyFor(nt)));
   }
 
-  /** 回寫（writeback）：每筆以 `sha256(keyword)` 為 key、TTL 毫秒寫入標籤（之後命中即省 LLM 呼叫）。 */
+  /**
+   * 回寫（writeback）：每筆以 `sha256(normalizeText(keyword))` 為 key、TTL 毫秒寫入標籤。
+   * **不快取空標籤**（退化結果）——否則會變成永久 fallback 命中、永不重試（M2）。
+   */
   async mset(entries: IntentCacheEntry[]): Promise<void> {
     await Promise.all(
-      entries.map((e) => this.cache.set(this.keyFor(e.keyword), e.labels, this.config.intentTtlMs)),
+      entries
+        .filter((e) => e.labels.length > 0)
+        .map((e) => this.cache.set(this.keyFor(e.keyword), e.labels, this.config.intentTtlMs)),
     );
   }
 }

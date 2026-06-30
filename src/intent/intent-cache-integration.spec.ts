@@ -72,4 +72,19 @@ describe('IntentService intent cache-first (T4.2 / TC-13)', () => {
     ]);
     expect(mset).not.toHaveBeenCalled(); // 無 miss → 無回寫
   });
+
+  it('does not write back content_filter / refusal fallbacks (only confident labels are cached)', async () => {
+    const mset = jest.fn().mockResolvedValue(undefined);
+    // refusal → labelChunkResilient 回 collected:[] → labelChunkAndCache 守門不回寫。
+    const labeler: IntentLabeler = {
+      parseChat: () => Promise.resolve({ parsed: null, refusal: 'refused' }),
+    };
+    const cache = fakeCache(new Map(), mset);
+    const service = new IntentService(labeler, { batchSize: 30 }, cache);
+
+    const out = await service.labelKeywords(['a']);
+
+    expect(mset).not.toHaveBeenCalled(); // 不確定結果不入快取
+    expect(out).toEqual([{ keyword: 'a', labels: ['informational'] }]); // postProcess fallback
+  });
 });

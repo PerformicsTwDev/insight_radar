@@ -124,10 +124,10 @@ export class IntentService {
       const cached = this.intentCache ? await this.intentCache.mget(batch) : undefined;
       batch.forEach((keyword, i) => {
         const labels = cached?.[i];
-        if (labels) {
-          cachedCollected.push({ keyword, labels }); // 命中 → 不送 LLM
+        if (labels && labels.length > 0) {
+          cachedCollected.push({ keyword, labels }); // 命中（非空）→ 不送 LLM
         } else {
-          misses.push(keyword);
+          misses.push(keyword); // miss 或退化空標籤 → 送 LLM
         }
       });
       dispatchFullChunks(); // miss 滿一批即送 → 與後續拓展重疊
