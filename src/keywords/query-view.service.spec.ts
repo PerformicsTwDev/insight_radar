@@ -139,4 +139,25 @@ describe('QueryViewService (T5.5 / FR-14 / TC-36)', () => {
       service.query(rows, { view: 'keywords', filters: { volumeMin: 50, volumeMax: 300 } }, LIMITS),
     ).not.toThrow();
   });
+
+  it('re-throws a non-bounds error from view.build unchanged (does not mask a real bug as 400)', () => {
+    const boom = new Error('view bug');
+    const explodingView: ViewDefinition = {
+      name: 'explode',
+      allowedSelect: [],
+      allowedFilters: [],
+      allowedSort: [],
+      build: () => {
+        throw boom;
+      },
+    };
+    const svc = new QueryViewService(new ViewRegistry([explodingView]));
+    try {
+      svc.query([], { view: 'explode' }, LIMITS);
+      throw new Error('expected view.build error to propagate');
+    } catch (error) {
+      expect(error).toBe(boom); // 原錯誤原樣拋出
+      expect(error).not.toBeInstanceOf(BadRequestException); // 非誤轉為 400
+    }
+  });
 });
