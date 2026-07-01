@@ -58,6 +58,10 @@ describe('ViewRegistry (T5.5 / FR-14 / NFR-10)', () => {
     expect(custom.names()).toEqual(['keywords']);
     expect(custom.has('trend')).toBe(false);
   });
+
+  it('throws on duplicate view names (fail-fast config error)', () => {
+    expect(() => new ViewRegistry([keywordsView, keywordsView])).toThrow(/duplicate view name/);
+  });
 });
 
 describe('keywords view (table)', () => {

@@ -85,7 +85,10 @@ export interface ViewDefinition {
   build(ctx: ViewContext): ViewResult;
 }
 
-/** 共用 `FilterSpec` 的欄位鍵（各 view 的 allowedFilters 子集皆取自此）。 */
+/**
+ * 共用 `FilterSpec` 的欄位鍵（各 view 的 allowedFilters 子集皆取自此）。`satisfies` 綁定 `keyof FilterSpec`：
+ * FilterSpec 欄位改名/拼錯即編譯失敗，防白名單漂移。
+ */
 export const FILTER_KEYS = [
   'volumeMin',
   'volumeMax',
@@ -97,4 +100,4 @@ export const FILTER_KEYS = [
   'competitionIndexMax',
   'cpcMin',
   'cpcMax',
-] as const;
+] as const satisfies readonly (keyof FilterSpec)[];

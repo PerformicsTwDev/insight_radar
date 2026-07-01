@@ -9,6 +9,10 @@ export class ViewRegistry {
 
   constructor(definitions: ViewDefinition[]) {
     this.views = new Map(definitions.map((def) => [def.name, def]));
+    // fail-fast：同名 view 會在 Map 靜默覆蓋（後者勝），屬設定錯誤 → 直接拋。
+    if (this.views.size !== definitions.length) {
+      throw new Error('ViewRegistry: duplicate view name');
+    }
   }
 
   /** 取具名視圖；未註冊回 `undefined`（由 caller 轉 400）。 */
