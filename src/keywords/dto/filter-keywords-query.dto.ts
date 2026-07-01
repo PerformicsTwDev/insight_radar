@@ -1,14 +1,29 @@
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { IsNotGreaterThan } from '../../common/validators/is-not-greater-than.validator';
 import { SORT_DIRS, SORT_FIELDS, type SortDir, type SortField } from '../paginate';
 
-/** query string 的單值 → 陣列（`?intent=a` → `['a']`；已是陣列則原樣；缺值 → 保持 undefined）。 */
+/**
+ * query string 的單值 → 陣列（`?intent=a` → `['a']`；已是陣列則原樣）。**空字串 / 缺值 → undefined**（未設篩選）
+ * ——`?intent=`（清空 multi-select）不可誤轉為 `['']`（會匹配空集、回零結果，M5-R1）。
+ */
 function toArray(value: unknown): unknown {
-  if (value === undefined) {
+  if (value === undefined || value === '') {
     return undefined;
   }
   return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * query string → 數值。**空字串 / 缺值 → undefined**（未設界）——`?volumeMin=`（清空）不可誤轉為真 `0` 界
+ * （會排除 null 指標列，缺值≠0，M5-R1）。非數值字串原樣回傳，交由 `@IsNumber`/`@IsInt` 拒為 400。
+ */
+function toOptionalNumber(value: unknown): unknown {
+  if (value === '' || value === undefined || value === null) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? value : parsed;
 }
 
 /** intent 篩選模式：`any`＝命中任一選定類別（預設）；`all`＝須含全部選定類別。 */
@@ -24,13 +39,13 @@ export type IntentMode = (typeof INTENT_MODES)[number];
 export class FilterKeywordsQueryDto {
   // ── 搜量 range ──
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber()
   @IsNotGreaterThan('volumeMax')
   volumeMin?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber()
   volumeMax?: number;
 
@@ -58,25 +73,25 @@ export class FilterKeywordsQueryDto {
   competition?: string[];
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber()
   @IsNotGreaterThan('competitionIndexMax')
   competitionIndexMin?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber()
   competitionIndexMax?: number;
 
   // ── CPC range（區間重疊語意在 buildPredicate；此處僅驗證 min<=max）──
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber()
   @IsNotGreaterThan('cpcMax')
   cpcMin?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber()
   cpcMax?: number;
 
@@ -90,13 +105,13 @@ export class FilterKeywordsQueryDto {
   sortDir?: SortDir;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsInt()
   @Min(1)
   page?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => toOptionalNumber(value))
   @IsInt()
   @Min(1)
   pageSize?: number;
