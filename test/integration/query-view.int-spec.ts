@@ -144,4 +144,23 @@ describe('query-view integration (T5.5 / TC-36 / FR-14 · Testcontainers)', () =
     expect(res.rows).toEqual([]);
     expect(res.pagination.total).toBe(0);
   });
+
+  it('round-trips null metrics through jsonb (缺值≠0) and skips them in the histogram', async () => {
+    const id = await seedSnapshot([
+      srow({ normalizedText: 'has', cpcLow: 1.5, avgMonthlySearches: 100 }),
+      srow({ normalizedText: 'none', cpcLow: null, avgMonthlySearches: null }),
+    ]);
+    // keywords：null 指標經 jsonb 原樣還原（非被補 0）。
+    const kw = (await service.query(id, {
+      view: 'keywords',
+      sort: [{ field: 'text', direction: 'asc' }],
+    })) as TableViewResult;
+    const noneRow = kw.rows.find((r) => r.normalizedText === 'none');
+    expect(noneRow?.avgMonthlySearches).toBeNull();
+    expect(noneRow?.cpcLow).toBeNull();
+    // cpc_histogram：null cpc 不落桶（只計 'has'）。
+    const hist = (await service.query(id, { view: 'cpc_histogram' })) as ChartViewResult;
+    expect(hist.groups.every((g) => typeof g.key.bucket === 'number')).toBe(true);
+    expect(hist.groups.reduce((sum, g) => sum + (g.measures.count ?? 0), 0)).toBe(1);
+  });
 });
