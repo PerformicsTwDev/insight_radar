@@ -227,8 +227,11 @@ export class KeywordAnalysisService {
   }
 }
 
-/** 終態（§6.8）：到此不再推進；取消僅作用於非終態 job。 */
-const TERMINAL_STATUSES = new Set<AnalysisStatus>(['completed', 'failed', 'canceled']);
+/**
+ * 終態（§6.8）：到此不再推進；取消僅作用於非終態 job。**含 `partial`**（M7-R5）：partial 為終態
+ * （T7.1 以部分結果收尾、固化 snapshot + finishedAt、BullMQ 標 completed、不自動 resume），cancel 不得覆寫。
+ */
+const TERMINAL_STATUSES = new Set<AnalysisStatus>(['completed', 'partial', 'failed', 'canceled']);
 
 /** Prisma 唯一鍵衝突（P2002）判定。 */
 function isUniqueViolation(error: unknown): boolean {

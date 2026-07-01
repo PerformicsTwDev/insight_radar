@@ -143,6 +143,30 @@ describe('ResultSnapshotService.saveResult (T3.10 / FR-6 / NFR-7 / M3-R3)', () =
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('treats an existing partial as terminal: returns its snapshot, creates nothing (M7-R5)', async () => {
+    // partial 為終態（M7-R5）：第二次 saveResult 命中已 partial 的列 → 回既有 snapshot、不重 persist / 不留孤兒。
+    const { service, create } = buildService({
+      existing: {
+        status: 'partial',
+        resultSnapshot: { id: 'snap-partial', keywordCount: 3, checksum: 'p4rt14l' },
+      },
+    });
+
+    const out = await service.saveResult('a-1', [row('coffee')]);
+
+    expect(out).toEqual({ resultSnapshotId: 'snap-partial', count: 3, checksum: 'p4rt14l' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('guards the conditional update against the partial terminal status too (M7-R5)', async () => {
+    const { service, captured } = buildService();
+    await service.saveResult('a-1', [row('coffee')]);
+    // 首次 partial 寫入時列為 running → 仍會寫入；但 notIn 守門集須含 partial，擋掉對已 partial 列的覆寫。
+    expect(captured.updateMany?.where.status.notIn).toEqual(
+      expect.arrayContaining(['completed', 'failed', 'canceled', 'partial']),
+    );
+  });
+
   it('does not materialize a snapshot for an already-canceled/failed analysis (no-op)', async () => {
     const { service, create } = buildService({
       existing: { status: 'canceled', resultSnapshot: null },

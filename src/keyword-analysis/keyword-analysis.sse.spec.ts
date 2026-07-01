@@ -101,6 +101,21 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
     expect(subjects.has('done-1')).toBe(false);
   });
 
+  it('short-circuits a terminal partial job to its result snapshot; never opens forJob (M7-R5, no hang)', async () => {
+    // partial 為終態（M7-R5）：late 訂閱須走 terminalSnapshot 快照，不得訂閱 forJob——否則 subject 被 FIFO
+    // 逐出 / 重啟後會開出永不完成的串流（hang，違 NFR-9）。partial 有結果 → 以 completed 快照帶回 result。
+    const partial = statusResponse('partial');
+    partial.result = { resultSnapshotId: 'snap-1', count: 3 };
+    const { controller, subjects, forJob } = buildController(partial);
+    const obs = await controller.stream('p-1');
+    const { events, isDone } = collect(obs);
+
+    expect(events).toEqual([{ type: 'completed', data: { resultSnapshotId: 'snap-1', count: 3 } }]);
+    expect(isDone()).toBe(true);
+    expect(forJob).not.toHaveBeenCalled(); // 不開 forJob → 不會 hang
+    expect(subjects.has('p-1')).toBe(false);
+  });
+
   it('short-circuits a failed/canceled job to a §6.3 failed snapshot', async () => {
     const { controller } = buildController(statusResponse('canceled'));
     const obs = await controller.stream('cx');
