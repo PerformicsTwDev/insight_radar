@@ -80,6 +80,21 @@ describe('ResultSnapshotService (integration · Testcontainers Postgres, T3.10 /
     expect(updated?.progress).toEqual({ phase: 'intent', percent: 100, total: 2 });
   });
 
+  it('persists status=partial when finalStatus=partial (T7.1 降級：保留已取部分)', async () => {
+    const analysisId = await seedRunning('idem-snap-partial');
+    const rows = [row('coffee'), row('latte')];
+
+    const out = await service.saveResult(analysisId, rows, 'partial');
+    expect(out.resultSnapshotId).not.toBeNull(); // 部分結果仍固化不可變 snapshot
+
+    const updated = await prisma.keywordAnalysis.findUnique({ where: { id: analysisId } });
+    expect(updated?.status).toBe('partial'); // 標 partial（非 completed / 非 failed）
+    expect(updated?.resultSnapshotId).toBe(out.resultSnapshotId); // 回填 FK → 讀取層可讀已取部分
+    expect(updated?.finishedAt).not.toBeNull();
+    // partial 止於 metrics（intent 未完成）→ **非** intent/100（避免「partial 卻 100%」，FR-8 真實來源不自相矛盾）。
+    expect(updated?.progress).toEqual({ phase: 'metrics', percent: 60, total: 2 });
+  });
+
   it('is immutable/reproducible: rows read back from DB recompute the same checksum (NFR-7)', async () => {
     const analysisId = await seedRunning('idem-snap-2');
     const rows = [row('a'), row('b'), row('c')];

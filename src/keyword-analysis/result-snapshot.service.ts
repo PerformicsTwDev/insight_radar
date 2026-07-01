@@ -20,6 +20,11 @@ const TERMINAL_STATUSES = new Set<JobStatus>(['completed', 'failed', 'canceled']
  * 否則永遠停在 processor 最後一筆 metrics/60（FR-8 輪詢以 DB 為真實來源 → 「completed 但 60%」自相矛盾）。
  */
 const COMPLETED_PROGRESS = { phase: 'intent', percent: 100 } as const;
+/**
+ * partial 降級（T7.1）的終態進度：止於 `metrics`（intent 階段未完成），**不**寫 `intent/100`——否則 FR-8 輪詢
+ * 會見「status=partial 卻 100%」自相矛盾，且與 processor 最後一筆 SSE（metrics/60）不一致。
+ */
+const PARTIAL_PROGRESS = { phase: 'metrics', percent: 60 } as const;
 
 /**
  * 互動式固化交易上限（M3-R6/#1）。findUnique+create+createMany(N 列)+updateMany 於單一交易；大量關鍵字
@@ -39,7 +44,16 @@ const SAVE_RESULT_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 export class ResultSnapshotService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async saveResult(analysisId: string, rows: SnapshotRowData[]): Promise<SaveResultOutcome> {
+  /**
+   * @param finalStatus 固化後寫入的 job 狀態。預設 `completed`（全程成功）；外部階段達重試上限但已有部分結果時
+   *   由 processor 傳 `partial`（T7.1 降級：保留已完成部分、不整批丟，Design §11「達上限 → partial」）。
+   *   兩者皆為單一原子交易寫入 snapshot + FK + status（NFR-7）。
+   */
+  async saveResult(
+    analysisId: string,
+    rows: SnapshotRowData[],
+    finalStatus: 'completed' | 'partial' = 'completed',
+  ): Promise<SaveResultOutcome> {
     const checksum = computeChecksum(rows);
     const keywordCount = rows.length;
     const snapshotId = randomUUID();
@@ -76,10 +90,14 @@ export class ResultSnapshotService {
           where: { id: analysisId, status: { notIn: [...TERMINAL_STATUSES] } },
           data: {
             resultSnapshotId: snapshotId,
-            status: 'completed',
+            status: finalStatus,
             finishedAt: new Date(),
-            // total=keywordCount（M3-R6/#4）：與 in-flight frame 同形，completed 不丟分母。
-            progress: { ...COMPLETED_PROGRESS, total: keywordCount },
+            // total=keywordCount（M3-R6/#4）：與 in-flight frame 同形，不丟分母（partial 亦回已固化列數）。
+            // completed → intent/100；partial → metrics/60（intent 未完成，避免「partial 卻 100%」）。
+            progress: {
+              ...(finalStatus === 'partial' ? PARTIAL_PROGRESS : COMPLETED_PROGRESS),
+              total: keywordCount,
+            },
           },
         });
         if (count === 0) {
