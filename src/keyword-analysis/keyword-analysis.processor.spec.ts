@@ -741,6 +741,25 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
 
       await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBe(infra);
     });
+
+    it('scrubs secrets from the UnrecoverableError message (BullMQ failedReason at-rest, NFR-5, M7-R1)', async () => {
+      const { processor, expandStreamRaw } = buildHarness();
+      // 終態 Ads 錯誤，訊息夾帶連線字串密碼 → UnrecoverableError.message 成為 BullMQ job.failedReason（Redis
+      // at-rest）→ 須遮罩（M7-R1 defense-in-depth）。SSE client-facing 出站另於 JobEventsService.route 遮罩。
+      const terminal = Object.assign(
+        new Error('Ads client init failed: redis://user:s3cr3tpassword@cache:6379'),
+        { errors: [{ error_code: { request_error: 'INVALID_ARGUMENT' } }] },
+      );
+      expandStreamRaw.mockImplementation(throwing(terminal));
+
+      const err = await processor
+        .process(fakeJob(buildPayload()) as never)
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnrecoverableError);
+      expect((err as Error).message).not.toContain('s3cr3tpassword');
+      expect((err as Error).message).toContain('[Redacted]');
+    });
   });
 
   // T7.1 partial 降級（Design §11「達上限 → partial」）：expand 串流中途遇 job 級終態錯誤但已取得部分候選 →
