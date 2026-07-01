@@ -37,24 +37,18 @@ function monthKey(v: MonthlySearchVolume): string {
   return `${v.year}-${String(v.month).padStart(2, '0')}`;
 }
 
-/** 依 `avgMonthlySearches` desc 取 top-N；`null` 置尾、`normalizedText` asc tie-break（確定性）。 */
+/**
+ * 依 `avgMonthlySearches` desc 取 top-N；`null` 置尾、`normalizedText` asc tie-break（確定性全序）。
+ * `null` 映射為 `-Infinity`（desc 下自然墊底）以免分支；tie-break 於 nt 唯一（去重 key）下相等不發生。
+ */
 function rankTopN(rows: TrendRow[], topN: number): TrendRow[] {
-  const sorted = [...rows].sort((a, b) => {
-    const av = a.avgMonthlySearches;
-    const bv = b.avgMonthlySearches;
-    if (av !== bv) {
-      if (av === null) {
-        return 1; // null 置尾
-      }
-      if (bv === null) {
-        return -1;
-      }
-      return bv - av; // desc
-    }
-    // 相等（含兩者皆 null）→ normalizedText asc
-    return a.normalizedText < b.normalizedText ? -1 : 1;
-  });
-  return sorted.slice(0, Math.max(0, topN));
+  return [...rows]
+    .map((row) => ({ row, key: row.avgMonthlySearches ?? Number.NEGATIVE_INFINITY }))
+    .sort((a, b) =>
+      a.key !== b.key ? b.key - a.key : a.row.normalizedText < b.row.normalizedText ? -1 : 1,
+    )
+    .slice(0, Math.max(0, topN))
+    .map((entry) => entry.row);
 }
 
 /** {@link TrendResult}：union 月軸 + 加總 series（null 不計入）+ top-N 個別 series（缺月/null 補 null）。 */
@@ -67,20 +61,18 @@ export function buildTrend(rows: TrendRow[], topN: number = DEFAULT_TOP_N): Tren
     }
   }
   const axis = [...axisSet].sort();
-  const axisIndex = new Map(axis.map((key, i) => [key, i]));
 
-  // 2. 整體加總 series：缺月補 0、null 不計入。
-  const total = axis.map(() => 0);
+  // 2. 整體加總 series：null 不計入；缺月（無非 null 貢獻）補 0。
+  const totalByMonth = new Map<string, number>();
   for (const row of rows) {
     for (const v of row.monthlyVolumes) {
       if (v.searches !== null) {
-        const i = axisIndex.get(monthKey(v));
-        if (i !== undefined) {
-          total[i] += v.searches;
-        }
+        const key = monthKey(v);
+        totalByMonth.set(key, (totalByMonth.get(key) ?? 0) + v.searches);
       }
     }
   }
+  const total = axis.map((key) => totalByMonth.get(key) ?? 0);
 
   // 3. top-N 個別 series：對齊月軸，缺月或 null → null（0 保留為 0）。
   const series = rankTopN(rows, topN).map((row) => {
