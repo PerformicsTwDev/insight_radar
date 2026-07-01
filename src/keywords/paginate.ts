@@ -90,14 +90,26 @@ function encodeCursor(normalizedText: string): string {
   return Buffer.from(JSON.stringify({ nt: normalizedText }), 'utf8').toString('base64url');
 }
 
-function decodeCursor(cursor: string): string {
-  const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { nt: string };
-  return parsed.nt;
+/**
+ * 解 cursor 的 `nt`。**不可解析**（非 base64url / 非合法 JSON / 無 `nt`）→ 回 `null`，由 caller 視為
+ * 「未知位置」（空尾頁）——cursor 為 opaque，畸形值不得讓讀取 hot path 拋 500。嚴格 400 驗證屬 T5.4。
+ */
+function decodeCursor(cursor: string): string | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      nt?: unknown;
+    };
+    return typeof parsed.nt === 'string' ? parsed.nt : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * 排序 + 分頁固化 snapshot 列，回 `{ rows, meta }`。cursor 存在時走 keyset（自 cursor 列之後接續）；
- * 否則走 offset（`page`/`pageSize`）。未知 cursor → 視為已到資料尾（空頁）。
+ * 否則走 offset（`page`/`pageSize`）。未知 / 不可解析 cursor → 視為已到資料尾（空頁）。
+ * ⚠ cursor 僅在**與產生它時相同的 `sortBy`/`sortDir`** 下有效（不同排序會在新序中誤接續）。
+ * 防禦：`pageSize`/`page` < 1 一律夾為合法值（不產生 NaN/負 slice 垃圾）；嚴格上限/400 驗證屬 T5.4。
  */
 export function selectPage<T extends SortableRow>(
   rows: T[],
@@ -106,26 +118,25 @@ export function selectPage<T extends SortableRow>(
 ): PageResult<T> {
   const sorted = sortRows(rows, sort.sortBy, sort.sortDir);
   const total = sorted.length;
-  const pageSize = page.pageSize ?? DEFAULT_PAGE_SIZE;
+  const pageSize = Math.max(1, page.pageSize ?? DEFAULT_PAGE_SIZE);
 
   let startIndex: number;
+  let pageNum: number;
   if (page.cursor !== undefined) {
     const nt = decodeCursor(page.cursor);
-    const idx = sorted.findIndex((row) => row.normalizedText === nt);
-    startIndex = idx >= 0 ? idx + 1 : total; // 未知 cursor → 空尾頁
+    const idx = nt === null ? -1 : sorted.findIndex((row) => row.normalizedText === nt);
+    startIndex = idx >= 0 ? idx + 1 : total; // 未知/不可解析 cursor → 空尾頁
+    pageNum = Math.floor(startIndex / pageSize) + 1;
   } else {
-    const pageNum = page.page ?? 1;
+    pageNum = Math.max(1, page.page ?? 1); // page < 1 夾為第 1 頁
     startIndex = (pageNum - 1) * pageSize;
   }
-  const clampedStart = Math.max(0, startIndex);
 
-  const pageRows = sorted.slice(clampedStart, clampedStart + pageSize);
-  const endIndex = clampedStart + pageRows.length;
+  const pageRows = sorted.slice(startIndex, startIndex + pageSize);
+  const endIndex = startIndex + pageRows.length;
   const last = pageRows[pageRows.length - 1];
   const nextCursor =
     last !== undefined && endIndex < total ? encodeCursor(last.normalizedText) : null;
-  const pageNum =
-    page.cursor !== undefined ? Math.floor(clampedStart / pageSize) + 1 : (page.page ?? 1);
 
   return { rows: pageRows, meta: { total, page: pageNum, pageSize, cursor: nextCursor } };
 }

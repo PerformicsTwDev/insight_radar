@@ -174,10 +174,43 @@ describe('selectPage — offset + keyset, stable, no drift (T5.2 / FR-6)', () =>
     expect(res.meta.cursor).toBeNull();
   });
 
+  it('a malformed cursor is treated as unknown (empty page, does not throw 500)', () => {
+    // 非 base64url / 非合法 JSON 的畸形 cursor（opaque）不得讓 hot path 拋錯。
+    for (const bad of [
+      '!!!not-base64!!!',
+      'zzzz',
+      Buffer.from('nope', 'utf8').toString('base64url'),
+    ]) {
+      const res = selectPage(rows, {}, { pageSize: 10, cursor: bad });
+      expect(res.rows).toHaveLength(0);
+      expect(res.meta.cursor).toBeNull();
+    }
+  });
+
   it('a page beyond the data returns empty rows with correct total', () => {
     const res = selectPage(rows, {}, { page: 99, pageSize: 10 });
     expect(res.rows).toHaveLength(0);
     expect(res.meta.total).toBe(25);
+  });
+
+  it('is defensive against non-positive pageSize/page (no NaN / negative-slice garbage)', () => {
+    const zero = selectPage(rows, {}, { pageSize: 0 });
+    expect(Number.isFinite(zero.meta.page)).toBe(true); // 非 NaN
+    expect(zero.meta.pageSize).toBeGreaterThanOrEqual(1);
+    const neg = selectPage(rows, {}, { pageSize: -10 });
+    expect(neg.rows.length).toBeLessThanOrEqual(rows.length); // 非負 slice 的錯誤子集
+    const page0 = selectPage(rows, {}, { page: 0, pageSize: 10 });
+    expect(page0.meta.page).toBe(1); // page<1 夾為第 1 頁，meta 反映實際頁
+    expect(page0.rows[0].normalizedText).toBe('kw-00');
+  });
+
+  it('is order-independent: a shuffled input yields the identical sorted page (no drift on reload)', () => {
+    const shuffled = [...rows].reverse(); // 不同載入順序（模擬 snapshot 以不同順序重載）
+    const fromOriginal = selectPage(rows, {}, { page: 2, pageSize: 10 });
+    const fromShuffled = selectPage(shuffled, {}, { page: 2, pageSize: 10 });
+    expect(fromShuffled.rows.map((x) => x.normalizedText)).toEqual(
+      fromOriginal.rows.map((x) => x.normalizedText),
+    );
   });
 });
 
