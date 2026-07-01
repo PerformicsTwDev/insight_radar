@@ -180,7 +180,9 @@ export class KeywordAnalysisProcessor
       // 失敗 job 亦發結構化可觀測 log（NFR-6/TC-30）：已計得的 phase 耗時 + 外部呼叫/重試數（best-effort）。
       this.emitMetrics(metrics, 'failed');
       if (isTerminalJobError(classifyError(error))) {
-        const message = error instanceof Error ? error.message : String(error);
+        // scrubSecrets（M7-R1/NFR-5）：此 message 成為 BullMQ job.failedReason（Redis at-rest）→ 防上游錯誤夾帶的
+        // 密碼落入 Redis。SSE client-facing 出站另於 JobEventsService.route 統一遮罩（涵蓋重試耗盡的原始錯誤路徑）。
+        const message = scrubSecrets(error instanceof Error ? error.message : String(error));
         throw new UnrecoverableError(message);
       }
       throw error;
