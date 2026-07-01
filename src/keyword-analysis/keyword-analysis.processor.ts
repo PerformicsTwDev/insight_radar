@@ -275,6 +275,7 @@ function toSnapshotRow(kw: Keyword, intent: string[]): SnapshotRowData {
     cpcLow: kw.cpcLow,
     cpcHigh: kw.cpcHigh,
     intent: [...intent].sort(),
+    monthlyVolumes: kw.monthlyVolumes,
   };
 }
 

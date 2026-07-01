@@ -17,6 +17,7 @@ function row(normalizedText: string): SnapshotRowData {
     cpcLow: 1,
     cpcHigh: 2,
     intent: ['informational'],
+    monthlyVolumes: [],
   };
 }
 

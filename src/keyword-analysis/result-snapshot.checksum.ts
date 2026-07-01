@@ -1,8 +1,10 @@
+import type { MonthlySearchVolume } from '../google-ads/mapping/map-monthly-volumes';
 import { sha256Hex } from '../common/sha256';
 
 /**
- * Snapshot 列資料（result table 5 欄 + 攤平指標 + intent；存 `snapshot_rows.data` Json）。
- * 不可變快照的內容單位（NFR-7 / TC-17）。
+ * Snapshot 列資料（result table 欄 + 攤平指標 + intent + 逐月搜量；存 `snapshot_rows.data` Json）。
+ * 不可變快照的內容單位（NFR-7 / TC-17）。`monthlyVolumes` 為有序序列（供 trend 月分組 sum +
+ * keywords top-N series，Design §5.1/§9.2）；canonical 保序、不排序陣列。
  */
 export interface SnapshotRowData {
   text: string;
@@ -13,6 +15,7 @@ export interface SnapshotRowData {
   cpcLow: number | null;
   cpcHigh: number | null;
   intent: string[];
+  monthlyVolumes: MonthlySearchVolume[];
 }
 
 /** 遞迴排序物件 key（陣列保序）→ 穩定序列化，使 checksum 與 key 順序無關。 */

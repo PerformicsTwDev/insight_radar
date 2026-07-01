@@ -93,6 +93,7 @@ function* candGen(batches: KeywordCandidate[][]): Generator<KeywordCandidate[]> 
 interface SavedRow {
   normalizedText: string;
   intent: string[];
+  monthlyVolumes: unknown[];
 }
 interface Harness {
   processor: KeywordAnalysisProcessor;
@@ -429,6 +430,18 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       expect.objectContaining({ normalizedText: 'running shoes', intent: ['informational'] }),
       expect.objectContaining({ normalizedText: 'trail shoes', intent: ['informational'] }),
     ]);
+  });
+
+  it('carries monthlyVolumes into the snapshot row (needed by trend / keywords views, §5.1)', async () => {
+    const { processor, saveResult } = buildHarness();
+
+    await processor.process(fakeJob(buildPayload()) as never);
+
+    const [, rows] = saveResult.mock.calls[0] as [string, SavedRow[]];
+    // 逐月搜量須進 snapshot（不可變、供 trend 月分組 sum + keywords top-N series，§9.2）。
+    // 修正前 toSnapshotRow 不含 monthlyVolumes → 執行期為 undefined → Array.isArray 為 false（red）。
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => Array.isArray(r.monthlyVolumes))).toBe(true);
   });
 
   it('logs and persists without throwing on the failed worker event', async () => {
