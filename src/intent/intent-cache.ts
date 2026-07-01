@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
@@ -6,6 +6,7 @@ import { sha256Hex } from '../common/sha256';
 import { cacheConfig } from '../config/cache.config';
 import { normalizeText } from '../google-ads/normalize';
 import { scrubSecrets } from '../logger/redaction';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import { PrismaService } from '../prisma';
 import { cleanLabels } from './intent-postprocess';
 import { AZURE_OPENAI_DEPLOYMENT } from './intent-labeler.port';
@@ -35,7 +36,15 @@ export class IntentCache {
     @Inject(cacheConfig.KEY) private readonly config: ConfigType<typeof cacheConfig>,
     @Inject(AZURE_OPENAI_DEPLOYMENT) private readonly deployment: string,
     private readonly prisma: PrismaService,
+    // 可觀測（T7.2）：mget 記命中/查詢數（Redis 或 DB 後備命中皆省下 LLM 呼叫）；無 job 上下文 no-op。
+    @Optional() private readonly metrics?: JobMetricsContext,
   ) {}
+
+  /** 記一次 mget 的命中率（命中＝有值＝省下 LLM 呼叫，含 DB 後備）。 */
+  private recordCacheHits(result: (string[] | undefined)[], lookups: number): void {
+    const hits = result.filter((v) => v !== undefined).length;
+    this.metrics?.current()?.recordCacheLookup(hits, lookups);
+  }
 
   /** DB canonical（`keyword_intents`）的版本維度——對齊 Redis namespace（schema 或 prompt 變更皆 bump）。 */
   private get modelVersion(): string {
@@ -92,6 +101,7 @@ export class IntentCache {
 
     const missNts = normalized.filter((_nt, i) => redis[i] === undefined);
     if (missNts.length === 0) {
+      this.recordCacheHits(redis, normalized.length);
       return redis;
     }
     // DB 後備：以 [normalizedText, modelVersion] 查 canonical；命中回填 Redis（Redis 失效不重打 LLM）。
@@ -113,7 +123,9 @@ export class IntentCache {
       ),
       'intent cache warm',
     );
-    return normalized.map((nt, i) => redis[i] ?? dbByNt.get(nt));
+    const result = normalized.map((nt, i) => redis[i] ?? dbByNt.get(nt));
+    this.recordCacheHits(result, normalized.length);
+    return result;
   }
 
   /**

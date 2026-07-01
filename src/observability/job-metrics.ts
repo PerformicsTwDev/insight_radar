@@ -20,6 +20,10 @@ export interface JobCounts {
 export class JobMetrics {
   private readonly phaseMs: Partial<Record<LogPhase, number>> = {};
   private counts: JobCounts = { expanded: 0, labeled: 0, total: 0 };
+  private cacheHits = 0;
+  private cacheLookups = 0;
+  private externalCalls = 0;
+  private retries = 0;
 
   constructor(
     private readonly analysisId: string,
@@ -42,15 +46,42 @@ export class JobMetrics {
     this.counts = counts;
   }
 
-  /** 匯出結構化 log 欄位（NFR-6/TC-30）：analysisId、status、各 phase 耗時、expanded/labeled/total。 */
+  /** 累加一次快取查詢的命中/總數（跨服務、經 AsyncLocalStorage 由各 cache mget 遞增，T7.2 slice B）。 */
+  recordCacheLookup(hits: number, lookups: number): void {
+    this.cacheHits += hits;
+    this.cacheLookups += lookups;
+  }
+
+  /** 外部 API 呼叫數 +n（Ads/LLM 每次呼叫）。 */
+  addExternalCalls(n = 1): void {
+    this.externalCalls += n;
+  }
+
+  /** 重試數 +n（Ads job 內退避每次重試）。 */
+  addRetries(n = 1): void {
+    this.retries += n;
+  }
+
+  /** cache 命中率（0..1）；無任何查詢時為 `null`（不假造 0，避免誤導）。 */
+  private cacheHitRate(): number | null {
+    return this.cacheLookups > 0 ? this.cacheHits / this.cacheLookups : null;
+  }
+
+  /**
+   * 匯出結構化 log 欄位（NFR-6/TC-30，欄位名取 {@link LogField} SSOT）：analysisId、status、各 phase 耗時、
+   * expanded/labeled/total、cacheHitRate、externalCalls、retries。
+   */
   toLogFields(status: string): Record<string, unknown> {
     return {
       [LogField.ANALYSIS_ID]: this.analysisId,
-      status,
-      phases: { ...this.phaseMs },
-      expanded: this.counts.expanded,
-      labeled: this.counts.labeled,
-      total: this.counts.total,
+      [LogField.STATUS]: status,
+      [LogField.PHASES]: { ...this.phaseMs },
+      [LogField.EXPANDED]: this.counts.expanded,
+      [LogField.LABELED]: this.counts.labeled,
+      [LogField.TOTAL]: this.counts.total,
+      [LogField.CACHE_HIT_RATE]: this.cacheHitRate(),
+      [LogField.EXTERNAL_CALLS]: this.externalCalls,
+      [LogField.RETRIES]: this.retries,
     };
   }
 }

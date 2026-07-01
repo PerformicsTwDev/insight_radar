@@ -1,6 +1,8 @@
 import type { ConfigType } from '@nestjs/config';
 import type { CacheService } from '../cache/cache.service';
 import type { cacheConfig } from '../config/cache.config';
+import { JobMetrics } from '../observability/job-metrics';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import type { PrismaService } from '../prisma';
 import type { Keyword } from './keyword.types';
 import { MetricsCache } from './metrics-cache';
@@ -34,7 +36,7 @@ interface SetCall {
 }
 
 /** 以 in-memory store 模擬 CacheService（保留 buildKey 真實串接、mget 對齊、set TTL 記錄）。 */
-function buildCache() {
+function buildCache(metricsCtx?: JobMetricsContext) {
   const store = new Map<string, unknown>();
   const setCalls: SetCall[] = [];
   const set = jest.fn(<T>(key: string, value: T, ttlMs?: number): Promise<void> => {
@@ -71,7 +73,7 @@ function buildCache() {
   );
   const prisma = { keyword: { findMany, upsert } } as unknown as PrismaService;
   return {
-    service: new MetricsCache(cache, config, prisma),
+    service: new MetricsCache(cache, config, prisma, metricsCtx),
     store,
     setCalls,
     dbRows,
@@ -368,5 +370,16 @@ describe('MetricsCache (T4.1 / FR-10 / NFR-4)', () => {
     await service.msetByText([keyword('running shoes')], params);
     // 修正前：單一 Promise.all 因 Redis reject 短路 → mset 在 upsert 完成前就 resolve（upsertSettled=false）。
     expect(upsertSettled).toBe(true);
+  });
+
+  it('records the cache hit-rate into the current job metrics (T7.2)', async () => {
+    const ctx = new JobMetricsContext();
+    const { service } = buildCache(ctx);
+    await service.mset([keyword('running shoes')], params); // 種一筆命中
+
+    const metrics = new JobMetrics('job-1');
+    await ctx.run(metrics, () => service.mget(['running shoes', 'absent kw'], params));
+
+    expect(metrics.toLogFields('completed').cacheHitRate).toBe(0.5); // 1 命中 / 2 查詢
   });
 });

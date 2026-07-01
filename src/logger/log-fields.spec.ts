@@ -8,6 +8,17 @@ describe('structured log schema', () => {
     expect(LogField.REQUEST_ID).toBe('requestId');
   });
 
+  it('exposes the per-job metric field names (T7.2)', () => {
+    expect(LogField.CACHE_HIT_RATE).toBe('cacheHitRate');
+    expect(LogField.EXTERNAL_CALLS).toBe('externalCalls');
+    expect(LogField.RETRIES).toBe('retries');
+    expect(LogField.STATUS).toBe('status');
+    expect(LogField.PHASES).toBe('phases');
+    expect(LogField.EXPANDED).toBe('expanded');
+    expect(LogField.LABELED).toBe('labeled');
+    expect(LogField.TOTAL).toBe('total');
+  });
+
   it('exposes pipeline phase names', () => {
     expect(LogPhase.EXPAND).toBe('expand');
     expect(LogPhase.METRICS).toBe('metrics');

@@ -732,6 +732,9 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       expanded: number;
       labeled: number;
       total: number;
+      cacheHitRate: number | null;
+      externalCalls: number;
+      retries: number;
     }
 
     it('emits one structured per-job log with phase timings + expanded/labeled/total', async () => {
@@ -747,6 +750,26 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       expect(typeof fields.phases.expand).toBe('number'); // 各 phase 耗時（結構化）
       expect(typeof fields.phases.persist).toBe('number');
       expect(fields).toMatchObject({ expanded: 2, labeled: 2, total: 2 }); // expand 模式：2 關鍵字
+      // TC-30 全欄位就位（值於服務層計數——AdsRateLimiter/MetricsCache 各自測；此處只驗欄位結構齊全）。
+      expect(fields).toHaveProperty('cacheHitRate');
+      expect(fields).toHaveProperty('externalCalls');
+      expect(fields).toHaveProperty('retries');
+    });
+
+    it('emits metrics with status=failed when a job fails (observable failed jobs)', async () => {
+      const { processor, metricsLog, expandStreamRaw } = buildHarness();
+      // 終態 Ads 錯誤、無累積候選 → UnrecoverableError（失敗）。
+      expandStreamRaw.mockImplementation(
+        throwing({ errors: [{ error_code: { quota_error: 'RESOURCE_EXHAUSTED' } }] }),
+      );
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+      expect(metricsLog.info).toHaveBeenCalledWith(
+        expect.objectContaining({ analysisId: 'a-1', status: 'failed' }),
+        'job metrics',
+      );
     });
 
     it('reports expanded=0 for exact mode (no expansion phase)', async () => {

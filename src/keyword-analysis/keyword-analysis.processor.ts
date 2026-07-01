@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Logger, Optional, type OnApplicationBootstrap } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { JobStatus, Prisma } from '@prisma/client';
 import { type Job, UnrecoverableError } from 'bullmq';
@@ -7,6 +7,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { queueConfig } from '../config/queue.config';
 import { LogPhase } from '../logger/log-fields';
 import { JobMetrics } from '../observability/job-metrics';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import { classifyError, isTerminalJobError } from './error-classification';
 import { PrismaService } from '../prisma';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
@@ -65,6 +66,8 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     // ⚠ DI 依賴 AppModule import 序：`keyword-analysis`（註冊此 @InjectPinoLogger decorator）須在 `logger`
     // （nestjs-pino `forRoot` 的 createProvidersForDecorated）**之前** import，否則 `PinoLogger:...` token 無法解析。
     @InjectPinoLogger(KeywordAnalysisProcessor.name) private readonly metricsLog: PinoLogger,
+    // 每 job metrics 的 AsyncLocalStorage 上下文（T7.2）：跨服務計數歸屬。無提供（部分測試）時退化為不包上下文。
+    @Optional() private readonly jobMetricsCtx?: JobMetricsContext,
   ) {
     super();
   }
@@ -85,8 +88,17 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
   }
 
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {
+    const metrics = new JobMetrics(job.data.analysisId); // 每 job 可觀測指標（NFR-6/TC-30）
+    const run = (): Promise<{ count: number }> => this.runJob(job, metrics);
+    // 在此 job 的 metrics 上下文中執行（AsyncLocalStorage）：跨服務（Ads/LLM/cache）計數正確歸屬到本 job（T7.2）。
+    return this.jobMetricsCtx ? this.jobMetricsCtx.run(metrics, run) : run();
+  }
+
+  private async runJob(
+    job: Job<AnalysisJobPayload>,
+    metrics: JobMetrics,
+  ): Promise<{ count: number }> {
     const { analysisId, seeds, params } = job.data;
-    const metrics = new JobMetrics(analysisId); // 每 job 可觀測指標（NFR-6/TC-30）
     const report = (phase: keyof typeof PHASE_PERCENT, total: number): Promise<void> =>
       this.report(job, phase, total);
 
@@ -139,6 +151,8 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       // Ads 不可重試（InvalidArgument 等）、LLM 內容結果（確定性、重試無益）——皆以 `UnrecoverableError` 收尾，
       // 避免 BullMQ 整 job 重跑重打 Ads/LLM、放大用量。**INFRA/UNKNOWN 照舊原樣拋** → BullMQ 依 `attempts`
       // 整 job 重試（保留無錯誤碼暫時性故障的安全網，不改既有行為）。
+      // 失敗 job 亦發結構化可觀測 log（NFR-6/TC-30）：已計得的 phase 耗時 + 外部呼叫/重試數（best-effort）。
+      this.emitMetrics(metrics, 'failed');
       if (isTerminalJobError(classifyError(error))) {
         const message = error instanceof Error ? error.message : String(error);
         throw new UnrecoverableError(message);

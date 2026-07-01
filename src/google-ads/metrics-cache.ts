@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma, type Keyword as KeywordRow } from '@prisma/client';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { cacheConfig } from '../config/cache.config';
 import { scrubSecrets } from '../logger/redaction';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import { PrismaService } from '../prisma';
 import type { Keyword } from './keyword.types';
 import type { CompetitionLevel } from './mapping/map-competition';
@@ -35,7 +36,15 @@ export class MetricsCache {
     private readonly cache: CacheService,
     @Inject(cacheConfig.KEY) private readonly config: ConfigType<typeof cacheConfig>,
     private readonly prisma: PrismaService,
+    // 可觀測（T7.2）：mget 記命中/查詢數（Redis 或 DB 後備命中皆算——皆省下 Ads 呼叫）；無 job 上下文 no-op。
+    @Optional() private readonly metrics?: JobMetricsContext,
   ) {}
+
+  /** 記一次 mget 的命中率（命中＝有值＝省下 Ads 呼叫，含 DB 後備）。 */
+  private recordCacheHits(result: (Keyword | undefined)[], lookups: number): void {
+    const hits = result.filter((v) => v !== undefined).length;
+    this.metrics?.current()?.recordCacheLookup(hits, lookups);
+  }
 
   private keyFor(params: MetricsCacheParams, normalizedText: string): string {
     return this.cache.buildKey(CacheNamespace.METRICS, params.geo, params.language, normalizedText);
@@ -83,6 +92,7 @@ export class MetricsCache {
 
     const missNts = normalizedTexts.filter((_nt, i) => redis[i] === undefined);
     if (missNts.length === 0) {
+      this.recordCacheHits(redis, normalizedTexts.length);
       return redis;
     }
     // DB 後備：以 [geo, language, normalizedText] 查 canonical；命中回填 Redis（Redis 失效不重打 Ads）。
@@ -108,7 +118,9 @@ export class MetricsCache {
       ),
       'metrics cache warm',
     );
-    return normalizedTexts.map((nt, i) => redis[i] ?? dbByNt.get(nt));
+    const result = normalizedTexts.map((nt, i) => redis[i] ?? dbByNt.get(nt));
+    this.recordCacheHits(result, normalizedTexts.length);
+    return result;
   }
 
   /**

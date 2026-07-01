@@ -11,6 +11,12 @@ export const LogField = {
   EXTERNAL_CALLS: 'externalCalls',
   RETRIES: 'retries',
   REQUEST_ID: 'requestId',
+  // 每 job 摘要欄位（T7.2）。
+  STATUS: 'status',
+  PHASES: 'phases',
+  EXPANDED: 'expanded',
+  LABELED: 'labeled',
+  TOTAL: 'total',
 } as const;
 
 export type LogField = (typeof LogField)[keyof typeof LogField];
