@@ -1,6 +1,8 @@
 import RedisMockUntyped from 'ioredis-mock';
 import type { ConfigType } from '@nestjs/config';
 import type { googleAdsConfig } from '../config/google-ads.config';
+import { JobMetrics } from '../observability/job-metrics';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import { AdsRateLimiter } from './ads-rate-limiter';
 import type { AdsLimiterRedis } from './ads-rate-limiter';
 
@@ -23,9 +25,9 @@ function adsFailure(category: string, code: string): Error {
 }
 
 /** 建限流器並裝上可控時鐘：sleep 推進虛擬時鐘、random 預設 0（jitter=0，退避值確定）。 */
-function makeLimiter(over: Partial<AdsCfg> = {}) {
+function makeLimiter(over: Partial<AdsCfg> = {}, metricsCtx?: JobMetricsContext) {
   const redis = new RedisMock();
-  const limiter = new AdsRateLimiter(redis, cfg(over));
+  const limiter = new AdsRateLimiter(redis, cfg(over), metricsCtx);
   const state = { clock: 1_000_000, sleeps: [] as number[] };
   limiter.now = () => state.clock;
   limiter.sleep = (ms: number) => {
@@ -219,6 +221,34 @@ describe('AdsRateLimiter (T3.6 / TC-16)', () => {
       expect(limiter.now()).toBeGreaterThanOrEqual(before);
       await limiter.sleep(1); // 真實 setTimeout（~1ms）
       expect(Date.now()).toBeGreaterThanOrEqual(before);
+    });
+  });
+
+  // T7.2：每次 Ads 呼叫 +1 external call、每次退避重試 +1 retry，經 AsyncLocalStorage 歸屬到當前 job。
+  describe('job metrics attribution (T7.2)', () => {
+    it('counts each Ads call and each backoff retry into the current job metrics', async () => {
+      const ctx = new JobMetricsContext();
+      const { limiter } = makeLimiter({}, ctx);
+      const metrics = new JobMetrics('job-1');
+      let calls = 0;
+      const fn = (): Promise<string> => {
+        calls += 1;
+        return calls <= 2
+          ? Promise.reject(adsFailure('quota_error', 'RESOURCE_EXHAUSTED')) // 前兩次可重試失敗
+          : Promise.resolve('ok');
+      };
+
+      const result = await ctx.run(metrics, () => limiter.schedule('cid', fn));
+
+      expect(result).toBe('ok');
+      const fields = metrics.toLogFields('completed');
+      expect(fields.externalCalls).toBe(3); // 3 次 fn()（含退避後重打）
+      expect(fields.retries).toBe(2); // 2 次退避重試
+    });
+
+    it('is a no-op without a job context (non-job callers unaffected)', async () => {
+      const { limiter } = makeLimiter(); // 無 ctx
+      await expect(limiter.schedule('cid', () => Promise.resolve('ok'))).resolves.toBe('ok');
     });
   });
 });

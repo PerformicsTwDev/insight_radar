@@ -45,4 +45,25 @@ describe('JobMetrics (T7.2 / TC-30 / NFR-6)', () => {
     expect(fields.phases).toEqual({});
     expect(fields).toMatchObject({ expanded: 0, labeled: 0, total: 0 });
   });
+
+  it('accumulates cache hits/lookups into a hit-rate (0..1)', () => {
+    const m = new JobMetrics('an-1');
+    m.recordCacheLookup(3, 5);
+    m.recordCacheLookup(1, 5); // total 4 hits / 10 lookups
+    expect(m.toLogFields('completed')[LogField.CACHE_HIT_RATE]).toBe(0.4);
+  });
+
+  it('reports cacheHitRate=null when there were no lookups (缺值≠0)', () => {
+    expect(new JobMetrics('an-1').toLogFields('completed')[LogField.CACHE_HIT_RATE]).toBeNull();
+  });
+
+  it('counts external calls and retries', () => {
+    const m = new JobMetrics('an-1');
+    m.addExternalCalls();
+    m.addExternalCalls(2);
+    m.addRetries();
+    const fields = m.toLogFields('completed');
+    expect(fields[LogField.EXTERNAL_CALLS]).toBe(3);
+    expect(fields[LogField.RETRIES]).toBe(1);
+  });
 });

@@ -1,5 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { ResponseFormatJSONSchema } from 'openai/resources/shared';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import {
   AZURE_OPENAI_CLIENT,
   AZURE_OPENAI_DEPLOYMENT,
@@ -26,6 +27,8 @@ export class AzureOpenAiService implements IntentLabeler {
   constructor(
     @Inject(AZURE_OPENAI_CLIENT) private readonly client: OpenAiChatClient,
     @Inject(AZURE_OPENAI_DEPLOYMENT) private readonly deployment: string,
+    // 可觀測（T7.2）：每次 LLM 呼叫 +1 external call（SDK 內部 429/5xx 重試不可見，見 note）；無 job 上下文 no-op。
+    @Optional() private readonly metrics?: JobMetricsContext,
   ) {}
 
   async parseChat<T>(params: ParseChatParams): Promise<ParseChatResult<T>> {
@@ -50,6 +53,7 @@ export class AzureOpenAiService implements IntentLabeler {
       request.max_completion_tokens = params.maxCompletionTokens;
     }
 
+    this.metrics?.current()?.addExternalCalls(); // 一次 LLM 呼叫（外部 API）
     const completion = (await this.client.chat.completions.parse(request)) as ParsedCompletion<T>;
     const message = completion.choices?.[0]?.message;
     return {

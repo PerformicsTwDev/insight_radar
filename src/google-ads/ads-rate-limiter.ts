@@ -1,6 +1,7 @@
-import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnModuleDestroy } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { googleAdsConfig } from '../config/google-ads.config';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 import { isRetryableAdsError } from './ads-error';
 import { ADS_RATE_LIMITER_REDIS } from './ads-rate-limiter.constants';
 
@@ -71,18 +72,23 @@ export class AdsRateLimiter implements AdsThrottle, OnModuleDestroy {
   constructor(
     @Inject(ADS_RATE_LIMITER_REDIS) private readonly redis: AdsLimiterRedis,
     @Inject(googleAdsConfig.KEY) private readonly config: ConfigType<typeof googleAdsConfig>,
+    // 可觀測指標（T7.2）：每次 Ads 呼叫 +1 external call、每次退避重試 +1 retry；無 job 上下文時 no-op。
+    @Optional() private readonly metrics?: JobMetricsContext,
   ) {}
 
   async schedule<T>(cid: string, fn: () => Promise<T>): Promise<T> {
     const minTime = this.minTimeMs();
+    const jobMetrics = this.metrics?.current();
     for (let attempt = 0; ; attempt += 1) {
       await this.acquireSlot(cid, minTime);
+      jobMetrics?.addExternalCalls(); // 每次 fn() 為一次 Ads API 呼叫（含退避後的重打）
       try {
         return await fn();
       } catch (err) {
         if (!isRetryableAdsError(err) || attempt >= this.config.adsMaxRetries) {
           throw err;
         }
+        jobMetrics?.addRetries(); // 即將退避重試
         await this.sleep(this.backoffMs(attempt));
       }
     }

@@ -6,6 +6,7 @@ import { HealthModule } from './health';
 import { KeywordAnalysisModule } from './keyword-analysis';
 import { KeywordsModule } from './keywords/keywords.module';
 import { LoggerModule } from './logger';
+import { ObservabilityModule } from './observability/observability.module';
 import { PrismaModule } from './prisma';
 import { configNamespaces, validationSchema } from './config';
 
@@ -26,6 +27,7 @@ import { configNamespaces, validationSchema } from './config';
       validationOptions: { allowUnknown: true, abortEarly: false },
     }),
     LoggerModule,
+    ObservabilityModule,
     CommonModule,
     CacheModule,
     PrismaModule,
