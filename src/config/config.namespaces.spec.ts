@@ -3,6 +3,7 @@ import { azureConfig } from './azure.config';
 import { cacheConfig } from './cache.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
+import { queryConfig } from './query.config';
 import { queueConfig } from './queue.config';
 import { redisConfig } from './redis.config';
 
@@ -39,6 +40,9 @@ const ENV: Record<string, string> = {
   CACHE_TTL_METRICS_MS: '1814400000',
   CACHE_TTL_INTENT_MS: '5184000000',
   INTENT_SCHEMA_VERSION: 'v1',
+  QUERY_MAX_PAGE_SIZE: '200',
+  AGG_MAX_BUCKETS: '200',
+  AGG_MAX_GROUPS: '1000',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -109,6 +113,14 @@ describe('config namespaces (registerAs, typed)', () => {
       metricsTtlMs: 1814400000,
       intentTtlMs: 5184000000,
       intentSchemaVersion: 'v1',
+    });
+  });
+
+  it('queryConfig maps read-layer page-size limit + aggregation bounds (coerced to number)', () => {
+    expect(queryConfig()).toEqual({
+      maxPageSize: 200,
+      aggMaxBuckets: 200,
+      aggMaxGroups: 1000,
     });
   });
 });

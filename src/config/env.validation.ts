@@ -70,6 +70,8 @@ export const validationSchema = Joi.object({
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),
   IDEMP_TTL_MS: Joi.number().integer().min(0).default(86400000),
   JOB_TTL_MS: Joi.number().integer().min(0).default(259200000),
+  // —— 讀取層/彙整上限（Design §6.5/§9.3）——
+  QUERY_MAX_PAGE_SIZE: Joi.number().integer().min(1).default(200),
   AGG_MAX_BUCKETS: Joi.number().integer().min(1).default(200),
   AGG_MAX_GROUPS: Joi.number().integer().min(1).max(5000).default(1000),
 });
