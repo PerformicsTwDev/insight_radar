@@ -137,6 +137,8 @@ export class SnapshotQueryService {
       throw new NotReadyException(analysis.status);
     }
     const features = computeFeatures(analysis);
+    // 未知 view → 400、view 依賴的 feature 未 ready → 409，**先於** loadRows——gated view 不白抓整份 snapshot（M6-R6）。
+    this.viewService.assertExecutable(request.view, features);
     const rows = await this.loadRows(analysis.resultSnapshotId);
     return this.viewService.query(
       rows,
