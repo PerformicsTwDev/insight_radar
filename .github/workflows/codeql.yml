@@ -1,0 +1,24 @@
+# 可選但建議開（NFR-5）。最簡可改用 Settings → Code scanning → Default setup（零 YAML）。
+name: codeql
+
+on:
+  # ⚠ 暫停自動觸發（2026-06-28）：本 repo 為私有且未啟用 GitHub Advanced Security，
+  #   CodeQL 分析能跑、但 SARIF 上傳 code-scanning 會 403（"Resource not accessible by integration"）。
+  #   啟用條件：Settings → Code security 開 GHAS／code scanning，或將 repo 轉為 public；
+  #   屆時把 on: 改回 push/pull_request(branches:[main]) + 每週 schedule。
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  security-events: write # 上傳結果所需
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3

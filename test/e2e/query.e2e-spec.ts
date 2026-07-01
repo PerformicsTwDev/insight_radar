@@ -150,6 +150,15 @@ describe('POST /keyword-analyses/:id/query (e2e, TC-36)', () => {
     ).toBe(400);
   });
 
+  // 型別混淆的 filters 值必須是乾淨 400（AC-14.3），不可讓錯型別流進 buildPredicate 而拋 TypeError → 500。
+  it('rejects type-confused filter values with 400 (never 500)', async () => {
+    expect((await post({ view: 'keywords', filters: { intent: 'commercial' } })).status).toBe(400);
+    expect((await post({ view: 'keywords', filters: { q: 123 } })).status).toBe(400);
+    expect((await post({ view: 'keywords', filters: { competition: 'LOW' } })).status).toBe(400);
+    expect((await post({ view: 'keywords', filters: { volumeMin: 'lots' } })).status).toBe(400);
+    expect((await post({ view: 'keywords', filters: { bogusKey: 1 } })).status).toBe(400);
+  });
+
   it('rejects a non-UUID id with 400 (ParseUUIDPipe)', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/keyword-analyses/not-a-uuid/query')

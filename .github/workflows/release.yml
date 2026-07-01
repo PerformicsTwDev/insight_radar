@@ -1,0 +1,23 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # 打 tag / 建 Release
+  pull-requests: write # 維護 Release PR
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # 小團隊夠用；註：GITHUB_TOKEN 觸發的事件不會再觸發 ci.yml
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      # 後續步驟僅在 Release PR 合併、真的產生 release 時跑（本案部署為非目標）
+      - if: ${{ steps.release.outputs.release_created }}
+        run: echo "Released ${{ steps.release.outputs.tag_name }}"

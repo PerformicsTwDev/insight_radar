@@ -1,15 +1,6 @@
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsIn,
-  IsInt,
-  IsObject,
-  IsOptional,
-  IsString,
-  Min,
-  ValidateNested,
-} from 'class-validator';
-import type { FilterSpec } from '../filter-spec';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { FilterSpecDto } from './filter-spec.dto';
 
 /** 排序鍵（`POST /query` body）。 */
 class QuerySortDto {
@@ -51,10 +42,11 @@ export class QueryDto {
   @IsString({ each: true })
   select?: string[];
 
-  /** 共用 `FilterSpec`；欄位鍵/`min>max` 由 QueryViewService 依 view 白名單驗證。 */
+  /** 共用 `FilterSpec`（巢狀型別驗證，錯型別/未宣告鍵 → 400）；欄位是否屬 view 的 allowedFilters 由 QueryViewService 把關。 */
   @IsOptional()
-  @IsObject()
-  filters?: FilterSpec;
+  @ValidateNested()
+  @Type(() => FilterSpecDto)
+  filters?: FilterSpecDto;
 
   @IsOptional()
   @IsArray()
