@@ -18,8 +18,17 @@ export interface SortableRow {
   cpcHigh: number | null;
 }
 
-export type SortField = 'avgMonthlySearches' | 'competitionIndex' | 'cpcLow' | 'cpcHigh' | 'text';
-export type SortDir = 'asc' | 'desc';
+/** 可排序欄位白名單（單一來源：query DTO 的 `@IsIn` 與 SortField 型別皆由此導出，避免 drift）。 */
+export const SORT_FIELDS = [
+  'avgMonthlySearches',
+  'competitionIndex',
+  'cpcLow',
+  'cpcHigh',
+  'text',
+] as const;
+export type SortField = (typeof SORT_FIELDS)[number];
+export const SORT_DIRS = ['asc', 'desc'] as const;
+export type SortDir = (typeof SORT_DIRS)[number];
 
 export interface SortSpec {
   sortBy?: SortField;
