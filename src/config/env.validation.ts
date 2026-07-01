@@ -80,4 +80,12 @@ export const validationSchema = Joi.object({
   // 維度須與 keyword_embeddings migration 的 halfvec(3072) 一致（T8.1）；預設 3072（gemini 全維、原生已
   // normalize、免手動）。截短 768/1536 可省儲存，但需手動 normalize + 改用 `vector` 型別（另開 migration）。
   GEMINI_EMBEDDING_DIM: Joi.number().integer().valid(768, 1536, 3072).default(3072),
+  GEMINI_EMBEDDING_MODEL: Joi.string().default('gemini-embedding-001'), // 鎖此 id
+  GEMINI_EMBEDDING_TASK_TYPE: Joi.string().default('CLUSTERING'),
+  GEMINI_EMBEDDING_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(100), // >500 有順序 bug
+  // embedding 快取 namespace 版本（schema/prompt/輸入組裝變更即 bump → 整批失效；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
+  EMBEDDING_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
+  CACHE_TTL_EMBEDDING_MS: Joi.number().integer().min(0).default(5184000000), // 60 天（ms）
 });
