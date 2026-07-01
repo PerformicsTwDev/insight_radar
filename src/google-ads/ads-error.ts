@@ -51,6 +51,28 @@ export function isRetryableAdsError(err: unknown): boolean {
   );
 }
 
+/**
+ * 暫時性 Ads 伺服器錯誤名稱（`internal_error` 類別；Google 記為可重試）。這些雖解碼為 `GoogleAdsFailure`，
+ * 但**非**程式/請求錯誤——重試（換一次呼叫）可能成功，故不得判為 non-retryable 終態（M7-R6）。
+ */
+const TRANSIENT_INTERNAL_NAMES = new Set([
+  'INTERNAL_ERROR',
+  'TRANSIENT_ERROR',
+  'DEADLINE_EXCEEDED',
+]);
+
+/** GoogleAdsFailure 是否夾帶暫時性 `internal_error`（保留 BullMQ 重試安全網，不誤殺）。 */
+function isTransientAdsFailure(err: unknown): boolean {
+  const errors = (err as { errors?: unknown }).errors;
+  return (
+    Array.isArray(errors) &&
+    (errors as GoogleAdsErrorItem[]).some((item) => {
+      const value = item?.error_code?.internal_error;
+      return typeof value === 'string' && TRANSIENT_INTERNAL_NAMES.has(value);
+    })
+  );
+}
+
 /** 是否為已解碼的 `GoogleAdsFailure`（`errors[].error_code` 為單鍵物件）。 */
 function isGoogleAdsFailure(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) {
@@ -81,5 +103,7 @@ export function isNonRetryableAdsError(err: unknown): boolean {
   ) {
     return true;
   }
-  return isGoogleAdsFailure(err) && !isRetryableAdsError(err);
+  // 暫時性 internal_error（M7-R6）不歸此類：排除後於 classifyError 落 UNKNOWN → BullMQ 整 job 重試安全網
+  // （只終態化 request/field 等程式/請求錯誤，不誤殺 Google 記為可重試的伺服器暫時性故障）。
+  return isGoogleAdsFailure(err) && !isRetryableAdsError(err) && !isTransientAdsFailure(err);
 }

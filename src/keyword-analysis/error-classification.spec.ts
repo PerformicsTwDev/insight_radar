@@ -66,6 +66,25 @@ describe('classifyError (T7.1 error-classification matrix)', () => {
   });
 
   describe('unknown → UNKNOWN (保留 BullMQ 重試安全網，不誤殺無碼暫時性故障)', () => {
+    // M7-R6：暫時性 Ads 伺服器錯誤（internal_error TRANSIENT/INTERNAL/DEADLINE）雖解碼為 GoogleAdsFailure，
+    // 但 Google 記為可重試 → 不得判 ADS_NON_RETRYABLE 終態化；落 UNKNOWN 保留 BullMQ 整 job 重試安全網。
+    it.each([
+      [
+        'internal_error TRANSIENT_ERROR',
+        { errors: [{ error_code: { internal_error: 'TRANSIENT_ERROR' } }] },
+      ],
+      [
+        'internal_error INTERNAL_ERROR',
+        { errors: [{ error_code: { internal_error: 'INTERNAL_ERROR' } }] },
+      ],
+      [
+        'internal_error DEADLINE_EXCEEDED',
+        { errors: [{ error_code: { internal_error: 'DEADLINE_EXCEEDED' } }] },
+      ],
+    ])('transient Ads server error (%s) → UNKNOWN (keep whole-job retry, M7-R6)', (_label, err) => {
+      expect(classifyError(err)).toBe(RetryStrategy.UNKNOWN);
+    });
+
     it('a generic BadRequestError without content_filter (not a GoogleAdsFailure)', () => {
       const err = new BadRequestError(400, { code: 'invalid_request_error' }, 'bad', new Headers());
       expect(classifyError(err)).toBe(RetryStrategy.UNKNOWN);
