@@ -37,8 +37,12 @@ import type {
 const PHASE_PERCENT = { fetch: 40, metrics: 60, intent: 100 } as const;
 /** partial 降級時的空貼標（intent 階段未完成 → 已固化列的 intent 為空，T7.1）。 */
 const EMPTY_LABELS: LabelResult = { labeled: [], needsReview: [] };
-/** 終態（§6.8）：worker 對 DB 狀態的寫入皆條件式（status notIn 此集）以不覆寫已終結 job。 */
-const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'failed', 'canceled'];
+/**
+ * 終態（§6.8）：worker 對 DB 狀態的寫入皆條件式（status notIn 此集）以不覆寫已終結 job。**含 `partial`**
+ * （M7-R10 完成 M7-R5）：partial 為終態，stalled 重跑的 markStatus('running')/進度鏡像不得把已固化 partial
+ * 列推回 running（resurrection → saveResult 建新 snapshot、孤兒化原 partial snapshot）。
+ */
+const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'partial', 'failed', 'canceled'];
 
 /**
  * KeywordAnalysisProcessor（T3.5 + T3.7，FR-12/13、NFR-1）。`@Processor` + `WorkerHost`：

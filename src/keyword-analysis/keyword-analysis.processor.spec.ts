@@ -492,6 +492,18 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       );
     });
 
+    it('guards worker DB writes against overwriting a terminal partial row (M7-R10 completes M7-R5)', async () => {
+      const { processor, prismaUpdateMany } = buildHarness();
+      await processor.process(fakeJob(buildPayload()) as never);
+      // partial 為終態（M7-R5）：worker 的條件式寫入（markStatus running + 進度鏡像）notIn 須含 partial，否則
+      // stalled 重跑會把已固化 partial 列推回 running → resurrection + orphan snapshot（第 4 個 terminal guard）。
+      const guarded = argsOf(prismaUpdateMany).filter((a) => a.where.status?.notIn);
+      expect(guarded.length).toBeGreaterThan(0);
+      for (const write of guarded) {
+        expect(write.where.status?.notIn).toContain('partial');
+      }
+    });
+
     it('mirrors intermediate progress (fetch/metrics) to the DB via the guarded path', async () => {
       const { processor, prismaUpdateMany } = buildHarness();
       await processor.process(fakeJob(buildPayload()) as never);
