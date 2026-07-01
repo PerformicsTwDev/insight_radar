@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { FeatureNotReadyException } from 'src/keywords/feature-not-ready.exception';
 import { NotReadyException } from 'src/keywords/not-ready.exception';
 import { ConfigModule } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -174,6 +175,20 @@ describe('query-view integration (T5.5 / TC-36 / FR-14 · Testcontainers)', () =
       },
     });
     await expect(service.query(id, { view: 'keywords' })).rejects.toBeInstanceOf(NotReadyException);
+  });
+
+  it('feature-gates a view whose compute is not generated → FEATURE_NOT_READY (TC-53 / AC-14.7)', async () => {
+    // 完成的 keyword 分析（snapshot 就緒）但 serp/topics compute 未產生 → serp_questions/intent_topics 被 gate。
+    const id = await seedSnapshot([srow()]);
+    await expect(service.query(id, { view: 'serp_questions' })).rejects.toBeInstanceOf(
+      FeatureNotReadyException,
+    );
+    await expect(service.query(id, { view: 'intent_topics' })).rejects.toBeInstanceOf(
+      FeatureNotReadyException,
+    );
+    // 基底 keyword_metrics view（snapshot 就緒）不 gate → 正常回結果。
+    const ok = (await service.query(id, { view: 'keywords' })) as TableViewResult;
+    expect(ok.view).toBe('keywords');
   });
 
   it('round-trips null metrics through jsonb (缺值≠0) and skips them in the histogram', async () => {

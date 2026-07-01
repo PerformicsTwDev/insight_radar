@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { queryConfig } from '../config/query.config';
+import { type AnalysisFeatureInput, computeFeatures } from '../keyword-analysis/features';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { PrismaService } from '../prisma';
 import { type FilterSpec, applyFilter } from './filter-spec';
@@ -59,6 +60,15 @@ export class SnapshotQueryService {
    * - `resultSnapshotId` 存在（`completed` 或已持久化的 `partial`）→ 讀該不可變 snapshot（翻頁穩定）。
    */
   async loadSnapshot(analysisId: string): Promise<SnapshotRowData[]> {
+    const analysis = await this.loadAnalysis(analysisId);
+    if (!analysis.resultSnapshotId) {
+      throw new NotReadyException(analysis.status);
+    }
+    return this.loadRows(analysis.resultSnapshotId);
+  }
+
+  /** 讀分析行（status + resultSnapshotId）；未知 id → 404。feature 狀態 + readiness 判斷之共同來源。 */
+  private async loadAnalysis(analysisId: string): Promise<AnalysisFeatureInput> {
     const analysis = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
       select: { status: true, resultSnapshotId: true },
@@ -66,11 +76,13 @@ export class SnapshotQueryService {
     if (!analysis) {
       throw new NotFoundException(`Analysis ${analysisId} not found`);
     }
-    if (!analysis.resultSnapshotId) {
-      throw new NotReadyException(analysis.status);
-    }
+    return analysis;
+  }
+
+  /** 讀某 snapshot 的列（依 `rowIndex` 序）。 */
+  private async loadRows(snapshotId: string): Promise<SnapshotRowData[]> {
     const rows = await this.prisma.snapshotRow.findMany({
-      where: { snapshotId: analysis.resultSnapshotId },
+      where: { snapshotId },
       orderBy: { rowIndex: 'asc' },
       select: { data: true },
     });
@@ -101,13 +113,27 @@ export class SnapshotQueryService {
     };
   }
 
-  /** 載入 snapshot → 經 view-router 查詢（`POST /query`，limits 取自 queryConfig）。 */
+  /**
+   * 載入 snapshot → 經 view-router 查詢（`POST /query`，limits 取自 queryConfig）。除基底 readiness（未知
+   * id→404、無 snapshot→409 NOT_READY）外，另做 **feature-gating**（T6.8，AC-14.7）：view 依賴的 compute
+   * feature（`serp`/`topics`）未 ready → 409 `FEATURE_NOT_READY`（而非誤導空表）。
+   */
   async query(analysisId: string, request: QueryRequest): Promise<ViewResult> {
-    const rows = await this.loadSnapshot(analysisId);
-    return this.viewService.query(rows, request, {
-      maxPageSize: this.config.maxPageSize,
-      aggMaxBuckets: this.config.aggMaxBuckets,
-      aggMaxGroups: this.config.aggMaxGroups,
-    });
+    const analysis = await this.loadAnalysis(analysisId);
+    if (!analysis.resultSnapshotId) {
+      throw new NotReadyException(analysis.status);
+    }
+    const features = computeFeatures(analysis);
+    const rows = await this.loadRows(analysis.resultSnapshotId);
+    return this.viewService.query(
+      rows,
+      request,
+      {
+        maxPageSize: this.config.maxPageSize,
+        aggMaxBuckets: this.config.aggMaxBuckets,
+        aggMaxGroups: this.config.aggMaxGroups,
+      },
+      features,
+    );
   }
 }

@@ -13,6 +13,11 @@ function statusResponse(status: AnalysisStatus): AnalysisStatusResponse {
     status,
     progress: { phase: status === 'queued' ? 'queued' : 'running', percent: 50 },
     result: { resultSnapshotId: null, count: null },
+    features: {
+      keyword_metrics: { status: 'running' },
+      serp: { status: 'not_generated' },
+      topics: { status: 'not_generated' },
+    },
   };
 }
 

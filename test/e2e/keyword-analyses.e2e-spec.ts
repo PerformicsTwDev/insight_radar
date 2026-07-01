@@ -184,6 +184,12 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
         status: 'running',
         progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
         result: { resultSnapshotId: null, count: null },
+        // T6.8：running（無 snapshot）→ keyword_metrics running；serp/topics compute 未實作（AC-14.7）。
+        features: {
+          keyword_metrics: { status: 'running' },
+          serp: { status: 'not_generated' },
+          topics: { status: 'not_generated' },
+        },
       });
     });
 

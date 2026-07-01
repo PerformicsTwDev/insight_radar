@@ -1,3 +1,4 @@
+import type { FeatureKey } from '../../keyword-analysis/features';
 import type { SnapshotRowData } from '../../keyword-analysis/result-snapshot.checksum';
 import type { AggregateGroup } from '../aggregate';
 import type { TrendSeries } from '../build-trend';
@@ -82,6 +83,12 @@ export interface ViewDefinition {
   allowedSelect: readonly string[];
   allowedFilters: readonly string[];
   allowedSort: readonly string[];
+  /**
+   * 此 view 依賴的 compute feature（feature-gating，AC-14.7）。未指定 → `keyword_metrics`（既有 snapshot
+   * pipeline，snapshot 就緒即 ready）。指定 `serp`/`topics` 者在該 feature 未 ready 時由 QueryViewService
+   * gate（回 `FEATURE_NOT_READY` 而非誤導空表）。
+   */
+  requiresFeature?: FeatureKey;
   build(ctx: ViewContext): ViewResult;
 }
 
