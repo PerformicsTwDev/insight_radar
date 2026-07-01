@@ -1,3 +1,4 @@
+import { AsyncResource } from 'node:async_hooks';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   BadRequestError,
@@ -115,7 +116,10 @@ export class IntentService {
       while (misses.length - cursor >= this.batchSize) {
         const chunk = misses.slice(cursor, cursor + this.batchSize); // 立即取值（避免閉包看到位移後的 cursor）
         cursor += this.batchSize;
-        tasks.push(limit(() => this.labelChunkAndCache(chunk)));
+        // AsyncResource.bind（M7-R7）：共用 limiter 是 singleton，飽和時排隊的 task 會在**別 job 的 continuation**
+        // 內被 dequeue 執行 → 其內 `JobMetricsContext.current()` 會取到錯 job。綁定**入列當下**的 async 上下文，
+        // 確保 task 恆在其所屬 job 的 ALS 上下文執行，LLM externalCalls/cache 計數正確歸屬（NFR-6/TC-30）。
+        tasks.push(limit(AsyncResource.bind(() => this.labelChunkAndCache(chunk))));
       }
     };
 
@@ -133,7 +137,8 @@ export class IntentService {
       dispatchFullChunks(); // miss 滿一批即送 → 與後續拓展重疊
     }
     if (misses.length > cursor) {
-      tasks.push(limit(() => this.labelChunkAndCache(misses.slice(cursor))));
+      // 尾段殘批亦綁入列上下文（M7-R7，同 dispatchFullChunks）。
+      tasks.push(limit(AsyncResource.bind(() => this.labelChunkAndCache(misses.slice(cursor)))));
     }
 
     const outcomes = await Promise.all(tasks);
