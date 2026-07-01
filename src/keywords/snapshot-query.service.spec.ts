@@ -1,5 +1,7 @@
+import { NotFoundException } from '@nestjs/common';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import type { PrismaService } from '../prisma';
+import { NotReadyException } from './not-ready.exception';
 import type { QueryViewService } from './query-view.service';
 import { SnapshotQueryService } from './snapshot-query.service';
 
@@ -21,7 +23,7 @@ function srow(normalizedText: string, over: Partial<SnapshotRowData> = {}): Snap
 }
 
 function build(
-  analysis: { resultSnapshotId: string | null } | null,
+  analysis: { status?: string; resultSnapshotId: string | null } | null,
   rows: SnapshotRowData[],
 ): { service: SnapshotQueryService; viewQuery: jest.Mock; findMany: jest.Mock } {
   const findUnique = jest.fn(() => Promise.resolve(analysis));
@@ -90,15 +92,15 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
     expect(res.data.map((r) => r.text)).toEqual(['b']); // volumeMin filters out a
   });
 
-  it('returns empty rows for an unknown analysis id', async () => {
+  it('throws 404 NotFoundException for an unknown analysis id (AC-6.5)', async () => {
     const { service, findMany } = build(null, []);
-    expect(await service.loadSnapshot('unknown')).toEqual([]);
+    await expect(service.loadSnapshot('unknown')).rejects.toBeInstanceOf(NotFoundException);
     expect(findMany).not.toHaveBeenCalled(); // 無分析 → 不查列
   });
 
-  it('returns empty rows when the analysis has no snapshot yet (not completed)', async () => {
-    const { service, findMany } = build({ resultSnapshotId: null }, []);
-    expect(await service.loadSnapshot('running')).toEqual([]);
-    expect(findMany).not.toHaveBeenCalled();
+  it('throws 409 NotReadyException when the analysis has no snapshot yet (AC-6.4)', async () => {
+    const { service, findMany } = build({ status: 'running', resultSnapshotId: null }, []);
+    await expect(service.loadSnapshot('running')).rejects.toBeInstanceOf(NotReadyException);
+    expect(findMany).not.toHaveBeenCalled(); // 尚無 snapshot → 不查列、不回誤導資料
   });
 });

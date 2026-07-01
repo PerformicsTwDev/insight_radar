@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { queryConfig } from '../config/query.config';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { PrismaService } from '../prisma';
 import { type FilterSpec, applyFilter } from './filter-spec';
+import { NotReadyException } from './not-ready.exception';
 import { type PageSpec, type SortSpec, selectPage } from './paginate';
 import { QueryViewService } from './query-view.service';
 import type { QueryRequest, ViewResult } from './views';
@@ -50,14 +51,23 @@ export class SnapshotQueryService {
     @Inject(queryConfig.KEY) private readonly config: ConfigType<typeof queryConfig>,
   ) {}
 
-  /** 讀分析的 snapshot 列（依 `rowIndex` 序）；未完成 / 未知 id / 無 snapshot → 空陣列（404/partial 由 controller 決定）。 */
+  /**
+   * 讀分析的**不可變** snapshot 列（依 `rowIndex` 序），並在載入前分類 readiness（T6.3，AC-6.4/6.5）：
+   * - 未知 `analysisId`（查無列）→ `404`（{@link NotFoundException}）。
+   * - 存在但**尚無 snapshot**（`queued`/`running`，或尚未持久化的 `partial`/`failed`，`resultSnapshotId==null`）→
+   *   `409 NOT_READY`（{@link NotReadyException}），**不回不完整誤導資料**（AC-6.4）。
+   * - `resultSnapshotId` 存在（`completed` 或已持久化的 `partial`）→ 讀該不可變 snapshot（翻頁穩定）。
+   */
   async loadSnapshot(analysisId: string): Promise<SnapshotRowData[]> {
     const analysis = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
-      select: { resultSnapshotId: true },
+      select: { status: true, resultSnapshotId: true },
     });
-    if (!analysis?.resultSnapshotId) {
-      return [];
+    if (!analysis) {
+      throw new NotFoundException(`Analysis ${analysisId} not found`);
+    }
+    if (!analysis.resultSnapshotId) {
+      throw new NotReadyException(analysis.status);
     }
     const rows = await this.prisma.snapshotRow.findMany({
       where: { snapshotId: analysis.resultSnapshotId },
