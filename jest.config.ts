@@ -33,7 +33,16 @@ const coreThreshold = { branches: 90, functions: 90, lines: 90, statements: 90 }
 const coreThresholds: Record<string, typeof coreThreshold> = {
   './src/**/mapping/**': coreThreshold, // micros/competition/MonthOfYear（TC-3/4/5）
   './src/**/normalize*.ts': coreThreshold, // normalizedText/dedupe（TC-1/6）
-  './src/keywords/**': coreThreshold, // FilterSpec/buildPredicate/views/chart 引擎/buildTrend（TC-9/36/37）
+  // keywords core = **純邏輯**（FilterSpec/buildPredicate、排序分頁、buildTrend、chart 引擎、view builders、
+  // view-router 白名單，TC-9/36/37）。`snapshot-query.service`（DB loadSnapshot + 委派）為 DI/DB adapter，
+  // 走 global 85%——與 IntentCache/MetricsCache adapter 一致（不把 @Inject 參數 emitDecoratorMetadata 產生的
+  // 不可測 undefined-guard 分支當 core 門檻）。
+  './src/keywords/filter-spec.ts': coreThreshold,
+  './src/keywords/paginate.ts': coreThreshold,
+  './src/keywords/build-trend.ts': coreThreshold,
+  './src/keywords/aggregate.ts': coreThreshold,
+  './src/keywords/query-view.service.ts': coreThreshold,
+  './src/keywords/views/**': coreThreshold,
   // core = intent **邏輯**（後處理 TC-7 + 韌性/length 拆批 T2.5 + cache-first 編排 T4.2）。純基礎設施
   // adapter（IntentCache / AzureOpenAi client）走 global 85%——與 google-ads 的 MetricsCache adapter 一致；
   // 不把 @Injectable + class-typed 參數 emitDecoratorMetadata 產生的不可測 undefined-guard 分支當 core 門檻。
