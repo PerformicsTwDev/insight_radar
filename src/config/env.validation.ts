@@ -75,4 +75,9 @@ export const validationSchema = Joi.object({
   QUERY_MAX_PAGE_SIZE: Joi.number().integer().min(1).default(200),
   AGG_MAX_BUCKETS: Joi.number().integer().min(1).default(200),
   AGG_MAX_GROUPS: Joi.number().integer().min(1).max(5000).default(1000),
+
+  // —— Embeddings（M8，Design §14）——
+  // 維度須與 keyword_embeddings migration 的 halfvec(3072) 一致（T8.1）；預設 3072（gemini 全維、原生已
+  // normalize、免手動）。截短 768/1536 可省儲存，但需手動 normalize + 改用 `vector` 型別（另開 migration）。
+  GEMINI_EMBEDDING_DIM: Joi.number().integer().valid(768, 1536, 3072).default(3072),
 });
