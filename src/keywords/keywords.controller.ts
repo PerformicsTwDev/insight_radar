@@ -1,9 +1,21 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-// 值匯入（非 `import type`）：DTO 為 @Query() 的執行期 metatype，ValidationPipe 需真實 class 才會驗證/轉換。
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
+// 值匯入（非 `import type`）：DTO 為 @Query()/@Body() 的執行期 metatype，ValidationPipe 需真實 class 才會驗證/轉換。
 import { FilterKeywordsQueryDto } from './dto/filter-keywords-query.dto';
+import { QueryDto } from './dto/query.dto';
 import type { FilterSpec } from './filter-spec';
 import type { PageSpec, SortSpec } from './paginate';
 import { type KeywordsListResponse, SnapshotQueryService } from './snapshot-query.service';
+import type { ViewResult } from './views';
 
 /**
  * 讀取層 HTTP 入口（T6.1，FR-3/4/6/7）。掛 `/api/v1/keyword-analyses/:id/keywords`（全域前綴）。
@@ -26,6 +38,23 @@ export class KeywordsController {
       toSortSpec(query),
       toPageSpec(query),
     );
+  }
+
+  /**
+   * 具名視圖 view-router（T6.6，FR-14，Design §6.5）。前端只給 `view` + select/filters/sort/pagination；
+   * `QueryViewService` 依 view 白名單/上限驗證（違反 → 400），回 table `{view,columns,rows,pagination}` 或
+   * chart `{view,groups,meta}` / trend `{view,axis,total,series}`。新增 dashboard 表 = 多註冊一個 ViewDefinition。
+   */
+  @Post(':id/query')
+  @HttpCode(HttpStatus.OK)
+  postQuery(@Param('id', ParseUUIDPipe) id: string, @Body() dto: QueryDto): Promise<ViewResult> {
+    return this.snapshotQuery.query(id, {
+      view: dto.view,
+      select: dto.select,
+      filters: dto.filters,
+      sort: dto.sort,
+      pagination: dto.pagination,
+    });
   }
 }
 
