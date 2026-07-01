@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
+import { UnrecoverableError } from 'bullmq';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { Keyword, KeywordCandidate } from '../google-ads/keyword.types';
 import { MetricsCache } from '../google-ads/metrics-cache';
@@ -628,5 +629,35 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     );
     expect(expandStreamRaw).not.toHaveBeenCalled();
     expect(fetchHistorical).not.toHaveBeenCalled();
+  });
+
+  // T7.1（Design §11 兩層重試分工）：Ads 暫時性配額經 job 內退避仍耗盡 → UnrecoverableError（不整 job 重試、
+  // 不重打 Ads）；暫時性基礎設施錯誤 → 原樣拋 → BullMQ 依 attempts 整 job 重試。
+  describe('two-layer retry split (T7.1)', () => {
+    // expandStreamRaw 呼叫即拋 → 處理器 `for await (… of ads.expandStreamRaw(…))` 的 evaluand 拋 → 傳到 process() catch。
+    function throwing(err: unknown): jest.Mock {
+      return jest.fn(() => {
+        throw err;
+      });
+    }
+
+    it('maps an exhausted Ads quota error to UnrecoverableError (no whole-job retry)', async () => {
+      const { processor, expandStreamRaw } = buildHarness();
+      expandStreamRaw.mockImplementation(
+        throwing({ errors: [{ error_code: { quota_error: 'RESOURCE_EXHAUSTED' } }] }),
+      );
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+    });
+
+    it('rethrows a transient infra error unchanged (BullMQ whole-job retry)', async () => {
+      const { processor, expandStreamRaw } = buildHarness();
+      const infra = Object.assign(new Error('conn reset'), { code: 'ECONNRESET' });
+      expandStreamRaw.mockImplementation(throwing(infra));
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBe(infra);
+    });
   });
 });

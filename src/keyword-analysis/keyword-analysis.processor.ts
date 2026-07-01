@@ -2,8 +2,9 @@ import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { JobStatus, Prisma } from '@prisma/client';
-import type { Job } from 'bullmq';
+import { type Job, UnrecoverableError } from 'bullmq';
 import { queueConfig } from '../config/queue.config';
+import { RetryStrategy, classifyError } from './error-classification';
 import { PrismaService } from '../prisma';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { ExpandParams } from '../google-ads/google-ads.service';
@@ -82,26 +83,37 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     // 推進 DB 狀態機（M3-R1/M-1）：開工標 running+startedAt（條件式，不覆寫已終結 job）。
     await this.markStatus(analysisId, { status: 'running', startedAt: new Date() });
 
-    // 依 mode 取數 + 邊拓展邊貼標（overlap）。**snapshot 用權威 mergeExpansion**（非 first-occurrence）。
-    const { keywords, labels } = await this.fetchAndLabel(
-      params.mode,
-      seeds,
-      toExpandParams(params),
-      report,
-    );
-    await report('metrics', keywords.length); // 指標隨取數回應夾帶（無額外 Ads 呼叫）
+    try {
+      // 依 mode 取數 + 邊拓展邊貼標（overlap）。**snapshot 用權威 mergeExpansion**（非 first-occurrence）。
+      const { keywords, labels } = await this.fetchAndLabel(
+        params.mode,
+        seeds,
+        toExpandParams(params),
+        report,
+      );
+      await report('metrics', keywords.length); // 指標隨取數回應夾帶（無額外 Ads 呼叫）
 
-    // 固化不可變 snapshot（T3.10）：合併 intent（by normalizedText）→ rows → 落 DB + 回填 FK/status。
-    const intentByKeyword = new Map(labels.labeled.map((l) => [l.keyword, l.labels]));
-    const rows = keywords.map((kw) =>
-      toSnapshotRow(kw, intentByKeyword.get(kw.normalizedText) ?? []),
-    );
-    const { count } = await this.snapshots.saveResult(analysisId, rows);
+      // 固化不可變 snapshot（T3.10）：合併 intent（by normalizedText）→ rows → 落 DB + 回填 FK/status。
+      const intentByKeyword = new Map(labels.labeled.map((l) => [l.keyword, l.labels]));
+      const rows = keywords.map((kw) =>
+        toSnapshotRow(kw, intentByKeyword.get(kw.normalizedText) ?? []),
+      );
+      const { count } = await this.snapshots.saveResult(analysisId, rows);
 
-    // 報 intent/100：DB progress 已由 saveResult 與 status='completed' **原子寫入**（M3-R5）；此處 report 僅
-    // 為 SSE/QueueEvents 即時事件（job.updateProgress），其 DB 鏡像因已終態 no-op（不重複寫、亦不覆寫）。
-    await report('intent', keywords.length);
-    return { count };
+      // 報 intent/100：DB progress 已由 saveResult 與 status='completed' **原子寫入**（M3-R5）；此處 report 僅
+      // 為 SSE/QueueEvents 即時事件（job.updateProgress），其 DB 鏡像因已終態 no-op（不重複寫、亦不覆寫）。
+      await report('intent', keywords.length);
+      return { count };
+    } catch (error) {
+      // 兩層重試分工（T7.1，Design §11）：Ads 暫時性配額經 **job 內** `AdsRateLimiter` 指數退避（T3.6）仍耗盡
+      // → **不可**交 BullMQ 整 job 重試（會重打 Ads、放大 QPS 用量）→ 以 `UnrecoverableError` 直接終態失敗。
+      // 其餘（暫時性基礎設施/Redis 等）照舊拋 → BullMQ 依 `attempts` 整 job 重試（不改動既有行為）。
+      if (classifyError(error) === RetryStrategy.ADS_BACKOFF_IN_JOB) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new UnrecoverableError(message);
+      }
+      throw error;
+    }
   }
 
   @OnWorkerEvent('failed')
