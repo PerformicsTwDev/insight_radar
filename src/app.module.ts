@@ -4,6 +4,7 @@ import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
 import { KeywordAnalysisModule } from './keyword-analysis';
+import { KeywordsModule } from './keywords/keywords.module';
 import { LoggerModule } from './logger';
 import { PrismaModule } from './prisma';
 import { configNamespaces, validationSchema } from './config';
@@ -30,6 +31,7 @@ import { configNamespaces, validationSchema } from './config';
     PrismaModule,
     HealthModule,
     KeywordAnalysisModule,
+    KeywordsModule,
   ],
 })
 export class AppModule {}

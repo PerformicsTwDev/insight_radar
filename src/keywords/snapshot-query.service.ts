@@ -3,8 +3,40 @@ import type { ConfigType } from '@nestjs/config';
 import { queryConfig } from '../config/query.config';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { PrismaService } from '../prisma';
+import { type FilterSpec, applyFilter } from './filter-spec';
+import { type PageSpec, type SortSpec, selectPage } from './paginate';
 import { QueryViewService } from './query-view.service';
 import type { QueryRequest, ViewResult } from './views';
+
+/** `GET /keywords` 的結果列（Design §6.4 / AC-6.1；snapshot 的 `intent` → 對外 `intentLabels`）。 */
+export interface KeywordListRow {
+  text: string;
+  intentLabels: string[];
+  avgMonthlySearches: number | null;
+  competition: string;
+  competitionIndex: number | null;
+  cpcLow: number | null;
+  cpcHigh: number | null;
+}
+
+/** `GET /keywords` 回應（Design §6.4）：`{ data, meta }`。 */
+export interface KeywordsListResponse {
+  data: KeywordListRow[];
+  meta: { total: number; page: number; pageSize: number; cursor: string | null };
+}
+
+/** snapshot 列 → §6.4 五欄結果列（`intent` 對外命名為 `intentLabels`；缺值保持 null，缺值≠0）。 */
+function toResultRow(row: SnapshotRowData): KeywordListRow {
+  return {
+    text: row.text,
+    intentLabels: row.intent,
+    avgMonthlySearches: row.avgMonthlySearches,
+    competition: row.competition,
+    competitionIndex: row.competitionIndex,
+    cpcLow: row.cpcLow,
+    cpcHigh: row.cpcHigh,
+  };
+}
 
 /**
  * 讀取層入口（T5.5，FR-14，Design §6.5）：載入分析的**不可變** snapshot → 交 view-router 查詢。
@@ -35,7 +67,31 @@ export class SnapshotQueryService {
     return rows.map((row) => row.data as unknown as SnapshotRowData);
   }
 
-  /** 載入 snapshot → 經 view-router 查詢（limits 取自 queryConfig）。 */
+  /**
+   * `GET /keywords` 列表（T6.1，FR-3/4/6/7，Design §6.4/§6.5）：`loadSnapshot` → `applyFilter`（共用 predicate）
+   * → `selectPage`（keyset 分頁）→ §6.4 `{ data, meta }`（`intent` 對外 `intentLabels`）。**不**經 view-router
+   * envelope（那是 `POST /query`）；min>max / 非法 enum 由 query DTO 於 controller 前把關（→ 400）。
+   */
+  async listKeywords(
+    analysisId: string,
+    filter: FilterSpec,
+    sort: SortSpec,
+    pagination: PageSpec,
+  ): Promise<KeywordsListResponse> {
+    const rows = await this.loadSnapshot(analysisId);
+    const page = selectPage(applyFilter(rows, filter), sort, pagination);
+    return {
+      data: page.rows.map(toResultRow),
+      meta: {
+        total: page.meta.total,
+        page: page.meta.page,
+        pageSize: page.meta.pageSize,
+        cursor: page.meta.cursor,
+      },
+    };
+  }
+
+  /** 載入 snapshot → 經 view-router 查詢（`POST /query`，limits 取自 queryConfig）。 */
   async query(analysisId: string, request: QueryRequest): Promise<ViewResult> {
     const rows = await this.loadSnapshot(analysisId);
     return this.viewService.query(rows, request, {

@@ -5,7 +5,7 @@ import { SnapshotQueryService } from './snapshot-query.service';
 
 const CONFIG = { maxPageSize: 200, aggMaxBuckets: 200, aggMaxGroups: 1000 };
 
-function srow(normalizedText: string): SnapshotRowData {
+function srow(normalizedText: string, over: Partial<SnapshotRowData> = {}): SnapshotRowData {
   return {
     text: normalizedText,
     normalizedText,
@@ -16,6 +16,7 @@ function srow(normalizedText: string): SnapshotRowData {
     cpcHigh: 2,
     intent: ['informational'],
     monthlyVolumes: [],
+    ...over,
   };
 }
 
@@ -57,6 +58,36 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
     const { service } = build({ resultSnapshotId: 'snap-1' }, [srow('x'), srow('y')]);
     const rows = await service.loadSnapshot('an-1');
     expect(rows.map((r) => r.normalizedText)).toEqual(['x', 'y']);
+  });
+
+  it('listKeywords returns §6.4 { data, meta } with intent → intentLabels (T6.1)', async () => {
+    const { service } = build({ resultSnapshotId: 'snap-1' }, [srow('a'), srow('b')]);
+    const res = await service.listKeywords('an-1', {}, {}, {});
+    expect(res.data.map((r) => r.text)).toEqual(['a', 'b']); // nt tie-break（同搜量）
+    expect(res.data[0]).toEqual({
+      text: 'a',
+      intentLabels: ['informational'], // snapshot intent → 對外 intentLabels
+      avgMonthlySearches: 100,
+      competition: 'LOW',
+      competitionIndex: 10,
+      cpcLow: 1,
+      cpcHigh: 2,
+    });
+    expect(res.meta).toMatchObject({ total: 2, page: 1 });
+  });
+
+  it('listKeywords applies the shared FilterSpec + sort', async () => {
+    const { service } = build({ resultSnapshotId: 'snap-1' }, [
+      srow('a', { avgMonthlySearches: 100 }),
+      srow('b', { avgMonthlySearches: 300 }),
+    ]);
+    const res = await service.listKeywords(
+      'an-1',
+      { volumeMin: 200 },
+      { sortBy: 'avgMonthlySearches', sortDir: 'desc' },
+      {},
+    );
+    expect(res.data.map((r) => r.text)).toEqual(['b']); // volumeMin filters out a
   });
 
   it('returns empty rows for an unknown analysis id', async () => {
