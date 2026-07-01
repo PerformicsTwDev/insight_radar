@@ -53,6 +53,8 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       [expect.objectContaining({ normalizedText: 'a' })],
       { view: 'keywords' },
       { maxPageSize: 200, aggMaxBuckets: 200, aggMaxGroups: 1000 },
+      // T6.8：query 傳入 features（snapshot 存在 → keyword_metrics ready），供 view-router feature-gating。
+      expect.objectContaining({ keyword_metrics: { status: 'ready' } }),
     );
   });
 

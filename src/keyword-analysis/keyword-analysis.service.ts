@@ -11,6 +11,7 @@ import { scrubSecrets } from '../logger/redaction';
 import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma/prisma.service';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
+import { type FeaturesMap, computeFeatures } from './features';
 import { computeIdempotencyKey } from './idempotency';
 
 /** 分析參數（地區/語言/模式等；保留於 `KeywordAnalysis.params`，亦進 idempotency hash）。 */
@@ -53,11 +54,15 @@ export interface AnalysisProgress {
   total?: number;
 }
 
-/** 輪詢回應（Design §6.2）。`result` 僅 completed 時帶實值，其餘為 null。 */
+/**
+ * 輪詢回應（Design §6.2）。`result` 僅 completed 時帶實值，其餘為 null。`features` 回報各 dashboard feature
+ * 狀態（T6.8，AC-14.7），前端據此對依賴未產生 compute 的 view 顯示「先執行 X」而非誤導空表。
+ */
 export interface AnalysisStatusResponse {
   status: AnalysisStatus;
   progress: AnalysisProgress;
   result: { resultSnapshotId: string | null; count: number | null };
+  features: FeaturesMap;
 }
 
 const DEFAULT_PROGRESS: AnalysisProgress = { phase: 'queued', percent: 0 };
@@ -164,8 +169,12 @@ export class KeywordAnalysisService {
     const result = row.resultSnapshot
       ? { resultSnapshotId: row.resultSnapshot.id, count: row.resultSnapshot.keywordCount }
       : { resultSnapshotId: null, count: null };
+    const features = computeFeatures({
+      status: row.status,
+      resultSnapshotId: row.resultSnapshotId,
+    });
 
-    return { status: row.status, progress, result };
+    return { status: row.status, progress, result, features };
   }
 
   /**

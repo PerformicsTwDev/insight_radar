@@ -9,7 +9,9 @@ import {
   cpcHistogramView,
   createViewRegistry,
   intentDistributionView,
+  intentTopicsView,
   keywordsView,
+  serpQuestionsView,
   trendView,
 } from './index';
 
@@ -37,15 +39,20 @@ function ctx(rows: SnapshotRowData[], request: QueryRequest): ViewContext {
 describe('ViewRegistry (T5.5 / FR-14 / NFR-10)', () => {
   const registry = createViewRegistry();
 
-  it('registers the four built-in views and gets by name', () => {
+  it('registers the built-in views (incl. gated serp_questions/intent_topics) and gets by name', () => {
     expect(registry.names().sort()).toEqual([
       'cpc_histogram',
       'intent_distribution',
+      'intent_topics',
       'keywords',
+      'serp_questions',
       'trend',
     ]);
     expect(registry.get('keywords')?.name).toBe('keywords');
     expect(registry.has('trend')).toBe(true);
+    // T6.8：未來 view 已註冊，宣告依賴 feature（gating 由 QueryViewService 依 features 判定）。
+    expect(registry.get('serp_questions')?.requiresFeature).toBe('serp');
+    expect(registry.get('intent_topics')?.requiresFeature).toBe('topics');
   });
 
   it('returns undefined / false for an unknown view (→ 400 at the service)', () => {
@@ -157,5 +164,27 @@ describe('cpc_histogram view', () => {
     expect(res.groups.find((g) => g.key.bucket === 0)?.measures.count).toBe(1); // 0.5 → [0,1)
     expect(res.groups.find((g) => g.key.bucket === 1)?.measures.count).toBe(2); // 1.5,1.2 → [1,2)
     expect(res.groups.every((g) => typeof g.key.bucket === 'number')).toBe(true); // null 不落桶
+  });
+});
+
+describe('placeholder views (serp_questions / intent_topics, T6.8)', () => {
+  it('declare their required feature and build an empty table shell (gated until compute lands)', () => {
+    expect(serpQuestionsView.requiresFeature).toBe('serp');
+    expect(intentTopicsView.requiresFeature).toBe('topics');
+
+    // build 僅在 feature ready 後才由 QueryViewService 呼叫；compute 未落地 → 空表形狀（欄位正確、rows 空）。
+    const res = serpQuestionsView.build(
+      ctx([srow()], { view: 'serp_questions' }),
+    ) as TableViewResult;
+    expect(res.view).toBe('serp_questions');
+    expect(res.rows).toEqual([]);
+    expect(res.pagination.total).toBe(0);
+    expect(res.columns.map((c) => c.key)).toContain('questionText');
+
+    const topics = intentTopicsView.build(
+      ctx([srow()], { view: 'intent_topics' }),
+    ) as TableViewResult;
+    expect(topics.view).toBe('intent_topics');
+    expect(topics.rows).toEqual([]);
   });
 });

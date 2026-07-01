@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
+import type { FeaturesMap } from '../keyword-analysis/features';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
+import { FeatureNotReadyException } from './feature-not-ready.exception';
 import type { FilterSpec } from './filter-spec';
 import { QueryViewService } from './query-view.service';
 import {
@@ -188,5 +190,35 @@ describe('QueryViewService (T5.5 / FR-14 / TC-36)', () => {
       expect(error).toBe(boom); // 原錯誤原樣拋出
       expect(error).not.toBeInstanceOf(BadRequestException); // 非誤轉為 400
     }
+  });
+});
+
+describe('QueryViewService feature-gating (T6.8 / AC-14.7)', () => {
+  const gated = new QueryViewService(new ViewRegistry([...BUILTIN_VIEWS]));
+  const FEATURES: FeaturesMap = {
+    keyword_metrics: { status: 'ready' },
+    serp: { status: 'not_generated' },
+    topics: { status: 'not_generated' },
+  };
+
+  it('rejects a view whose required feature is not ready with 409 FEATURE_NOT_READY', () => {
+    // serp_questions 需 serp（not_generated）→ gate（非誤導空表）。
+    expect(() => gated.query([], { view: 'serp_questions' }, LIMITS, FEATURES)).toThrow(
+      FeatureNotReadyException,
+    );
+    expect(() => gated.query([], { view: 'intent_topics' }, LIMITS, FEATURES)).toThrow(
+      FeatureNotReadyException,
+    );
+  });
+
+  it('allows a keyword_metrics view when that feature is ready', () => {
+    expect(() =>
+      gated.query([srow({ normalizedText: 'a' })], { view: 'keywords' }, LIMITS, FEATURES),
+    ).not.toThrow();
+  });
+
+  it('does not gate when features are omitted (pure view-build path)', () => {
+    const res = gated.query([], { view: 'serp_questions' }, LIMITS) as TableViewResult;
+    expect(res.view).toBe('serp_questions'); // 未傳 features → 不 gate、直接 build（空表）
   });
 });

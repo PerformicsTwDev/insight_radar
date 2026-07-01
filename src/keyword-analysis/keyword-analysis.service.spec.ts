@@ -302,6 +302,12 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
       status: 'queued',
       progress: { phase: 'queued', percent: 0 },
       result: { resultSnapshotId: null, count: null },
+      // T6.8：features 反映 compute 狀態——queued 無 snapshot → keyword_metrics running；serp/topics 未實作。
+      features: {
+        keyword_metrics: { status: 'running' },
+        serp: { status: 'not_generated' },
+        topics: { status: 'not_generated' },
+      },
     });
   });
 
@@ -340,6 +346,10 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
 
     expect(res.status).toBe('completed');
     expect(res.result).toEqual({ resultSnapshotId: 'snap-1', count: 1980 });
+    // T6.8：completed（有 snapshot）→ keyword_metrics ready；serp/topics 之 compute 尚未實作。
+    expect(res.features.keyword_metrics.status).toBe('ready');
+    expect(res.features.serp.status).toBe('not_generated');
+    expect(res.features.topics.status).toBe('not_generated');
   });
 
   it('surfaces status=partial (BullMQ state cannot express this — AC-8.3)', async () => {

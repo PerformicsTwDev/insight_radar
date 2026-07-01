@@ -1,6 +1,7 @@
 import { cpcHistogramView } from './cpc-histogram.view';
 import { intentDistributionView } from './intent-distribution.view';
 import { keywordsView } from './keywords.view';
+import { intentTopicsView, serpQuestionsView } from './placeholder-view';
 import { trendView } from './trend.view';
 import { ViewRegistry } from './view-registry';
 import type { ViewDefinition } from './view-definition';
@@ -11,13 +12,19 @@ export { keywordsView } from './keywords.view';
 export { trendView } from './trend.view';
 export { intentDistributionView } from './intent-distribution.view';
 export { cpcHistogramView } from './cpc-histogram.view';
+export { serpQuestionsView, intentTopicsView } from './placeholder-view';
 
-/** 本期內建 view（新增 dashboard 表 = 在此多加一個 ViewDefinition，免新 endpoint / 免 migration）。 */
+/**
+ * 本期內建 view（新增 dashboard 表 = 在此多加一個 ViewDefinition，免新 endpoint / 免 migration）。
+ * `serp_questions`（M7 SERP）/`intent_topics`（M8 分群）已註冊但其 compute 尚未實作 → 由 feature-gating 擋（AC-14.7）。
+ */
 export const BUILTIN_VIEWS: ViewDefinition[] = [
   keywordsView,
   trendView,
   intentDistributionView,
   cpcHistogramView,
+  serpQuestionsView,
+  intentTopicsView,
 ];
 
 /** 建立含所有內建 view 的登錄（供 QueryViewService / DI）。 */
