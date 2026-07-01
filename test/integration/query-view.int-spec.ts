@@ -25,13 +25,20 @@ function srow(over: Partial<SnapshotRowData> = {}): SnapshotRowData {
   };
 }
 
+const LIMIT_ENV_KEYS = ['QUERY_MAX_PAGE_SIZE', 'AGG_MAX_BUCKETS', 'AGG_MAX_GROUPS'] as const;
+
 describe('query-view integration (T5.5 / TC-36 / FR-14 · Testcontainers)', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let service: SnapshotQueryService;
+  const savedEnv: Record<string, string | undefined> = {};
 
   beforeAll(async () => {
     // queryConfig 讀 env（此測試不跑 Joi）→ 先設上限值，讓 pageSize>max / bounds 檢查有意義。
+    // 先快照原值，afterAll 還原——`--runInBand` 下不可洩漏給後續 int-spec（M5-R3）。
+    for (const key of LIMIT_ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+    }
     process.env.QUERY_MAX_PAGE_SIZE = '200';
     process.env.AGG_MAX_BUCKETS = '200';
     process.env.AGG_MAX_GROUPS = '1000';
@@ -44,6 +51,14 @@ describe('query-view integration (T5.5 / TC-36 / FR-14 · Testcontainers)', () =
 
   afterAll(async () => {
     await moduleRef.close();
+    // 還原 env（原無則刪、原有則復原）→ 不污染共用 process 的其他整合測試。
+    for (const key of LIMIT_ENV_KEYS) {
+      if (savedEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedEnv[key];
+      }
+    }
   });
 
   afterEach(async () => {
