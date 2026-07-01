@@ -636,6 +636,54 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     });
   });
 
+  describe('graceful shutdown drains the worker (T7.5 / TC-26 / NFR-9)', () => {
+    interface FakeWorker {
+      close: jest.Mock;
+    }
+    function withFakeWorker(processor: KeywordAnalysisProcessor): FakeWorker {
+      const worker: FakeWorker = { close: jest.fn().mockResolvedValue(undefined) };
+      (processor as unknown as { _worker: FakeWorker })._worker = worker;
+      return worker;
+    }
+
+    it('closes the worker on onModuleDestroy (stop intake + await in-flight before deps close)', async () => {
+      const { processor } = buildHarness();
+      const worker = withFakeWorker(processor);
+
+      await processor.onModuleDestroy();
+
+      // 本模組相依連線模組 → Nest 反相依序先銷毀本模組，故 worker.close 早於 Prisma/cache/Redis 連線關閉。
+      expect(worker.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('awaits worker.close so in-flight jobs finish before onModuleDestroy resolves', async () => {
+      const { processor } = buildHarness();
+      let drained = false;
+      const worker: FakeWorker = {
+        close: jest.fn(
+          () =>
+            new Promise<void>((resolve) =>
+              setImmediate(() => {
+                drained = true;
+                resolve();
+              }),
+            ),
+        ),
+      };
+      (processor as unknown as { _worker: FakeWorker })._worker = worker;
+
+      await processor.onModuleDestroy();
+
+      // 若未 await，onModuleDestroy 會在 close 的排空完成前 resolve → 連線可能先關（T7.5 要防的洩漏）。
+      expect(drained).toBe(true);
+    });
+
+    it('is a no-op when no worker was created (unbootstrapped / partial tests)', async () => {
+      const { processor } = buildHarness();
+      await expect(processor.onModuleDestroy()).resolves.toBeUndefined();
+    });
+  });
+
   it('throws a clear error for an unknown mode (malformed payload, no TypeError loop)', async () => {
     const { processor, expandStreamRaw, fetchHistorical } = buildHarness();
     const payload = buildPayload({
