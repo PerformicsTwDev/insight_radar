@@ -1,8 +1,14 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Inject, Logger, Optional, type OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Inject,
+  Logger,
+  Optional,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { JobStatus, Prisma } from '@prisma/client';
-import { type Job, UnrecoverableError } from 'bullmq';
+import { type Job, UnrecoverableError, type Worker } from 'bullmq';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { queueConfig } from '../config/queue.config';
 import { LogPhase } from '../logger/log-fields';
@@ -52,7 +58,10 @@ const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'failed', 'cancele
 // autorun:false（M3-R2）：BullExplorer 以 decorator 的**靜態** WorkerOptions 建 worker，無法注入 config；
 // 故停用 autostart，待 onApplicationBootstrap 接上 config 的 concurrency 後才 run()，避免啟動瞬間以預設 1 跑。
 @Processor(KEYWORD_ANALYSIS_QUEUE, { autorun: false })
-export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicationBootstrap {
+export class KeywordAnalysisProcessor
+  extends WorkerHost
+  implements OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly logger = new Logger(KeywordAnalysisProcessor.name);
 
   constructor(
@@ -85,6 +94,23 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       this.logger.error(`worker run() failed: ${scrubSecrets(String(error))}`);
     });
     return Promise.resolve();
+  }
+
+  /**
+   * Graceful shutdown（T7.5，NFR-9/TC-26）：**先停 worker 收 job、排空 in-flight，再讓相依連線關閉**。
+   * BullMQ 的 worker.close 由 explorer 於 `onApplicationShutdown`（較晚 phase）觸發，但連線 teardown 在
+   * `onModuleDestroy`（較早 phase）——若不介入，Prisma/cache/Ads/Redis 連線會在 worker 仍 in-flight 時先關。
+   * 本模組相依那些連線模組 → Nest 反相依序**先**銷毀本模組，故在此 `await worker.close()`（停收新 job + 排空
+   * 目前 job）即保證早於相依連線關閉，且用的仍是尚開啟的連線。close 為冪等，explorer 之後的再關為 no-op。
+   */
+  async onModuleDestroy(): Promise<void> {
+    // ⚠ 讀私有 `_worker`（非 `this.worker` getter）：WorkerHost 的 getter 在 worker 未初始化時**擲錯**
+    // （非回 undefined）。若 bootstrap 失敗或部分測試情境下 onModuleInit 未建 worker，經 getter 會在 shutdown
+    // 擲錯、掩蓋真正的關閉錯誤；直接讀 backing field → 無 worker 時安全 no-op。
+    const worker = (this as unknown as { _worker?: Worker })._worker;
+    if (worker) {
+      await worker.close();
+    }
   }
 
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {

@@ -9,20 +9,28 @@ import { BULL_CONNECTION } from 'src/queue/queue.constants';
 
 /**
  * TC-26（NFR-9 graceful shutdown）：`app.close()` 須收回所有外部連線（Queue / QueueEvents / cache）
- * 且**不 hang**。以可監看的 ioredis-mock 連線替身驗證 lifecycle 真的觸發 quit/close/disconnect。
+ * 且**不 hang**，且 lifecycle 順序正確——**先停 worker 收 job（drain in-flight）、再關相依連線**。
+ * 以可監看的 ioredis-mock 連線替身驗證 lifecycle 真的觸發 quit/close/disconnect。
  *
- * Worker 關閉路徑由 `@nestjs/bullmq` explorer 的 `onApplicationShutdown → worker.close()` 提供（已查證），
+ * Worker 關閉路徑：`KeywordAnalysisProcessor.onModuleDestroy → worker.close()`（T7.5）。因 `KeywordAnalysisModule`
+ * 相依 `QueueModule`/`JobEventsModule`，Nest 以**反相依序**先銷毀本模組（→ processor drain）、後銷毀連線模組
+ * （→ `BullConnectionLifecycle.quit`）。此處以 processor 替身的 `onModuleDestroy` + 連線 `quit` 的
+ * `invocationCallOrder` 驗證此序（drain 早於 quit）。
+ *
  * 此處 **不**起真 Worker：真 BullMQ Worker over ioredis-mock 的阻塞輪詢在 **Linux CI 上 busy-loop 卡住
  * event loop → 整個測試程序 hang**（macOS 本機可過、Linux CI 會掛，屬 ioredis-mock 阻塞命令的平台差異）。
- * job 內 in-flight drain 的整合驗證留待 T7.5（真 Redis）。
+ * 真 worker 對 in-flight job 的排空由 processor 單元測（`worker.close` 被 await）+ 此序驗證結構性覆蓋；
+ * 真 Redis 端到端 drain 依 T3.11 policy 不納 CI（busy-loop 風險）。
  */
 describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
-  it('app.close() quits queue + job-events connections, disconnects cache, and does not hang', async () => {
+  it('drains the worker before quitting connections, closes all, and does not hang', async () => {
     const bullConnection = new RedisMock();
     const jobEventsConnection = new RedisMock();
     const bullQuit = jest.spyOn(bullConnection, 'quit');
     const jobEventsQuit = jest.spyOn(jobEventsConnection, 'quit');
     const queueEventsClose = jest.fn().mockResolvedValue(undefined);
+    // processor 替身的 drain hook：其 onModuleDestroy 必在連線 quit 前被呼叫（反相依序）。
+    const workerDrain = jest.fn().mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(BULL_CONNECTION)
@@ -31,9 +39,10 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
       .useValue(jobEventsConnection)
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: queueEventsClose })
-      // 空替身 processor → 不起真 Worker（避免 ioredis-mock 阻塞輪詢在 Linux CI 卡住）。
+      // 替身 processor → 不起真 Worker（避免 ioredis-mock 阻塞輪詢在 Linux CI 卡住）；保留 onModuleDestroy
+      // 以驗證「drain 早於連線 quit」的 lifecycle 序（真 processor 於此 hook 內 await worker.close，見單元測）。
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
+      .useValue({ onModuleDestroy: workerDrain })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -44,9 +53,16 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
 
     await app.close(); // 不 hang（在 Jest 預設 timeout 內完成）
 
+    expect(workerDrain).toHaveBeenCalled(); // KeywordAnalysisProcessor 於 shutdown 排空 worker（T7.5）
     expect(bullQuit).toHaveBeenCalled(); // BullConnectionLifecycle 收回 Queue 連線
     expect(jobEventsQuit).toHaveBeenCalled(); // JobEventsConnectionLifecycle 收回 QueueEvents 連線
     expect(queueEventsClose).toHaveBeenCalled(); // JobEventsService 關閉 QueueEvents
     expect(cacheDestroy).toHaveBeenCalled(); // CacheService 收回 cache 連線
+
+    // 順序（NFR-9 / T7.5）：worker drain 必早於 Queue/QueueEvents 連線 quit，否則 in-flight job 會在
+    // 連線已關後才排空 → 連線洩漏 / 寫入失敗。invocationCallOrder 為 jest 全域單調呼叫序。
+    const drainOrder = workerDrain.mock.invocationCallOrder[0];
+    expect(drainOrder).toBeLessThan(bullQuit.mock.invocationCallOrder[0]);
+    expect(drainOrder).toBeLessThan(jobEventsQuit.mock.invocationCallOrder[0]);
   });
 });
