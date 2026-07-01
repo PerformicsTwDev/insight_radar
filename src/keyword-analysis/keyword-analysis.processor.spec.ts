@@ -432,16 +432,17 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
     ]);
   });
 
-  it('carries monthlyVolumes into the snapshot row (needed by trend / keywords views, §5.1)', async () => {
-    const { processor, saveResult } = buildHarness();
+  it('carries monthlyVolumes content into the snapshot row (needed by trend / keywords views, §5.1)', async () => {
+    const { processor, saveResult, mergeExpansion } = buildHarness();
+    const volumes = [{ year: 2026, month: 1, searches: 42 }];
+    // 注入帶真實逐月搜量的權威列，驗證**內容**確實流入 snapshot（非僅型別為陣列 / 硬編 []）。
+    mergeExpansion.mockReturnValue([keyword('running shoes', { monthlyVolumes: volumes })]);
 
     await processor.process(fakeJob(buildPayload()) as never);
 
     const [, rows] = saveResult.mock.calls[0] as [string, SavedRow[]];
-    // 逐月搜量須進 snapshot（不可變、供 trend 月分組 sum + keywords top-N series，§9.2）。
-    // 修正前 toSnapshotRow 不含 monthlyVolumes → 執行期為 undefined → Array.isArray 為 false（red）。
-    expect(rows).toHaveLength(2);
-    expect(rows.every((r) => Array.isArray(r.monthlyVolumes))).toBe(true);
+    // 修正前 toSnapshotRow 不含 monthlyVolumes → 執行期 undefined（red）；修正後逐月搜量原樣流入（§9.2）。
+    expect(rows[0].monthlyVolumes).toEqual(volumes);
   });
 
   it('logs and persists without throwing on the failed worker event', async () => {
