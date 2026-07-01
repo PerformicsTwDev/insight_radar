@@ -845,5 +845,26 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
         'job metrics',
       );
     });
+
+    it('is best-effort: a throwing metrics logger never fails the (already-persisted) job', async () => {
+      const { processor, metricsLog } = buildHarness();
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      // 觀測副作用**絕不**可讓已持久化的 job 失敗——否則 catch 誤判為 job 錯誤 → BullMQ 重跑已完成
+      // job、重打 Ads/LLM。錯誤訊息夾帶連線字串密碼 → 須經 scrubSecrets 遮罩（NFR-5）。
+      metricsLog.info.mockImplementation(() => {
+        throw new Error('logger boom redis://user:s3cr3t@host:6379');
+      });
+
+      // job 仍成功（emitMetrics 吞錯）——不因觀測失敗而 reject。
+      await expect(processor.process(fakeJob(buildPayload()) as never)).resolves.toHaveProperty(
+        'count',
+      );
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const logged = String(warnSpy.mock.calls[0]?.[0]);
+      expect(logged).toContain('metrics emit failed');
+      expect(logged).not.toContain('s3cr3t'); // 遮罩後不得外洩密碼
+      warnSpy.mockRestore();
+    });
   });
 });
