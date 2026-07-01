@@ -79,7 +79,33 @@ const SCRUB_RULES: { pattern: RegExp; replacement: string }[] = [
   { pattern: /\b(Bearer\s+)[\w.~+/=-]+/gi, replacement: `$1${REDACT_CENSOR}` },
 ];
 
-/** 對單一字串套用 {@link SCRUB_RULES}；非字串原樣回傳。 */
+/**
+ * Value-based redaction（T7.3 / TC-29 強化）：已註冊的**祕密值**集合。pattern/欄位遮罩無法涵蓋「原始祕密值
+ * 內嵌於任意自由文字」（非 keyed、非連線字串、非 Bearer）的洩漏路徑；{@link scrubSecrets} 額外把這些**確切值**
+ * 於任何位置整段遮掉，作為 defense-in-depth。由 bootstrap（{@link registerSecretValues}）從 config 餵入。
+ */
+const registeredSecrets = new Set<string>();
+/** 太短的值不註冊——避免與正常字串誤撞而過度遮蔽（真實 token/key 遠長於此）。 */
+const MIN_SECRET_LENGTH = 8;
+
+/** 註冊執行期祕密值（bootstrap 從 config 餵入 API key / developer token / OAuth refresh / Azure key / client secret）。 */
+export function registerSecretValues(values: (string | undefined | null)[]): void {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_LENGTH) {
+      registeredSecrets.add(value);
+    }
+  }
+}
+
+/** 清空已註冊祕密值（測試隔離用）。 */
+export function clearRegisteredSecrets(): void {
+  registeredSecrets.clear();
+}
+
+/**
+ * 對單一字串套用 {@link SCRUB_RULES} + value-based 遮罩（已註冊祕密值）；非字串原樣回傳。
+ * value-based 用 `split/join` 而非 regex，避免祕密值含 regex metachar 造成注入/漏遮。
+ */
 export function scrubSecrets<T>(value: T): T {
   if (typeof value !== 'string') {
     return value;
@@ -87,6 +113,11 @@ export function scrubSecrets<T>(value: T): T {
   let out: string = value;
   for (const { pattern, replacement } of SCRUB_RULES) {
     out = out.replace(pattern, replacement);
+  }
+  for (const secret of registeredSecrets) {
+    if (out.includes(secret)) {
+      out = out.split(secret).join(REDACT_CENSOR);
+    }
   }
   return out as T;
 }
