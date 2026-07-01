@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { queryConfig } from '../config/query.config';
 import { type AnalysisFeatureInput, computeFeatures } from '../keyword-analysis/features';
@@ -100,6 +100,8 @@ export class SnapshotQueryService {
     sort: SortSpec,
     pagination: PageSpec,
   ): Promise<KeywordsListResponse> {
+    // 單頁上限對 /keywords 亦適用（與 POST /query 一致，config.ts / .env.example）——避免回無上限整份 snapshot（M6-R2）。
+    this.assertPageSizeWithinMax(pagination.pageSize);
     const rows = await this.loadSnapshot(analysisId);
     const page = selectPage(applyFilter(rows, filter), sort, pagination);
     return {
@@ -111,6 +113,17 @@ export class SnapshotQueryService {
         cursor: page.meta.cursor,
       },
     };
+  }
+
+  /** `pageSize` > 設定上限 → 結構化 400（對齊 QueryViewService；`/keywords` 與 `/query` 同上限）。 */
+  private assertPageSizeWithinMax(pageSize: number | undefined): void {
+    if (pageSize !== undefined && pageSize > this.config.maxPageSize) {
+      throw new BadRequestException({
+        code: 'QUERY_VALIDATION_FAILED',
+        message: 'Query validation failed',
+        fields: { pageSize: [`pageSize ${pageSize} exceeds max ${this.config.maxPageSize}`] },
+      });
+    }
   }
 
   /**

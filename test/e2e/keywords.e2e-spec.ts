@@ -166,6 +166,15 @@ describe('GET /keyword-analyses/:id/keywords (e2e, TC-23)', () => {
     expect(bad2.status).toBe(400);
   });
 
+  it('rejects pageSize over the configured max with 400 (M6-R2; parity with POST /query)', async () => {
+    // QUERY_MAX_PAGE_SIZE 上限對 /keywords 亦適用（config.ts / .env.example / Design §NFR）——不得回無上限整份 snapshot。
+    const res = await request(app.getHttpServer())
+      .get(url)
+      .set('x-api-key', API_KEY)
+      .query({ pageSize: 5000 });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects a non-UUID id with 400 (ParseUUIDPipe)', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/keyword-analyses/not-a-uuid/keywords')
