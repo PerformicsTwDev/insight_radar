@@ -1,6 +1,8 @@
 import { IntentService } from './intent.service';
 import type { IntentLabeler, ParseChatParams, ParseChatResult } from './intent-labeler.port';
 import { INTENT_LABELS } from './intent.schema';
+import { JobMetrics } from '../observability/job-metrics';
+import { JobMetricsContext } from '../observability/job-metrics.context';
 
 /** Fake labeler: records every parseChat call, echoes each keyword with a default label. */
 class FakeLabeler implements IntentLabeler {
@@ -99,5 +101,52 @@ describe('IntentService.labelBatch (T2.3)', () => {
     const service = new IntentService(fake, config(30));
     expect(await service.labelBatch([])).toEqual([]);
     expect(fake.calls).toHaveLength(0);
+  });
+});
+
+describe('IntentService shared-limiter metrics attribution (M7-R7 / TC-30 / NFR-6)', () => {
+  function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+  const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+  it('attributes each job LLM call to its own JobMetrics even when the shared limiter dequeues a task in another job context', async () => {
+    const ctx = new JobMetricsContext();
+    const gate = deferred();
+    let firstReleased = false;
+    const attributed = new Map<string, JobMetrics | undefined>();
+
+    // 模擬 AzureOpenAiService.parseChat（azure-openai.service.ts:56）於「當前 async 上下文」歸屬計數。
+    const labeler: IntentLabeler = {
+      async parseChat<T>(params: ParseChatParams): Promise<ParseChatResult<T>> {
+        const keyword = extractKeywords(params)[0];
+        attributed.set(keyword, ctx.current());
+        if (keyword === 'a-kw' && !firstReleased) {
+          firstReleased = true;
+          await gate.promise; // A 占住唯一 slot，逼 B 的 task 進 limiter 佇列
+        }
+        return {
+          parsed: { results: [{ keyword, labels: ['informational'] }] } as T,
+          refusal: null,
+        };
+      },
+    };
+
+    const service = new IntentService(labeler, { batchSize: 1, llmConcurrency: 1 });
+    const metricsA = new JobMetrics('job-A');
+    const metricsB = new JobMetrics('job-B');
+
+    const pA = ctx.run(metricsA, () => service.labelStream([['a-kw']]));
+    await flush(); // A 的 task 入 limiter、跑到 gate
+    const pB = ctx.run(metricsB, () => service.labelStream([['b-kw']]));
+    await flush(); // B 的 task 排進佇列（slot 滿）
+    gate.resolve(); // 放行 A → A 完成 → limiter 於 A 的 continuation 內 dequeue B 的 task
+    await Promise.all([pA, pB]);
+
+    // 各 job 正確歸屬；未綁 ALS context → B 的 parseChat 取到 metricsA（misattribution）。
+    expect(attributed.get('a-kw')).toBe(metricsA);
+    expect(attributed.get('b-kw')).toBe(metricsB);
   });
 });
