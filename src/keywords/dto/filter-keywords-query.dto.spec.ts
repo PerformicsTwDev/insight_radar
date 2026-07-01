@@ -84,4 +84,26 @@ describe('FilterKeywordsQueryDto (T5.4 / FR-7 / TC-9)', () => {
     expect((await check({ page: 0 })).props).toContain('page');
     expect((await check({ pageSize: 0 })).props).toContain('pageSize');
   });
+
+  it('treats an empty-string numeric param as unset (not 0) so it imposes no bound (M5-R1)', async () => {
+    // `?volumeMin=` → '' 不可誤轉為真 0 界（會排除 null 指標列，缺值≠0）。
+    const { dto, count } = await check({ volumeMin: '', cpcMax: '' });
+    expect(count).toBe(0);
+    expect(dto.volumeMin).toBeUndefined();
+    expect(dto.cpcMax).toBeUndefined();
+  });
+
+  it('treats an empty-string multi-select as unset, not a one-empty-string array (M5-R1)', async () => {
+    // `?intent=` → '' 不可誤轉為 ['']（會匹配空集、回零結果）。
+    const { dto, count } = await check({ intent: '', competition: '' });
+    expect(count).toBe(0);
+    expect(dto.intent).toBeUndefined();
+    expect(dto.competition).toBeUndefined();
+  });
+
+  it('still coerces a real numeric string and a single multi-select value', async () => {
+    const { dto } = await check({ volumeMin: '100', intent: 'informational' });
+    expect(dto.volumeMin).toBe(100);
+    expect(dto.intent).toEqual(['informational']);
+  });
 });
