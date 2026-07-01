@@ -118,18 +118,19 @@ describe('snapshot pagination stability (integration · Testcontainers, TC-17 / 
   }
 
   it('keyset paginates a tied snapshot with full, non-overlapping, deterministic coverage', async () => {
-    // 10 列全同搜量 → 排序全靠 normalizedText tie-break（無全序則跨頁會重複/跳漏）。
-    const rows = Array.from({ length: 10 }, (_, i) =>
-      srow({ normalizedText: `kw-${String(i).padStart(2, '0')}`, avgMonthlySearches: 100 }),
-    );
+    // 10 列全同搜量 → 排序全靠 normalizedText tie-break。**逆序固化**（rowIndex 降冪）：若 tie-break 被拿掉，
+    // 穩定排序會保留插入序（逆序）→ 與期望的 nt asc 不符而翻紅 → 這是真正的全序守衛（非退化為插入序）。
+    const ntAsc = Array.from({ length: 10 }, (_, i) => `kw-${String(i).padStart(2, '0')}`);
+    const rows = [...ntAsc]
+      .reverse()
+      .map((normalizedText) => srow({ normalizedText, avgMonthlySearches: 100 }));
     const id = await seedSnapshot(rows);
 
     const texts = await pageAllTexts(id, 3); // pageSize 不整除 → tie 跨頁邊界
 
-    const expected = rows.map((r) => r.text);
     expect(texts).toHaveLength(10);
     expect(new Set(texts).size).toBe(10); // 無重複
-    expect(texts).toEqual(expected); // 完整覆蓋 + 全序（nt asc）
+    expect(texts).toEqual(ntAsc); // 完整覆蓋 + 全序（nt asc，非插入的逆序）
   });
 
   it('repeated full pagination yields the identical sequence (no drift)', async () => {
