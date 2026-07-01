@@ -8,6 +8,7 @@ export * from './redis.config';
 export * from './database.config';
 export * from './queue.config';
 export * from './cache.config';
+export * from './query.config';
 
 import { appConfig } from './app.config';
 import { googleAdsConfig } from './google-ads.config';
@@ -16,6 +17,7 @@ import { redisConfig } from './redis.config';
 import { databaseConfig } from './database.config';
 import { queueConfig } from './queue.config';
 import { cacheConfig } from './cache.config';
+import { queryConfig } from './query.config';
 
 /** 供 `ConfigModule.forRoot({ load: configNamespaces })` 一次掛載所有 namespace。 */
 export const configNamespaces = [
@@ -26,4 +28,5 @@ export const configNamespaces = [
   databaseConfig,
   queueConfig,
   cacheConfig,
+  queryConfig,
 ];
