@@ -4,7 +4,7 @@ import type { ConfigType } from '@nestjs/config';
 import type { JobStatus, Prisma } from '@prisma/client';
 import { type Job, UnrecoverableError } from 'bullmq';
 import { queueConfig } from '../config/queue.config';
-import { RetryStrategy, classifyError } from './error-classification';
+import { classifyError, isTerminalJobError } from './error-classification';
 import { PrismaService } from '../prisma';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
 import type { ExpandParams } from '../google-ads/google-ads.service';
@@ -105,10 +105,11 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       await report('intent', keywords.length);
       return { count };
     } catch (error) {
-      // 兩層重試分工（T7.1，Design §11）：Ads 暫時性配額經 **job 內** `AdsRateLimiter` 指數退避（T3.6）仍耗盡
-      // → **不可**交 BullMQ 整 job 重試（會重打 Ads、放大 QPS 用量）→ 以 `UnrecoverableError` 直接終態失敗。
-      // 其餘（暫時性基礎設施/Redis 等）照舊拋 → BullMQ 依 `attempts` 整 job 重試（不改動既有行為）。
-      if (classifyError(error) === RetryStrategy.ADS_BACKOFF_IN_JOB) {
+      // 兩層重試分工（T7.1，Design §11）：**終態、不重試整 job** ＝ Ads 配額經 job 內退避（T3.6）仍耗盡、
+      // Ads 不可重試（InvalidArgument 等）、LLM 內容結果（確定性、重試無益）——皆以 `UnrecoverableError` 收尾，
+      // 避免 BullMQ 整 job 重跑重打 Ads/LLM、放大用量。**INFRA/UNKNOWN 照舊原樣拋** → BullMQ 依 `attempts`
+      // 整 job 重試（保留無錯誤碼暫時性故障的安全網，不改既有行為）。
+      if (isTerminalJobError(classifyError(error))) {
         const message = error instanceof Error ? error.message : String(error);
         throw new UnrecoverableError(message);
       }

@@ -652,6 +652,17 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       );
     });
 
+    it('maps a non-retryable Ads error (InvalidArgument) to UnrecoverableError (S1: no retry-amplifying replay)', async () => {
+      const { processor, expandStreamRaw } = buildHarness();
+      expandStreamRaw.mockImplementation(
+        throwing({ errors: [{ error_code: { request_error: 'INVALID_ARGUMENT' } }] }),
+      );
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+    });
+
     it('rethrows a transient infra error unchanged (BullMQ whole-job retry)', async () => {
       const { processor, expandStreamRaw } = buildHarness();
       const infra = Object.assign(new Error('conn reset'), { code: 'ECONNRESET' });

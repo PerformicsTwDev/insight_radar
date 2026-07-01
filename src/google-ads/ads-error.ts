@@ -15,6 +15,8 @@ const RETRYABLE_QUOTA_NAMES = new Set(['RESOURCE_EXHAUSTED', 'RESOURCE_TEMPORARI
 const RETRYABLE_QUOTA_INTS = new Set([2, 4]);
 /** gRPC status code：RESOURCE_EXHAUSTED = 8。 */
 const GRPC_RESOURCE_EXHAUSTED = 8;
+/** gRPC status code：INVALID_ARGUMENT = 3（永久性請求錯誤——重試無益）。 */
+const GRPC_INVALID_ARGUMENT = 3;
 
 interface GoogleAdsErrorItem {
   error_code?: Record<string, unknown> | null;
@@ -47,4 +49,37 @@ export function isRetryableAdsError(err: unknown): boolean {
   return (errors as GoogleAdsErrorItem[]).some((item) =>
     isRetryableQuotaValue(item?.error_code?.quota_error),
   );
+}
+
+/** 是否為已解碼的 `GoogleAdsFailure`（`errors[].error_code` 為單鍵物件）。 */
+function isGoogleAdsFailure(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const errors = (err as { errors?: unknown }).errors;
+  return (
+    Array.isArray(errors) &&
+    (errors as GoogleAdsErrorItem[]).some(
+      (item) => item?.error_code != null && typeof item.error_code === 'object',
+    )
+  );
+}
+
+/**
+ * **不可重試**的 Ads 錯誤（T7.1）：已解碼 `GoogleAdsFailure` 但**非**暫時性配額——如 `InvalidArgument`
+ * （>20 seed、resource name 格式錯）、`request_error`/`field_error` 等程式/請求錯誤。重試只會以同一非法請求
+ * 重打 Ads（放大用量、無助於成功），故 job 級應**終態失敗、不重試**（Design §11）。未解碼/未知錯誤**不**歸此類
+ * （保留 BullMQ 重試安全網，避免誤殺暫時性基礎設施故障）。
+ */
+export function isNonRetryableAdsError(err: unknown): boolean {
+  // 未解碼的 raw gRPC INVALID_ARGUMENT（code 3）——與 isRetryableAdsError 處理 code 8 對稱；code 3 為永久性
+  // 請求錯誤（其餘 gRPC 碼多為暫時性，留給 UNKNOWN 重試安全網，不誤殺）。
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === GRPC_INVALID_ARGUMENT
+  ) {
+    return true;
+  }
+  return isGoogleAdsFailure(err) && !isRetryableAdsError(err);
 }
