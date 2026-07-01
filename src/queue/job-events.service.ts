@@ -1,5 +1,6 @@
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
+import { scrubSecrets } from '../logger/redaction';
 import { JOB_QUEUE_EVENTS } from './job-events.constants';
 
 /** 統一的 job 事件（type + data）；progress→AnalysisProgress、completed→returnvalue、failed→reason。 */
@@ -83,7 +84,12 @@ export class JobEventsService implements OnModuleInit, OnModuleDestroy {
         ? data
         : type === 'completed'
           ? parseReturnValue(returnvalue) // BullMQ 把 returnvalue 序列化為字串 → 還原
-          : failedReason;
+          : // failed：failedReason 為上游錯誤訊息（BullMQ 恆為字串），可夾帶連線字串密碼 / bearer token。live SSE
+            // 為 client-facing sink（M7-R1/NFR-5）：在此**出站點**統一遮罩，涵蓋所有失敗來源（終態 UnrecoverableError
+            // + 重試耗盡的原始錯誤），而非散落各拋出點——DB error 欄與 pino log 另於 onFailed 已遮罩。非字串（防呆）原樣過。
+            typeof failedReason === 'string'
+            ? scrubSecrets(failedReason)
+            : failedReason;
     const subject = this.subjectFor(jobId);
     subject.next({ type, data: payload });
     if (type === 'completed' || type === 'failed') {

@@ -1,5 +1,6 @@
 import { JobEventsService } from './job-events.service';
 import type { JobEvent, QueueEventsLike } from './job-events.service';
+import { clearRegisteredSecrets, registerSecretValues } from '../logger/redaction';
 
 /** 假 QueueEvents：記錄 listener、可手動觸發；模擬 BullMQ 的 EventEmitter 行為（不連真 Redis）。 */
 class FakeQueueEvents implements QueueEventsLike {
@@ -43,6 +44,30 @@ describe('JobEventsService (T3.8 / TC-18 partial)', () => {
       { type: 'progress', data: { phase: 'intent', percent: 100 } },
     ]);
     expect(b).toEqual([{ type: 'completed', data: { count: 5 } }]); // 還原成物件、只收自己 job
+  });
+
+  it('scrubs secrets embedded in failedReason before streaming to SSE subscribers (NFR-5, M7-R1)', () => {
+    // 上游錯誤訊息可夾帶連線字串密碼 / bearer token；live SSE 是 client-facing sink，須遮罩
+    // （DB error 欄與 pino log 已於 onFailed 遮罩，但 forJob→failedReason 這條 SSE 路徑先前漏掉）。
+    const secret = 's3cr3t-refresh-token-value';
+    registerSecretValues([secret]);
+    try {
+      const { qe, service } = setup();
+      const events: JobEvent[] = [];
+      service.forJob('a-1').subscribe({ next: (e) => events.push(e) });
+
+      qe.trigger('failed', {
+        jobId: 'a-1',
+        failedReason: `Ads auth failed: redis://user:${secret}@host:6379`,
+      });
+
+      expect(events).toHaveLength(1);
+      const data = String(events[0]?.data);
+      expect(data).not.toContain(secret); // 密碼不得外洩到 SSE client
+      expect(data).toContain('[Redacted]'); // 已遮罩
+    } finally {
+      clearRegisteredSecrets();
+    }
   });
 
   it('emits the terminal event then completes the stream on completed/failed', () => {
