@@ -21,7 +21,12 @@ export const LogField = {
 
 export type LogField = (typeof LogField)[keyof typeof LogField];
 
-/** pipeline 階段名（與 Design §3 / TC-30 對齊）。 */
+/**
+ * pipeline 階段名（與 Design §3 對齊）。⚠ **可分離計時 span 僅 `expand` + `persist`**（Design §12.2 / TC-30，
+ * M7-R2）：expand 涵蓋 fetch+label 的 A/B 重疊段（NFR-1 邊拓展邊貼標，非可分離的獨立階段），metrics 隨 Ads
+ * 回應夾帶（無獨立 I/O）→ processor 只對 `EXPAND`/`PERSIST` `startPhase`；`METRICS`/`INTENT` 保留作進度標記名
+ * （`report()` 進度階段），**不**作為獨立計時 span emit。
+ */
 export const LogPhase = {
   EXPAND: 'expand',
   METRICS: 'metrics',
