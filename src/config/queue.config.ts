@@ -7,6 +7,8 @@ export interface QueueConfig {
   jobAttempts: number;
   /** 重試指數退避起始延遲（毫秒，已 Joi 驗證 min0，預設 3000；`2^(n-1)*delay`）。 */
   jobBackoffMs: number;
+  /** 退避 jitter 比例（0..1，已 Joi 驗證，預設 0.2）：延遲隨機落在 `[maxDelay*(1-jitter), maxDelay]`，散開重試避免 thundering herd（NFR-9）。 */
+  jobBackoffJitter: number;
   /** idempotency 快取 TTL（毫秒，已 Joi 驗證 min0，預設 1 天；Design §5.3 idemp:{hash}）。 */
   idempTtlMs: number;
   /** `job:{analysisId}` 狀態摘要快取 TTL（毫秒，已 Joi 驗證 min0，預設 3 天）。 */
@@ -18,6 +20,7 @@ export const queueConfig = registerAs('queue', (): QueueConfig => ({
   workerConcurrency: Number(process.env.WORKER_CONCURRENCY),
   jobAttempts: Number(process.env.JOB_ATTEMPTS),
   jobBackoffMs: Number(process.env.JOB_BACKOFF_MS),
+  jobBackoffJitter: Number(process.env.JOB_BACKOFF_JITTER),
   idempTtlMs: Number(process.env.IDEMP_TTL_MS),
   jobTtlMs: Number(process.env.JOB_TTL_MS),
 }));

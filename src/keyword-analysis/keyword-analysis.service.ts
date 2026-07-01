@@ -130,10 +130,18 @@ export class KeywordAnalysisService {
       params: input.params,
     };
     try {
+      // 兩層重試分工（NFR-9 / Design §11）：**BullMQ job-level retry 僅重跑暫時性基礎設施/Redis 故障**
+      // （attempts + 指數退避 + jitter 散開）。Ads `RESOURCE_EXHAUSTED`/`RESOURCE_TEMPORARILY_EXHAUSTED` 由
+      // **job 內** AdsRateLimiter 退避處理（T3.6），耗盡後 processor 以 `UnrecoverableError` 收尾（T7.1）
+      // → **不**觸發整 job 重跑（避免重打 Ads、放大用量）。已快取批次於 retry 不重打 Ads（T4 cache-first）。
       await this.queue.add(KEYWORD_ANALYSIS_QUEUE, payload, {
         jobId: analysisId,
         attempts: this.config.jobAttempts,
-        backoff: { type: 'exponential', delay: this.config.jobBackoffMs },
+        backoff: {
+          type: 'exponential',
+          delay: this.config.jobBackoffMs,
+          jitter: this.config.jobBackoffJitter,
+        },
       });
     } catch (error) {
       await this.prisma.keywordAnalysis.delete({ where: { id: analysisId } });

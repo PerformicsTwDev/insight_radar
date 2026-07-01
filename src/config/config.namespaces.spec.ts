@@ -35,6 +35,7 @@ const ENV: Record<string, string> = {
   WORKER_CONCURRENCY: '5',
   JOB_ATTEMPTS: '5',
   JOB_BACKOFF_MS: '3000',
+  JOB_BACKOFF_JITTER: '0.2',
   IDEMP_TTL_MS: '86400000',
   JOB_TTL_MS: '259200000',
   CACHE_TTL_METRICS_MS: '1814400000',
@@ -103,6 +104,7 @@ describe('config namespaces (registerAs, typed)', () => {
       workerConcurrency: 5,
       jobAttempts: 5,
       jobBackoffMs: 3000,
+      jobBackoffJitter: 0.2,
       idempTtlMs: 86400000,
       jobTtlMs: 259200000,
     });

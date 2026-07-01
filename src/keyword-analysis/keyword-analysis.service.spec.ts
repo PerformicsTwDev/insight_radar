@@ -94,6 +94,7 @@ const QUEUE_CONFIG = {
   workerConcurrency: 5,
   jobAttempts: 5,
   jobBackoffMs: 3000,
+  jobBackoffJitter: 0.2,
   idempTtlMs: 86400000,
   jobTtlMs: 259200000,
 };
@@ -151,13 +152,22 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
     const [, payload, opts] = queueAdd.mock.calls[0] as [
       string,
       Record<string, unknown>,
-      { jobId: string; attempts: number; backoff: { type: string; delay: number } },
+      {
+        jobId: string;
+        attempts: number;
+        backoff: { type: string; delay: number; jitter: number };
+      },
     ];
     expect(payload).toMatchObject({ analysisId, seeds: baseInput.seeds, params: baseInput.params });
+    // NFR-9：job-level retry attempts + 指數退避 + jitter（散開重試、避免 thundering herd）。
     expect(opts).toEqual({
       jobId: analysisId,
       attempts: QUEUE_CONFIG.jobAttempts,
-      backoff: { type: 'exponential', delay: QUEUE_CONFIG.jobBackoffMs },
+      backoff: {
+        type: 'exponential',
+        delay: QUEUE_CONFIG.jobBackoffMs,
+        jitter: QUEUE_CONFIG.jobBackoffJitter,
+      },
     });
     // row written with full contract
     expect(prisma.rows).toHaveLength(1);

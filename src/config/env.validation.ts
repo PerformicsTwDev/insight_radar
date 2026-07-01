@@ -68,6 +68,7 @@ export const validationSchema = Joi.object({
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),
+  JOB_BACKOFF_JITTER: Joi.number().min(0).max(1).default(0.2),
   IDEMP_TTL_MS: Joi.number().integer().min(0).default(86400000),
   JOB_TTL_MS: Joi.number().integer().min(0).default(259200000),
   // —— 讀取層/彙整上限（Design §6.5/§9.3）——
