@@ -91,6 +91,12 @@ function throwing(err: unknown): jest.Mock {
   });
 }
 
+/** 產一批候選後拋（模擬串流中途失敗但已累積部分候選）。 */
+function* oneBatchThenThrow(err: unknown): Generator<KeywordCandidate[]> {
+  yield [candidate('kept keyword')];
+  throw err;
+}
+
 /** 把多批候選包成 generator（模擬 expandStreamRaw 逐批產出；`for await` 接受 sync iterable）。 */
 function* candGen(batches: KeywordCandidate[][]): Generator<KeywordCandidate[]> {
   for (const batch of batches) {
@@ -114,6 +120,7 @@ interface Harness {
   metricsMget: jest.Mock;
   metricsMset: jest.Mock;
   metricsMsetByText: jest.Mock;
+  metricsLog: { info: jest.Mock };
   labeledTexts: string[];
 }
 
@@ -165,6 +172,7 @@ function buildHarness(): Harness {
     mset: metricsMset,
     msetByText: metricsMsetByText,
   } as unknown as MetricsCache;
+  const metricsLog = { info: jest.fn() };
   const processor = new KeywordAnalysisProcessor(
     ads,
     intent,
@@ -172,6 +180,7 @@ function buildHarness(): Harness {
     prisma,
     metricsCache,
     queueCfg,
+    metricsLog as unknown as ConstructorParameters<typeof KeywordAnalysisProcessor>[6],
   );
 
   return {
@@ -185,6 +194,7 @@ function buildHarness(): Harness {
     metricsMget,
     metricsMset,
     metricsMsetByText,
+    metricsLog,
     labeledTexts,
   };
 }
@@ -260,6 +270,7 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       prisma,
       metricsCache,
       queueCfg,
+      { info: jest.fn() } as unknown as ConstructorParameters<typeof KeywordAnalysisProcessor>[6],
     );
 
     await processor.process(fakeJob(buildPayload()) as never);
@@ -677,11 +688,6 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
   describe('partial degradation (T7.1)', () => {
     const QUOTA_EXHAUSTED = { errors: [{ error_code: { quota_error: 'RESOURCE_EXHAUSTED' } }] };
 
-    function* oneBatchThenThrow(err: unknown): Generator<KeywordCandidate[]> {
-      yield [candidate('kept keyword')];
-      throw err;
-    }
-
     it('saves a partial snapshot (status=partial) on a terminal Ads error after some data was gathered', async () => {
       const { processor, expandStreamRaw, saveResult } = buildHarness();
       expandStreamRaw.mockImplementation(() => oneBatchThenThrow(QUOTA_EXHAUSTED));
@@ -714,6 +720,59 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
 
       await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBe(infra);
       expect(saveResult).not.toHaveBeenCalled();
+    });
+  });
+
+  // T7.2（NFR-6 / TC-30）：每 job 一筆結構化可觀測 log——各 phase 耗時 + expanded/labeled/total。
+  describe('observability metrics (T7.2 / TC-30)', () => {
+    interface MetricsFields {
+      analysisId: string;
+      status: string;
+      phases: Record<string, number>;
+      expanded: number;
+      labeled: number;
+      total: number;
+    }
+
+    it('emits one structured per-job log with phase timings + expanded/labeled/total', async () => {
+      const { processor, metricsLog } = buildHarness();
+
+      await processor.process(fakeJob(buildPayload()) as never);
+
+      expect(metricsLog.info).toHaveBeenCalledTimes(1);
+      const [fields, message] = metricsLog.info.mock.calls[0] as [MetricsFields, string];
+      expect(message).toBe('job metrics');
+      expect(fields.analysisId).toBe('a-1');
+      expect(fields.status).toBe('completed');
+      expect(typeof fields.phases.expand).toBe('number'); // 各 phase 耗時（結構化）
+      expect(typeof fields.phases.persist).toBe('number');
+      expect(fields).toMatchObject({ expanded: 2, labeled: 2, total: 2 }); // expand 模式：2 關鍵字
+    });
+
+    it('reports expanded=0 for exact mode (no expansion phase)', async () => {
+      const { processor, metricsLog } = buildHarness();
+      const payload = buildPayload({
+        params: { geo: 'g', language: 'l', mode: 'exact', includeAdult: false },
+      });
+
+      await processor.process(fakeJob(payload) as never);
+
+      const [fields] = metricsLog.info.mock.calls[0] as [{ expanded: number }, string];
+      expect(fields.expanded).toBe(0); // exact 模式無 expand 階段
+    });
+
+    it('tags the metrics log status=partial when the job degrades (T7.1 partial)', async () => {
+      const { processor, metricsLog, expandStreamRaw } = buildHarness();
+      expandStreamRaw.mockImplementation(() =>
+        oneBatchThenThrow({ errors: [{ error_code: { quota_error: 'RESOURCE_EXHAUSTED' } }] }),
+      );
+
+      await processor.process(fakeJob(buildPayload()) as never);
+
+      expect(metricsLog.info).toHaveBeenCalledWith(
+        expect.objectContaining({ analysisId: 'a-1', status: 'partial' }),
+        'job metrics',
+      );
     });
   });
 });

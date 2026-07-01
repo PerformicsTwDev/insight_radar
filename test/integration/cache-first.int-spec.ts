@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ConfigModule } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { getLoggerToken } from 'nestjs-pino';
 import { CacheModule } from 'src/cache/cache.module';
 import { CacheService } from 'src/cache/cache.service';
 import { cacheConfig } from 'src/config/cache.config';
@@ -116,6 +117,11 @@ describe('cache-first integration (T4.4 / TC-20 / FR-10 / AC-10.5 · Testcontain
         ResultSnapshotService,
         MetricsCache,
         IntentCache,
+        // T7.2：processor 注入結構化 metrics logger（PinoLogger）；本測試不驗 log、以 no-op 提供。
+        {
+          provide: getLoggerToken(KeywordAnalysisProcessor.name),
+          useValue: { info: () => undefined },
+        },
         { provide: ADS_CLIENT, useValue: fakeAds },
         { provide: INTENT_LABELER, useValue: fakeLabeler },
         { provide: AZURE_OPENAI_DEPLOYMENT, useValue: 'test-deploy' },

@@ -3,7 +3,10 @@ import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { JobStatus, Prisma } from '@prisma/client';
 import { type Job, UnrecoverableError } from 'bullmq';
+import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { queueConfig } from '../config/queue.config';
+import { LogPhase } from '../logger/log-fields';
+import { JobMetrics } from '../observability/job-metrics';
 import { classifyError, isTerminalJobError } from './error-classification';
 import { PrismaService } from '../prisma';
 import { GoogleAdsService } from '../google-ads/google-ads.service';
@@ -58,6 +61,10 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     private readonly prisma: PrismaService,
     private readonly metricsCache: MetricsCache,
     @Inject(queueConfig.KEY) private readonly config: ConfigType<typeof queueConfig>,
+    // 結構化可觀測 log（NFR-6/TC-30）：pino 承載結構化欄位（@nestjs/common Logger 只能字串訊息）。
+    // ⚠ DI 依賴 AppModule import 序：`keyword-analysis`（註冊此 @InjectPinoLogger decorator）須在 `logger`
+    // （nestjs-pino `forRoot` 的 createProvidersForDecorated）**之前** import，否則 `PinoLogger:...` token 無法解析。
+    @InjectPinoLogger(KeywordAnalysisProcessor.name) private readonly metricsLog: PinoLogger,
   ) {
     super();
   }
@@ -79,6 +86,7 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
 
   async process(job: Job<AnalysisJobPayload>): Promise<{ count: number }> {
     const { analysisId, seeds, params } = job.data;
+    const metrics = new JobMetrics(analysisId); // 每 job 可觀測指標（NFR-6/TC-30）
     const report = (phase: keyof typeof PHASE_PERCENT, total: number): Promise<void> =>
       this.report(job, phase, total);
 
@@ -87,12 +95,15 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
 
     try {
       // 依 mode 取數 + 邊拓展邊貼標（overlap）。**snapshot 用權威 mergeExpansion**（非 first-occurrence）。
+      // expand 計時涵蓋 fetch+label 的 A/B 重疊段（兩者並行，非可分離的獨立 phase）。
+      const endExpand = metrics.startPhase(LogPhase.EXPAND);
       const { keywords, labels, partial } = await this.fetchAndLabel(
         params.mode,
         seeds,
         toExpandParams(params),
         report,
       );
+      endExpand();
       await report('metrics', keywords.length); // 指標隨取數回應夾帶（無額外 Ads 呼叫）
 
       // 固化不可變 snapshot（T3.10）：合併 intent（by normalizedText）→ rows → 落 DB + 回填 FK/status。
@@ -101,17 +112,27 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       const rows = keywords.map((kw) =>
         toSnapshotRow(kw, intentByKeyword.get(kw.normalizedText) ?? []),
       );
+      const endPersist = metrics.startPhase(LogPhase.PERSIST);
       const { count } = await this.snapshots.saveResult(
         analysisId,
         rows,
         partial ? 'partial' : 'completed',
       );
+      endPersist();
 
       // 報 intent/100：DB progress 已由 saveResult 與 status **原子寫入**（M3-R5）；此處 report 僅為 SSE/QueueEvents
       // 即時事件。partial 未完成 intent 階段 → 不報 intent/100（避免「partial 卻 100%」誤導）。
       if (!partial) {
         await report('intent', keywords.length);
       }
+
+      // 每 job 結構化可觀測 log（NFR-6/TC-30）：各 phase 耗時 + expanded/labeled/total。
+      metrics.setCounts({
+        expanded: params.mode === 'expand' ? keywords.length : 0,
+        labeled: labels.labeled.length,
+        total: keywords.length,
+      });
+      this.emitMetrics(metrics, partial ? 'partial' : 'completed');
       return { count };
     } catch (error) {
       // 兩層重試分工（T7.1，Design §11）：**終態、不重試整 job** ＝ Ads 配額經 job 內退避（T3.6）仍耗盡、
@@ -123,6 +144,18 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
         throw new UnrecoverableError(message);
       }
       throw error;
+    }
+  }
+
+  /**
+   * 發射每 job 結構化可觀測 log（NFR-6/TC-30）。**best-effort**：觀測副作用**絕不**可讓已持久化的 job 失敗
+   * （否則 catch 會誤判為 job 錯誤 → BullMQ 重跑已完成 job、重打 Ads/LLM）。pino 設計上不拋，此為防禦性保險。
+   */
+  private emitMetrics(metrics: JobMetrics, status: string): void {
+    try {
+      this.metricsLog.info(metrics.toLogFields(status), 'job metrics');
+    } catch (error) {
+      this.logger.warn(`metrics emit failed (best-effort): ${scrubSecrets(String(error))}`);
     }
   }
 
