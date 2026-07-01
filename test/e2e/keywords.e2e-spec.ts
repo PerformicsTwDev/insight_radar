@@ -55,12 +55,10 @@ const ROWS: SnapshotRowData[] = [
   }),
 ];
 
-/** supertest `res.body`（any）的最小型別。 */
+/** supertest `res.body`（any）→ §6.4 `{ data, meta }` 的最小型別。 */
 interface KeywordsBody {
-  view: string;
-  columns: unknown[];
-  rows: { normalizedText: string }[];
-  pagination: { total: number; cursor: string | null };
+  data: { text: string; intentLabels: string[]; avgMonthlySearches: number | null }[];
+  meta: { total: number; page: number; pageSize: number; cursor: string | null };
 }
 const asBody = (res: request.Response): KeywordsBody => res.body as KeywordsBody;
 
@@ -112,17 +110,16 @@ describe('GET /keyword-analyses/:id/keywords (e2e, TC-23)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns the keywords view with columns + rows + pagination meta', async () => {
+  it('returns §6.4 { data, meta } with the five named columns (intent → intentLabels)', async () => {
     const res = await request(app.getHttpServer())
       .get(url)
       .set('x-api-key', API_KEY)
       .query({ sortBy: 'avgMonthlySearches', sortDir: 'desc' });
 
     expect(res.status).toBe(200);
-    expect(asBody(res).view).toBe('keywords');
-    expect(Array.isArray(asBody(res).columns)).toBe(true);
-    expect(asBody(res).rows.map((r) => r.normalizedText)).toEqual(['alpha', 'charlie', 'bravo']); // desc by volume
-    expect(asBody(res).pagination.total).toBe(3);
+    expect(asBody(res).data.map((r) => r.text)).toEqual(['Alpha', 'Charlie', 'Bravo']); // desc by volume
+    expect(asBody(res).data[0].intentLabels).toEqual(['commercial']); // snapshot intent → 對外 intentLabels
+    expect(asBody(res).meta).toMatchObject({ total: 3, page: 1 });
   });
 
   it('applies the shared FilterSpec (competition + intent)', async () => {
@@ -132,7 +129,7 @@ describe('GET /keyword-analyses/:id/keywords (e2e, TC-23)', () => {
       .query({ competition: 'LOW', intent: 'commercial' });
 
     expect(res.status).toBe(200);
-    expect(asBody(res).rows.map((r) => r.normalizedText)).toEqual(['charlie']);
+    expect(asBody(res).data.map((r) => r.text)).toEqual(['Charlie']);
   });
 
   it('paginates stably (keyset cursor resumes after the first page, no overlap)', async () => {
@@ -140,8 +137,8 @@ describe('GET /keyword-analyses/:id/keywords (e2e, TC-23)', () => {
       .get(url)
       .set('x-api-key', API_KEY)
       .query({ sortBy: 'avgMonthlySearches', sortDir: 'desc', pageSize: 2 });
-    expect(asBody(p1).rows.map((r) => r.normalizedText)).toEqual(['alpha', 'charlie']);
-    expect(asBody(p1).pagination.cursor).toBeTruthy();
+    expect(asBody(p1).data.map((r) => r.text)).toEqual(['Alpha', 'Charlie']);
+    expect(asBody(p1).meta.cursor).toBeTruthy();
 
     const p2 = await request(app.getHttpServer())
       .get(url)
@@ -150,9 +147,9 @@ describe('GET /keyword-analyses/:id/keywords (e2e, TC-23)', () => {
         sortBy: 'avgMonthlySearches',
         sortDir: 'desc',
         pageSize: 2,
-        cursor: asBody(p1).pagination.cursor,
+        cursor: asBody(p1).meta.cursor,
       });
-    expect(asBody(p2).rows.map((r) => r.normalizedText)).toEqual(['bravo']);
+    expect(asBody(p2).data.map((r) => r.text)).toEqual(['Bravo']);
   });
 
   it('rejects invalid params with 400 (min>max, unknown sortDir)', async () => {
