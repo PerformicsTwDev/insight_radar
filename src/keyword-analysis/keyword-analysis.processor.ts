@@ -25,6 +25,8 @@ import type {
 
 /** 階段完成時的累積進度百分比（fetch→metrics→intent，intent 完成＝100）。 */
 const PHASE_PERCENT = { fetch: 40, metrics: 60, intent: 100 } as const;
+/** partial 降級時的空貼標（intent 階段未完成 → 已固化列的 intent 為空，T7.1）。 */
+const EMPTY_LABELS: LabelResult = { labeled: [], needsReview: [] };
 /** 終態（§6.8）：worker 對 DB 狀態的寫入皆條件式（status notIn 此集）以不覆寫已終結 job。 */
 const TERMINAL_STATUSES: readonly JobStatus[] = ['completed', 'failed', 'canceled'];
 
@@ -85,7 +87,7 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
 
     try {
       // 依 mode 取數 + 邊拓展邊貼標（overlap）。**snapshot 用權威 mergeExpansion**（非 first-occurrence）。
-      const { keywords, labels } = await this.fetchAndLabel(
+      const { keywords, labels, partial } = await this.fetchAndLabel(
         params.mode,
         seeds,
         toExpandParams(params),
@@ -94,15 +96,22 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
       await report('metrics', keywords.length); // 指標隨取數回應夾帶（無額外 Ads 呼叫）
 
       // 固化不可變 snapshot（T3.10）：合併 intent（by normalizedText）→ rows → 落 DB + 回填 FK/status。
+      // partial 降級（T7.1）：外部階段達重試上限但已有部分結果 → 標 `status='partial'`、保留已固化列（非整批丟）。
       const intentByKeyword = new Map(labels.labeled.map((l) => [l.keyword, l.labels]));
       const rows = keywords.map((kw) =>
         toSnapshotRow(kw, intentByKeyword.get(kw.normalizedText) ?? []),
       );
-      const { count } = await this.snapshots.saveResult(analysisId, rows);
+      const { count } = await this.snapshots.saveResult(
+        analysisId,
+        rows,
+        partial ? 'partial' : 'completed',
+      );
 
-      // 報 intent/100：DB progress 已由 saveResult 與 status='completed' **原子寫入**（M3-R5）；此處 report 僅
-      // 為 SSE/QueueEvents 即時事件（job.updateProgress），其 DB 鏡像因已終態 no-op（不重複寫、亦不覆寫）。
-      await report('intent', keywords.length);
+      // 報 intent/100：DB progress 已由 saveResult 與 status **原子寫入**（M3-R5）；此處 report 僅為 SSE/QueueEvents
+      // 即時事件。partial 未完成 intent 階段 → 不報 intent/100（避免「partial 卻 100%」誤導）。
+      if (!partial) {
+        await report('intent', keywords.length);
+      }
       return { count };
     } catch (error) {
       // 兩層重試分工（T7.1，Design §11）：**終態、不重試整 job** ＝ Ads 配額經 job 內退避（T3.6）仍耗盡、
@@ -176,7 +185,7 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
     seeds: string[],
     params: ExpandParams,
     report: (phase: keyof typeof PHASE_PERCENT, total: number) => Promise<void>,
-  ): Promise<{ keywords: Keyword[]; labels: LabelResult }> {
+  ): Promise<{ keywords: Keyword[]; labels: LabelResult; partial: boolean }> {
     if (mode === 'expand') {
       const candidates: KeywordCandidate[] = [];
       const seen = new Set<string>();
@@ -198,22 +207,44 @@ export class KeywordAnalysisProcessor extends WorkerHost implements OnApplicatio
           }
         }
       }
-      const labels = await this.intent.labelStream(texts());
-      // 權威合併（dedupeMerge）→ **回寫 metrics 快取**（T4.4）：expand 須打 Ads 取數，但結果回寫後，未來
-      // 同字的 exact 查詢/重跑即命中、省 Ads（兩階段皆 cache-first 的「回寫」半邊）。
-      // ⚠ 用 `msetByText`（各字自身 nt 為 key）**非** `mset`：拓展字的 seedOrigins=來源 seed，用 mset 會把
-      // 拓展字寫到 seed 的 key、污染 seed 指標（exact 命中即回錯字/錯指標，AC-10.5）。
-      const keywords = this.ads.mergeExpansion(candidates, params);
-      await this.metricsCache.msetByText(keywords, params);
-      return { keywords, labels };
+      let labels: LabelResult;
+      try {
+        labels = await this.intent.labelStream(texts());
+      } catch (error) {
+        // partial 降級（T7.1，Design §11「達上限 → partial」）：串流中途遇 job 級**終態**錯誤（Ads 配額耗盡 /
+        // Ads 不可重試 / LLM 結果）且已累積部分候選 → 回 partial（保留已取部分、不整批丟；intent 未完成 → 空標）。
+        // 暫時性（INFRA/UNKNOWN）錯誤或無候選 → 原樣拋，交上層決策（BullMQ 整 job 重試｜UnrecoverableError）。
+        if (isTerminalJobError(classifyError(error)) && candidates.length > 0) {
+          const partialKeywords = await this.buildAndCacheExpansion(candidates, params);
+          return { keywords: partialKeywords, labels: EMPTY_LABELS, partial: true };
+        }
+        throw error;
+      }
+      const keywords = await this.buildAndCacheExpansion(candidates, params);
+      return { keywords, labels, partial: false };
     }
     if (mode === 'exact') {
       const keywords = await this.fetchExactCached(seeds, params);
       await report('fetch', keywords.length);
       const labels = await this.intent.labelStream([keywords.map((kw) => kw.normalizedText)]);
-      return { keywords, labels };
+      return { keywords, labels, partial: false };
     }
     throw new Error(`Unknown analysis mode: ${String(mode)}`);
+  }
+
+  /**
+   * 權威合併（dedupeMerge）→ **回寫 metrics 快取**（T4.4）：expand 須打 Ads 取數，但結果回寫後，未來同字的
+   * exact 查詢/重跑即命中、省 Ads（cache-first 的「回寫」半邊）。⚠ 用 `msetByText`（各字自身 nt 為 key）**非**
+   * `mset`：拓展字的 seedOrigins=來源 seed，用 mset 會把拓展字寫到 seed 的 key、污染 seed 指標（AC-10.5）。
+   * partial 與完整路徑共用（保留已取部分亦回寫快取，重跑可命中）。
+   */
+  private async buildAndCacheExpansion(
+    candidates: KeywordCandidate[],
+    params: ExpandParams,
+  ): Promise<Keyword[]> {
+    const keywords = this.ads.mergeExpansion(candidates, params);
+    await this.metricsCache.msetByText(keywords, params);
+    return keywords;
   }
 
   /**

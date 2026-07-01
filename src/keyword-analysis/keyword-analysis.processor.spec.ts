@@ -84,6 +84,13 @@ function candidate(text: string): KeywordCandidate {
   return { text, source: 'expanded' };
 }
 
+/** expandStreamRaw 呼叫即拋 → 處理器 `for await (… of ads.expandStreamRaw(…))` 的 evaluand 拋 → 傳到 process() catch（無累積候選）。 */
+function throwing(err: unknown): jest.Mock {
+  return jest.fn(() => {
+    throw err;
+  });
+}
+
 /** 把多批候選包成 generator（模擬 expandStreamRaw 逐批產出；`for await` 接受 sync iterable）。 */
 function* candGen(batches: KeywordCandidate[][]): Generator<KeywordCandidate[]> {
   for (const batch of batches) {
@@ -634,13 +641,6 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
   // T7.1（Design §11 兩層重試分工）：Ads 暫時性配額經 job 內退避仍耗盡 → UnrecoverableError（不整 job 重試、
   // 不重打 Ads）；暫時性基礎設施錯誤 → 原樣拋 → BullMQ 依 attempts 整 job 重試。
   describe('two-layer retry split (T7.1)', () => {
-    // expandStreamRaw 呼叫即拋 → 處理器 `for await (… of ads.expandStreamRaw(…))` 的 evaluand 拋 → 傳到 process() catch。
-    function throwing(err: unknown): jest.Mock {
-      return jest.fn(() => {
-        throw err;
-      });
-    }
-
     it('maps an exhausted Ads quota error to UnrecoverableError (no whole-job retry)', async () => {
       const { processor, expandStreamRaw } = buildHarness();
       expandStreamRaw.mockImplementation(
@@ -669,6 +669,51 @@ describe('KeywordAnalysisProcessor (T3.5/T3.7, TC-11/TC-35/TC-33)', () => {
       expandStreamRaw.mockImplementation(throwing(infra));
 
       await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBe(infra);
+    });
+  });
+
+  // T7.1 partial 降級（Design §11「達上限 → partial」）：expand 串流中途遇 job 級終態錯誤但已取得部分候選 →
+  // 標 status='partial'、保留已固化列（不整批丟、非失敗）。暫時性錯誤/無候選 → 不 partial（重試｜終態失敗）。
+  describe('partial degradation (T7.1)', () => {
+    const QUOTA_EXHAUSTED = { errors: [{ error_code: { quota_error: 'RESOURCE_EXHAUSTED' } }] };
+
+    function* oneBatchThenThrow(err: unknown): Generator<KeywordCandidate[]> {
+      yield [candidate('kept keyword')];
+      throw err;
+    }
+
+    it('saves a partial snapshot (status=partial) on a terminal Ads error after some data was gathered', async () => {
+      const { processor, expandStreamRaw, saveResult } = buildHarness();
+      expandStreamRaw.mockImplementation(() => oneBatchThenThrow(QUOTA_EXHAUSTED));
+
+      const result = await processor.process(fakeJob(buildPayload()) as never);
+
+      // 未拋（partial = job 成功、非失敗）；已取部分以 'partial' 固化，列 intent 為空（貼標未完成）。
+      expect(saveResult).toHaveBeenCalledWith(
+        'a-1',
+        expect.arrayContaining([expect.objectContaining({ intent: [] })]),
+        'partial',
+      );
+      expect(result).toHaveProperty('count');
+    });
+
+    it('does NOT save partial when the terminal error hits before any data (→ UnrecoverableError)', async () => {
+      const { processor, expandStreamRaw, saveResult } = buildHarness();
+      expandStreamRaw.mockImplementation(throwing(QUOTA_EXHAUSTED));
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+      expect(saveResult).not.toHaveBeenCalled();
+    });
+
+    it('does NOT save partial for a transient infra error even with data (rethrows → BullMQ retry)', async () => {
+      const { processor, expandStreamRaw, saveResult } = buildHarness();
+      const infra = Object.assign(new Error('reset'), { code: 'ECONNRESET' });
+      expandStreamRaw.mockImplementation(() => oneBatchThenThrow(infra));
+
+      await expect(processor.process(fakeJob(buildPayload()) as never)).rejects.toBe(infra);
+      expect(saveResult).not.toHaveBeenCalled();
     });
   });
 });
