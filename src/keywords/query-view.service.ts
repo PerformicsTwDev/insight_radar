@@ -4,7 +4,7 @@ import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checks
 import { AggregateBoundsError } from './aggregate';
 import { FeatureNotReadyException } from './feature-not-ready.exception';
 import type { FilterSpec } from './filter-spec';
-import type { QueryLimits, QueryRequest, ViewResult } from './views';
+import type { QueryLimits, QueryRequest, ViewDefinition, ViewResult } from './views';
 import { ViewRegistry } from './views';
 
 /** min ≤ max 檢查的欄位對（Design §9.1）。 */
@@ -27,24 +27,37 @@ export class QueryViewService {
    * @param features 各 feature 狀態（由 SnapshotQueryService 依分析狀態算出）。提供時做 **feature-gating**
    *   （view 依賴的 feature 未 ready → `409 FEATURE_NOT_READY`，AC-14.7）；省略時不 gate（純 view 單元測試用）。
    */
+  /**
+   * 解析 view（未知 → 400）並做 **feature-gating**（`features` 提供且 view 依賴的 feature 未 ready →
+   * `409 FEATURE_NOT_READY`，AC-14.7）。供 caller（SnapshotQueryService）在**載入 snapshot 列之前**先擋——
+   * 避免為 gated view（serp/topics）白抓整份 snapshot 才拒絕（M6-R6）。回解析出的 view。
+   */
+  assertExecutable(viewName: string, features?: FeaturesMap): ViewDefinition {
+    const view = this.registry.get(viewName);
+    if (!view) {
+      this.fail({
+        view: [`unknown view '${viewName}'; allowed: ${this.registry.names().join(', ')}`],
+      });
+    }
+    const feature = view.requiresFeature ?? 'keyword_metrics';
+    if (features && features[feature].status !== 'ready') {
+      throw new FeatureNotReadyException(feature, features[feature].status);
+    }
+    return view;
+  }
+
+  /**
+   * @param features 各 feature 狀態（由 SnapshotQueryService 依分析狀態算出）。提供時做 **feature-gating**
+   *   （view 依賴的 feature 未 ready → `409 FEATURE_NOT_READY`，AC-14.7）；省略時不 gate（純 view 單元測試用）。
+   */
   query(
     rows: SnapshotRowData[],
     request: QueryRequest,
     limits: QueryLimits,
     features?: FeaturesMap,
   ): ViewResult {
-    const view = this.registry.get(request.view);
-    if (!view) {
-      this.fail({
-        view: [`unknown view '${request.view}'; allowed: ${this.registry.names().join(', ')}`],
-      });
-    }
-
-    // feature-gating（AC-14.7）：view 依賴的 compute 未 ready → 409（非誤導空表），先於白名單/build 檢查。
-    const feature = view.requiresFeature ?? 'keyword_metrics';
-    if (features && features[feature].status !== 'ready') {
-      throw new FeatureNotReadyException(feature, features[feature].status);
-    }
+    // 解析 view + feature-gating（unknown → 400、未 ready → 409），先於白名單/build。
+    const view = this.assertExecutable(request.view, features);
 
     // 白名單：select / filters / sort 皆須為該 view 宣告的允許集子集。
     const badSelect = (request.select ?? []).filter((key) => !view.allowedSelect.includes(key));

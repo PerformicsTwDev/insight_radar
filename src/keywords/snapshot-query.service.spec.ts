@@ -25,7 +25,13 @@ function srow(normalizedText: string, over: Partial<SnapshotRowData> = {}): Snap
 function build(
   analysis: { status?: string; resultSnapshotId: string | null } | null,
   rows: SnapshotRowData[],
-): { service: SnapshotQueryService; viewQuery: jest.Mock; findMany: jest.Mock } {
+  assertExecutable: jest.Mock = jest.fn(),
+): {
+  service: SnapshotQueryService;
+  viewQuery: jest.Mock;
+  findMany: jest.Mock;
+  assertExecutable: jest.Mock;
+} {
   const findUnique = jest.fn(() => Promise.resolve(analysis));
   const findMany = jest.fn(() => Promise.resolve(rows.map((data) => ({ data }))));
   const prisma = {
@@ -33,8 +39,14 @@ function build(
     snapshotRow: { findMany },
   } as unknown as PrismaService;
   const viewQuery = jest.fn((r: unknown) => ({ view: 'keywords', rows: r }));
-  const viewService = { query: viewQuery } as unknown as QueryViewService;
-  return { service: new SnapshotQueryService(prisma, viewService, CONFIG), viewQuery, findMany };
+  // assertExecutable：M6-R6，query() 於 loadRows 前呼叫做 unknown-view/feature gate。
+  const viewService = { query: viewQuery, assertExecutable } as unknown as QueryViewService;
+  return {
+    service: new SnapshotQueryService(prisma, viewService, CONFIG),
+    viewQuery,
+    findMany,
+    assertExecutable,
+  };
 }
 
 describe('SnapshotQueryService (T5.5 / FR-14)', () => {
@@ -56,6 +68,27 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       // T6.8：query 傳入 features（snapshot 存在 → keyword_metrics ready），供 view-router feature-gating。
       expect.objectContaining({ keyword_metrics: { status: 'ready' } }),
     );
+  });
+
+  it('gates (assertExecutable) BEFORE loading rows — a gated view does not read the snapshot (M6-R6)', async () => {
+    const boom = new Error('gated');
+    const assertExecutable = jest.fn(() => {
+      throw boom;
+    });
+    const { service, findMany, viewQuery } = build(
+      { status: 'completed', resultSnapshotId: 'snap-1' },
+      [srow('a')],
+      assertExecutable,
+    );
+
+    await expect(service.query('an-1', { view: 'serp_questions' })).rejects.toBe(boom);
+
+    expect(assertExecutable).toHaveBeenCalledWith(
+      'serp_questions',
+      expect.objectContaining({ keyword_metrics: { status: 'ready' } }),
+    );
+    expect(findMany).not.toHaveBeenCalled(); // 未載入 snapshot 列（gate 先擋）
+    expect(viewQuery).not.toHaveBeenCalled();
   });
 
   it('loads the analysis snapshot rows in order', async () => {
