@@ -25,9 +25,13 @@ import type {
   AnalysisStatusResponse,
 } from './keyword-analysis.service';
 
-/** 終態（§6.8 狀態機）：到此不再有後續事件。 */
+/**
+ * 終態（§6.8 狀態機）：到此不再有後續事件。**含 `partial`**（M7-R5）：partial 為終態，late SSE 訂閱須走
+ * terminalSnapshot 快照、不訂閱 forJob——否則 subject 被 FIFO 逐出 / 重啟後開出永不完成的串流（hang，違 NFR-9）。
+ */
 const TERMINAL_STATUSES: ReadonlySet<AnalysisStatus> = new Set<AnalysisStatus>([
   'completed',
+  'partial',
   'failed',
   'canceled',
 ]);
@@ -132,9 +136,13 @@ function toMessageEvent(event: JobEvent): MessageEvent {
   return { type: event.type, data: event.data as MessageEvent['data'] };
 }
 
-/** 已終態 job 的單筆快照事件（completed→`{resultSnapshotId,count}`；failed/canceled→`{error}`，§6.3）。 */
+/**
+ * 已終態 job 的單筆快照事件（§6.3）：completed/**partial** → `{type:'completed', data:{resultSnapshotId,count}}`
+ * （partial 為終態且**有結果** → 帶回 result，權威 partial/completed 之分由 `GET :id` 取；M7-R5）；
+ * failed/canceled → `{type:'failed', data:{error:status}}`。
+ */
 function terminalSnapshot(status: AnalysisStatusResponse): MessageEvent {
-  if (status.status === 'completed') {
+  if (status.status === 'completed' || status.status === 'partial') {
     return { type: 'completed', data: status.result };
   }
   return { type: 'failed', data: { error: status.status } };

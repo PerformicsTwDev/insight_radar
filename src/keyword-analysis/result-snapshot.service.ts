@@ -11,8 +11,12 @@ export interface SaveResultOutcome {
   checksum: string;
 }
 
-/** 終態（§6.8）：到此 `saveResult` 不再固化/覆寫（completed 回既有；canceled/failed 不轉 completed）。 */
-const TERMINAL_STATUSES = new Set<JobStatus>(['completed', 'failed', 'canceled']);
+/**
+ * 終態（§6.8）：到此 `saveResult` 不再固化/覆寫（completed 回既有；canceled/failed 不轉 completed）。
+ * **含 `partial`**（M7-R5）：partial 為終態，第二次 saveResult 命中已 partial 列 → 回既有 snapshot、不重
+ * persist（避免孤兒 snapshot）。首次 partial 寫入時列仍為 `running`，故 notIn 守門不擋初次固化。
+ */
+const TERMINAL_STATUSES = new Set<JobStatus>(['completed', 'partial', 'failed', 'canceled']);
 
 /**
  * 完成時的終態進度（M3-R5）。與 `status='completed'` **同筆原子寫入**：processor 在 saveResult 後才報

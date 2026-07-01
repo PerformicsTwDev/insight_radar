@@ -442,6 +442,19 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
     expect(queueRemove).not.toHaveBeenCalled();
   });
 
+  it('does not overwrite a terminal partial job (M7-R5: partial is terminal)', async () => {
+    const { service, prisma, queueRemove } = await buildHarness();
+    // partial 為終態（T7.1：finishedAt + resultSnapshotId 已固化、BullMQ 標 completed、不自動 resume）。
+    // cancel 不得把它覆寫成 canceled（否則終態被改、結果仍可讀＝自相矛盾，§6.8）。
+    seedRow(prisma, { id: 'id-1', status: 'partial' });
+
+    const out = await service.cancel('id-1');
+
+    expect(out).toEqual({ status: 'partial' });
+    expect(prisma.rows[0].status).toBe('partial'); // 不覆寫已固化的 partial
+    expect(queueRemove).not.toHaveBeenCalled();
+  });
+
   it('tolerates a queue removal failure (DB status is the authoritative signal)', async () => {
     const { service, prisma, queueRemove } = await buildHarness();
     queueRemove.mockRejectedValueOnce(new Error('job is locked'));
