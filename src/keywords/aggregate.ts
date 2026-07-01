@@ -41,7 +41,8 @@ export interface AggregateLimits {
 
 export interface AggregateGroup {
   key: Record<string, string | number>;
-  measures: Record<string, number>;
+  /** 空組（該欄全 `null`）：`sum`=0、`avg/min/max/median`=`null`（缺值≠0）；`count`/`countDistinct` 恆為數。 */
+  measures: Record<string, number | null>;
 }
 
 export interface AggregateResult {
@@ -80,7 +81,9 @@ function dimensionValues(row: AggregateRow, dim: Dimension): (string | number)[]
     if (typeof raw !== 'number') {
       return []; // null / 缺值 → 不落桶
     }
-    return [Math.floor(raw / dim.width) * dim.width]; // 左閉右開的桶下界
+    // 左閉右開桶下界。以 toPrecision 消 fp 漂移（如 0.3/0.1=2.9999996 誤 floor 成 2、0.6000001 key）。
+    const index = Math.floor(Number((raw / dim.width).toPrecision(12)));
+    return [Number((index * dim.width).toPrecision(12))];
   }
   const raw = row[dim.field];
   return typeof raw === 'string' || typeof raw === 'number' ? [raw] : []; // null/物件 → 不入組
@@ -98,8 +101,8 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-/** 對一組 unit 算單一 measure。 */
-function computeMeasure(units: Unit[], measure: Measure): number {
+/** 對一組 unit 算單一 measure。空組（該欄全 null）：`sum`=0、`avg/min/max/median`=`null`（缺值≠0）。 */
+function computeMeasure(units: Unit[], measure: Measure): number | null {
   if (measure.fn === 'count') {
     return units.length;
   }
@@ -111,18 +114,19 @@ function computeMeasure(units: Unit[], measure: Measure): number {
   const values = units
     .map((u) => numericField(u.row, field))
     .filter((v): v is number => v !== null);
+  if (measure.fn === 'sum') {
+    return values.reduce((s, v) => s + v, 0); // 空 → 0（加法單位）
+  }
   if (values.length === 0) {
-    return 0;
+    return null; // avg/min/max/median 空組 → null（不假造 0）
   }
   switch (measure.fn) {
-    case 'sum':
-      return values.reduce((s, v) => s + v, 0);
     case 'avg':
       return values.reduce((s, v) => s + v, 0) / values.length;
     case 'min':
-      return Math.min(...values);
+      return values.reduce((m, v) => (v < m ? v : m), values[0]); // reduce（避免 spread 大陣列 RangeError）
     case 'max':
-      return Math.max(...values);
+      return values.reduce((m, v) => (v > m ? v : m), values[0]);
     default:
       return median(values);
   }
@@ -200,17 +204,33 @@ export function aggregate(
     measures: Object.fromEntries(spec.measures.map((m) => [m.as, computeMeasure(groupUnits, m)])),
   }));
 
-  // 4. sort（by measure 或 dimension key）。
+  // 4. sort（by measure 或 dimension key；null measure 墊底；composite key 為 stable tie-break）。
   if (spec.sort) {
     const { by, dir } = spec.sort;
     const factor = dir === 'asc' ? 1 : -1;
+    // measure 值（null → -Infinity 墊底）或 dimension key 值。
+    const valueOf = (g: AggregateGroup): number | string =>
+      by in g.measures ? (g.measures[by] ?? Number.NEGATIVE_INFINITY) : (g.key[by] ?? '');
+    const keyOf = (g: AggregateGroup): string =>
+      JSON.stringify(spec.dimensions.map((d) => g.key[d.as]));
     groups = [...groups].sort((a, b) => {
-      const av = a.measures[by] ?? a.key[by];
-      const bv = b.measures[by] ?? b.key[by];
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return (av - bv) * factor;
+      const av = valueOf(a);
+      const bv = valueOf(b);
+      let primary: number;
+      if (av === bv) {
+        primary = 0;
+      } else if (typeof av === 'number' && typeof bv === 'number') {
+        primary = (av - bv) * factor; // -Inf vs 有限值 → ±Inf（非 NaN，因已排除相等）
+      } else {
+        primary = String(av) < String(bv) ? -factor : factor;
       }
-      return String(av) < String(bv) ? -factor : String(av) > String(bv) ? factor : 0;
+      if (primary !== 0) {
+        return primary;
+      }
+      // stable tie-break：composite dimension key asc → top-N 截斷與輸入序無關（NFR-7 韌性）。
+      const ak = keyOf(a);
+      const bk = keyOf(b);
+      return ak < bk ? -1 : ak > bk ? 1 : 0;
     });
   }
 
