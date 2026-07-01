@@ -106,6 +106,35 @@ describe('QueryViewService (T5.5 / FR-14 / TC-36)', () => {
     ).toHaveProperty('sort');
   });
 
+  it('throws 400 for a multi-key sort (read layer is single-key, M5-R2)', () => {
+    // 契約一致：view 只套 sort[0] + nt tie-break，故拒絕 >1 鍵（不可靜默丟棄次要鍵）。
+    expect(
+      fieldsOf(() =>
+        service.query(
+          rows,
+          {
+            view: 'keywords',
+            sort: [
+              { field: 'avgMonthlySearches', direction: 'desc' },
+              { field: 'cpcLow', direction: 'asc' },
+            ],
+          },
+          LIMITS,
+        ),
+      ),
+    ).toHaveProperty('sort');
+  });
+
+  it('accepts a single-key sort', () => {
+    expect(() =>
+      service.query(
+        rows,
+        { view: 'keywords', sort: [{ field: 'avgMonthlySearches', direction: 'desc' }] },
+        LIMITS,
+      ),
+    ).not.toThrow();
+  });
+
   it('throws 400 when pageSize exceeds the configured max', () => {
     expect(
       fieldsOf(() =>

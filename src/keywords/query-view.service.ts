@@ -46,6 +46,10 @@ export class QueryViewService {
     if (badSort.length > 0) {
       this.fail({ sort: [`not sortable in '${view.name}': ${badSort.join(', ')}`] });
     }
+    // 讀取層為**單鍵排序** + normalizedText tie-break（§9.1）；拒絕多鍵，避免靜默丟棄次要鍵（M5-R2）。
+    if ((request.sort?.length ?? 0) > 1) {
+      this.fail({ sort: ['only a single sort key is supported'] });
+    }
 
     // 分頁上限。
     const pageSize = request.pagination?.pageSize;
