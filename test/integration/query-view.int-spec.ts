@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotReadyException } from 'src/keywords/not-ready.exception';
 import { ConfigModule } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
 import type { Prisma } from '@prisma/client';
@@ -154,10 +155,25 @@ describe('query-view integration (T5.5 / TC-36 / FR-14 · Testcontainers)', () =
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('returns an empty result for an unknown analysis id (no snapshot)', async () => {
-    const res = (await service.query(randomUUID(), { view: 'keywords' })) as TableViewResult;
-    expect(res.rows).toEqual([]);
-    expect(res.pagination.total).toBe(0);
+  it('throws 404 for an unknown analysis id (AC-6.5)', async () => {
+    await expect(service.query(randomUUID(), { view: 'keywords' })).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('throws 409 NOT_READY for a running analysis with no snapshot yet (AC-6.4)', async () => {
+    const id = randomUUID();
+    await prisma.keywordAnalysis.create({
+      data: {
+        id,
+        status: 'running',
+        seeds: [],
+        params: {},
+        progress: {},
+        idempotencyKey: `idem-${id}`,
+      },
+    });
+    await expect(service.query(id, { view: 'keywords' })).rejects.toBeInstanceOf(NotReadyException);
   });
 
   it('round-trips null metrics through jsonb (缺值≠0) and skips them in the histogram', async () => {
