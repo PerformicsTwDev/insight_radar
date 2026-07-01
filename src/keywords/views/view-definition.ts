@@ -20,7 +20,7 @@ export interface QueryPagination {
   cursor?: string;
 }
 
-/** 已驗證的查詢請求（白名單/型別驗證由 QueryViewService 於 build 前完成）。 */
+/** 查詢請求：**白名單/上限**由 QueryViewService 於 build 前把關；**型別**由 `POST /query` controller DTO 驗證。 */
 export interface QueryRequest {
   view: string;
   select?: string[];
