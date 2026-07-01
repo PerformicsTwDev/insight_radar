@@ -90,3 +90,21 @@ model SnapshotRow {
   @@index([analysisId])
   @@map("snapshot_rows")
 }
+
+// keyword_embeddings（T8.1，Design §5.2，FR-16/NFR-13）：pgvector `embedding` 欄以 `Unsupported` 宣告
+// （Prisma 不支援 vector 型別）；`CREATE EXTENSION vector` 與 HNSW `halfvec_cosine_ops` 索引走**手寫 migration**。
+// gemini-embedding-001 原生 3072 已為單位長度 → 存 `halfvec(3072)` 免手動 normalize（halfvec ANN 上限 4000 ⊇ 3072）。
+model KeywordEmbedding {
+  normalizedText String                       @map("normalized_text")
+  geo            String
+  language       String
+  model          String // gemini-embedding-001
+  taskType       String                       @map("task_type") // CLUSTERING
+  dim            Int // 3072（gemini 全維；= GEMINI_EMBEDDING_DIM）
+  inputHash      String                       @map("input_hash") // 含是否帶 SERP（TC-39）
+  embedding      Unsupported("halfvec(3072)") // 原生 3072 已 normalize（免手動）
+  createdAt      DateTime                     @default(now()) @map("created_at") @db.Timestamptz
+
+  @@id([geo, language, normalizedText, model, taskType, dim])
+  @@map("keyword_embeddings")
+}
