@@ -126,4 +126,5 @@ export const validationSchema = Joi.object({
   TOPIC_SCHEMA_VERSION: Joi.string()
     .pattern(/^v\d+$/)
     .default('v1'),
+  TOPICS_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3), // topics BullMQ worker 並發
 });
