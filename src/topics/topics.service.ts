@@ -77,7 +77,9 @@ export class TopicsService {
       ...(dto.topK !== undefined ? { topK: dto.topK } : {}),
     };
     const { geo, language } = analysis.params as unknown as { geo: string; language: string };
+    // M8-R7：key 綁 analysisId（+ checksum + params）→ 內容位元相同的不同分析不再撞同一 run（→ 永久 404）。
     const idempotencyKey = computeTopicIdempotencyKey(
+      analysisId,
       analysis.resultSnapshot.checksum,
       params as unknown as Record<string, unknown>,
     );
