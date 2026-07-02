@@ -178,3 +178,30 @@ model KeywordClusterAssignment {
   @@id([runId, normalizedText])
   @@map("keyword_cluster_assignments")
 }
+
+// —— Phase 2 RESERVED（T8.11，Design §16.4；本期僅建表、無 service/邏輯/controller）——
+// topic_taxonomy：主題階層樹（FR-20/21 人工整併/鎖定）。self-FK（parent_id → id）。
+model TopicTaxonomy {
+  id        String          @id @default(uuid()) @db.Uuid
+  parentId  String?         @map("parent_id") @db.Uuid
+  parent    TopicTaxonomy?  @relation("TopicTaxonomyTree", fields: [parentId], references: [id])
+  children  TopicTaxonomy[] @relation("TopicTaxonomyTree")
+  level     Int
+  status    String // active|locked|noise
+  topicName String          @map("topic_name")
+
+  @@index([parentId])
+  @@map("topic_taxonomy")
+}
+
+// topic_audit_logs：人工校正稽核（FR-19 rename/merge/split/move/lock/mark_noise）。
+model TopicAuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  action    String // rename|merge|split|move|lock|mark_noise
+  actor     String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("topic_audit_logs")
+}
