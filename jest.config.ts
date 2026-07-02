@@ -48,13 +48,21 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   // 不把 @Injectable + class-typed 參數 emitDecoratorMetadata 產生的不可測 undefined-guard 分支當 core 門檻。
   './src/**/intent-postprocess*.ts': coreThreshold, // intent 後處理（TC-7）
   './src/**/intent.service.ts': coreThreshold, // 韌性/length 拆批（T2.5）+ cache-first 編排（T4.2）
-  // embeddings core = **邏輯**：輸入組裝（TC-39）、L2 normalize、Gemini adapter 的 batch/backoff/normalize/
-  // dim-guard（TC-40）。`embedding.repository`（raw-SQL DB adapter）、`embeddings.module`/`gemini-embed.factory`
-  // （DI wiring/factory）走 global 85%——與 snapshot-query / IntentCache / MetricsCache adapter 一致（不把
-  // @Injectable + class-typed 參數 emitDecoratorMetadata 的不可測 undefined-guard 分支當 core 門檻）。
+  // embeddings core = **純邏輯**：輸入組裝（TC-39）、L2 normalize、Gemini adapter 的 batch/backoff/normalize/
+  // dim-guard（TC-40）、cache-first 命中/未命中切分 + 回填對齊（TC-50；off-by-one 即 embedding↔keyword 全表錯位）。
+  // ── M8-R9 分類（file-level，對比 intent 前例）──────────────────────────────────────────────────
+  // `embedding.service`（cache-first DI 編排 shell）與 `embedding-cache`（Redis mget/mset adapter）走 global 85%：
+  // 其 method-body 分支已 100% 覆蓋，唯一未覆蓋者＝ @Injectable + class-typed 建構子參數經 emitDecoratorMetadata
+  // 產生的 `typeof X==='undefined'?Object:X` 不可測 DI-guard cond-expr（各 2 條、僅佔 13/10 條總分支→結構上無法
+  // 達 90%）。對比 `intent.service`（core）：它靠 T2.5 韌性/拆批的 28 條真實分支稀釋掉 1 條同類 phantom（96.6%）
+  // 而達標；embeddings 的等價 cache-first **真實邏輯**已抽成純函式 `cache-first.ts` 掛 core-90%，故編排/快取 shell
+  // 與 IntentCache / MetricsCache / snapshot-query adapter 一致走 global 85%（`embedding.repository` raw-SQL、
+  // `embeddings.module`/`gemini-embed.factory` DI wiring 亦同）。註：`embedding.service.ts` 於全 git 史從未列入
+  // coreThresholds（無門檻曾被調低；#291「narrowed」前提不成立）。
   './src/embeddings/build-embedding-input.ts': coreThreshold,
   './src/embeddings/l2-normalize.ts': coreThreshold,
   './src/embeddings/gemini-embedding.service.ts': coreThreshold,
+  './src/embeddings/cache-first.ts': coreThreshold,
   // topics core = **純邏輯**：代表字萃取（TC-43）+ 群命名後處理（TC-44 對齊/清洗/fallback）。
   // service/module 等 DI adapter 另走 global 85%。
   './src/topics/representatives.ts': coreThreshold,
