@@ -1,0 +1,142 @@
+import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
+import type { Queue } from 'bullmq';
+import type { embeddingsConfig } from '../config/embeddings.config';
+import type { queueConfig } from '../config/queue.config';
+import type { topicsConfig } from '../config/topics.config';
+import type { PrismaService } from '../prisma';
+import type { CreateTopicRunResult, TopicRepository } from './topic.repository';
+import { TopicsService } from './topics.service';
+
+interface Deps {
+  add: jest.Mock;
+  findUnique: jest.Mock;
+  deleteRun: jest.Mock;
+  createRun: jest.Mock<Promise<CreateTopicRunResult>, [unknown]>;
+}
+
+function makeService(): { service: TopicsService; deps: Deps } {
+  const deps: Deps = {
+    add: jest.fn().mockResolvedValue(undefined),
+    findUnique: jest.fn(),
+    deleteRun: jest.fn().mockResolvedValue(undefined),
+    createRun: jest.fn<Promise<CreateTopicRunResult>, [unknown]>(),
+  };
+  const queue = { add: deps.add } as unknown as Queue;
+  const prisma = {
+    keywordAnalysis: { findUnique: deps.findUnique },
+    topicRun: { delete: deps.deleteRun },
+  } as unknown as PrismaService;
+  const repo = { createRun: deps.createRun } as unknown as TopicRepository;
+  const topics = { promptVersion: 'v1', schemaVersion: 'v1' } as ConfigType<typeof topicsConfig>;
+  const embeddings = {
+    model: 'gemini-embedding-001',
+    schemaVersion: 'v1',
+  } as ConfigType<typeof embeddingsConfig>;
+  const queueCfg = {
+    jobAttempts: 5,
+    jobBackoffMs: 3000,
+    jobBackoffJitter: 0.2,
+  } as ConfigType<typeof queueConfig>;
+  const service = new TopicsService(queue, prisma, repo, topics, embeddings, queueCfg);
+  return { service, deps };
+}
+
+function analysis(status: string, hasSnapshot = status === 'completed' || status === 'partial') {
+  return {
+    id: 'a-1',
+    status,
+    params: { geo: 'US', language: 'en' },
+    resultSnapshot: hasSnapshot ? { id: 'snap-1', checksum: 'chk', keywordCount: 3 } : null,
+  };
+}
+
+async function statusOf(promise: Promise<unknown>): Promise<number> {
+  const error = (await promise.catch((e: unknown) => e)) as HttpException;
+  return error.getStatus();
+}
+
+describe('TopicsService.create (T8.10 / TC-48)', () => {
+  it('404 when the analysis does not exist', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(null);
+
+    await expect(service.create('missing', {})).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('425 Too Early when the analysis is still queued/running', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('running'));
+
+    expect(await statusOf(service.create('a-1', {}))).toBe(425); // Too Early
+    expect(deps.createRun).not.toHaveBeenCalled();
+  });
+
+  it('409 Conflict when the analysis failed/canceled (no usable snapshot)', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('failed'));
+
+    await expect(service.create('a-1', {})).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('enqueues and returns topicJobId for a completed analysis (202 path)', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('completed'));
+    deps.createRun.mockResolvedValue({ runId: 'run-1', created: true });
+
+    const result = await service.create('a-1', { serpEnabled: true, topK: 15 });
+
+    expect(result).toEqual({ topicJobId: 'run-1' });
+    // createRun 帶 idempotencyKey + params（含版本 + serpEnabled + topK）。
+    const createArg = deps.createRun.mock.calls[0][0] as {
+      idempotencyKey: string;
+      params: Record<string, unknown>;
+    };
+    expect(createArg.idempotencyKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(createArg.params).toMatchObject({ serpEnabled: true, topK: 15, promptVersion: 'v1' });
+    // 入列：jobId=runId、payload 帶 geo/language。
+    expect(deps.add).toHaveBeenCalledTimes(1);
+    const [, payload, opts] = deps.add.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+      { jobId: string },
+    ];
+    expect(opts.jobId).toBe('run-1');
+    expect(payload).toMatchObject({
+      runId: 'run-1',
+      analysisId: 'a-1',
+      snapshotId: 'snap-1',
+      geo: 'US',
+      language: 'en',
+    });
+  });
+
+  it('does not re-enqueue on idempotency hit (created=false)', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('completed'));
+    deps.createRun.mockResolvedValue({ runId: 'run-existing', created: false });
+
+    const result = await service.create('a-1', {});
+
+    expect(result).toEqual({ topicJobId: 'run-existing' });
+    expect(deps.add).not.toHaveBeenCalled(); // 命中既有 → 不重複入列
+  });
+
+  it('accepts a partial-snapshot analysis as ready', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('partial'));
+    deps.createRun.mockResolvedValue({ runId: 'run-2', created: true });
+
+    await expect(service.create('a-1', {})).resolves.toEqual({ topicJobId: 'run-2' });
+  });
+
+  it('compensates by deleting the run when enqueue fails', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('completed'));
+    deps.createRun.mockResolvedValue({ runId: 'run-3', created: true });
+    deps.add.mockRejectedValue(new Error('redis down'));
+
+    await expect(service.create('a-1', {})).rejects.toThrow('redis down');
+    expect(deps.deleteRun).toHaveBeenCalledWith({ where: { id: 'run-3' } });
+  });
+});

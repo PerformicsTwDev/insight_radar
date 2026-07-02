@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import type { ConfigType } from '@nestjs/config';
 import { azureConfig } from '../config/azure.config';
+import { embeddingsConfig } from '../config/embeddings.config';
+import { queueConfig } from '../config/queue.config';
 import { topicsConfig } from '../config/topics.config';
 import { ClusteringModule } from '../clustering/clustering.module';
 import { EmbeddingsModule } from '../embeddings/embeddings.module';
@@ -13,6 +15,8 @@ import { SerpModule } from '../serp/serp.module';
 import { TopicClusterProcessor } from './topic-cluster.processor';
 import { TopicNamingService, TOPIC_NAMING_CONFIG } from './topic-naming.service';
 import { TopicRepository } from './topic.repository';
+import { TopicsController } from './topics.controller';
+import { TopicsService } from './topics.service';
 
 /**
  * 主題模組（T8.7 起 + T8.9 processor）。註冊 `topics` BullMQ queue（`@nestjs/bullmq`）+ {@link TopicClusterProcessor}
@@ -30,11 +34,15 @@ import { TopicRepository } from './topic.repository';
     IntentModule,
     ConfigModule.forFeature(topicsConfig),
     ConfigModule.forFeature(azureConfig),
+    ConfigModule.forFeature(embeddingsConfig),
+    ConfigModule.forFeature(queueConfig),
   ],
+  controllers: [TopicsController],
   providers: [
     TopicNamingService,
     TopicRepository,
     TopicClusterProcessor,
+    TopicsService,
     {
       provide: TOPIC_NAMING_CONFIG,
       useFactory: (

@@ -9,6 +9,7 @@ import { AppModule } from 'src/app.module';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
+import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { PrismaService } from 'src/prisma';
 
 const API_KEY = 'test-api-key'; // matches .env.test
@@ -52,6 +53,8 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       // Stub the processor so its WorkerHost doesn't spin up a real BullMQ Worker
       // (this is an HTTP-layer e2e; worker behavior is covered by the processor unit test).
       .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .overrideProvider(TopicClusterProcessor)
       .useValue({})
       .compile();
 

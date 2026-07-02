@@ -8,6 +8,7 @@ import { KeywordsModule } from './keywords/keywords.module';
 import { LoggerModule } from './logger';
 import { ObservabilityModule } from './observability/observability.module';
 import { PrismaModule } from './prisma';
+import { TopicsModule } from './topics/topics.module';
 import { configNamespaces, validationSchema } from './config';
 
 /**
@@ -34,6 +35,7 @@ import { configNamespaces, validationSchema } from './config';
     HealthModule,
     KeywordAnalysisModule,
     KeywordsModule,
+    TopicsModule,
   ],
 })
 export class AppModule {}

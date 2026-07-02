@@ -4,6 +4,7 @@ import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { CacheService } from 'src/cache/cache.service';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
+import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import { BULL_CONNECTION } from 'src/queue/queue.constants';
 
@@ -43,6 +44,8 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
       // 以驗證「drain 早於連線 quit」的 lifecycle 序（真 processor 於此 hook 內 await worker.close，見單元測）。
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({ onModuleDestroy: workerDrain })
+      .overrideProvider(TopicClusterProcessor)
+      .useValue({})
       .compile();
 
     const app = moduleRef.createNestApplication();
