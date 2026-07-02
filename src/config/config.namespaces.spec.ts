@@ -2,6 +2,7 @@ import { appConfig } from './app.config';
 import { azureConfig } from './azure.config';
 import { cacheConfig } from './cache.config';
 import { embeddingsConfig } from './embeddings.config';
+import { serpConfig } from './serp.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
 import { queryConfig } from './query.config';
@@ -55,6 +56,12 @@ const ENV: Record<string, string> = {
   GEMINI_EMBEDDING_BACKOFF_BASE_MS: '500',
   EMBEDDING_SCHEMA_VERSION: 'v1',
   CACHE_TTL_EMBEDDING_MS: '5184000000',
+  SERP_ENABLED: 'true',
+  SERP_PROVIDER: 'serpapi',
+  SERP_API_KEY: 'serpkey',
+  SERP_API_URL: 'https://serpapi.com/search',
+  SERP_TOP_N: '5',
+  SERP_FRESHNESS_DAYS: '30',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -141,6 +148,18 @@ describe('config namespaces (registerAs, typed)', () => {
       backoffBaseMs: 500,
       schemaVersion: 'v1',
       cacheTtlMs: 5184000000,
+    });
+  });
+
+  it('serpConfig maps SERP env; enabled coerced from string, retentionDays undefined when unset (M8)', () => {
+    expect(serpConfig()).toEqual({
+      enabled: true,
+      provider: 'serpapi',
+      apiKey: 'serpkey',
+      apiUrl: 'https://serpapi.com/search',
+      topN: 5,
+      freshnessDays: 30,
+      retentionDays: undefined, // 未設＝保留全部
     });
   });
 
