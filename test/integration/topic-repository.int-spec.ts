@@ -133,4 +133,59 @@ describe('TopicRepository (integration · Testcontainers, TC-45)', () => {
     const intentCount = await prisma.keywordIntent.count();
     expect(intentCount).toBe(0);
   });
+
+  describe('run lifecycle (T8.9a / TC-46)', () => {
+    const runInput = (idempotencyKey: string) => ({
+      keywordAnalysisId: randomUUID(),
+      snapshotId: randomUUID(),
+      idempotencyKey,
+      params: { serpEnabled: false, promptVersion: 'v1' },
+    });
+
+    it('createRun inserts a queued run and returns created=true', async () => {
+      const { runId, created } = await repo.createRun(runInput('key-1'));
+
+      expect(created).toBe(true);
+      const row = await prisma.topicRun.findUniqueOrThrow({ where: { id: runId } });
+      expect(row.status).toBe('queued');
+      expect(row.idempotencyKey).toBe('key-1');
+    });
+
+    it('createRun is idempotent: same key returns the existing run (created=false)', async () => {
+      const first = await repo.createRun(runInput('key-2'));
+      const second = await repo.createRun(runInput('key-2'));
+
+      expect(second).toEqual({ runId: first.runId, created: false });
+      expect(await prisma.topicRun.count({ where: { idempotencyKey: 'key-2' } })).toBe(1);
+    });
+
+    it('findByIdempotencyKey returns id+status or null', async () => {
+      const { runId } = await repo.createRun(runInput('key-3'));
+
+      expect(await repo.findByIdempotencyKey('key-3')).toEqual({ id: runId, status: 'queued' });
+      expect(await repo.findByIdempotencyKey('missing')).toBeNull();
+    });
+
+    it('markStatus updates status + outcome; undefined fields are left untouched', async () => {
+      const { runId } = await repo.createRun(runInput('key-4'));
+
+      await repo.markStatus(runId, 'running');
+      await repo.markStatus(runId, 'partial', { clusterCount: 3, noiseCount: 5 });
+
+      const row = await prisma.topicRun.findUniqueOrThrow({ where: { id: runId } });
+      expect(row.status).toBe('partial');
+      expect(row.clusterCount).toBe(3);
+      expect(row.noiseCount).toBe(5);
+      expect(row.error).toBeNull(); // 未提供 → 不覆寫
+    });
+
+    it('updateProgress persists the progress json', async () => {
+      const { runId } = await repo.createRun(runInput('key-5'));
+
+      await repo.updateProgress(runId, { phase: 'embed', percent: 40 });
+
+      const row = await prisma.topicRun.findUniqueOrThrow({ where: { id: runId } });
+      expect(row.progress).toEqual({ phase: 'embed', percent: 40 });
+    });
+  });
 });

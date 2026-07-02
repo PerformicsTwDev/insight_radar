@@ -1,19 +1,110 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma';
 import type { KeywordAssignment, TopicClusterRecord } from './assemble-assignments';
+import type { TopicRunStatus } from './topic-run.types';
+
+/** 建立 TopicRun 的輸入（params/progress 為已序列化 Json）。 */
+export interface CreateTopicRunInput {
+  keywordAnalysisId: string;
+  snapshotId: string;
+  idempotencyKey: string;
+  params: Prisma.InputJsonValue;
+  progress?: Prisma.InputJsonValue;
+}
+
+/** createRun 結果：`created=false` 代表 idempotency 命中既有 run（不重跑）。 */
+export interface CreateTopicRunResult {
+  runId: string;
+  created: boolean;
+}
+
+/** markStatus 的可選終態欄位（僅提供者更新；undefined 由 Prisma 略過、不覆寫）。 */
+export interface TopicRunOutcome {
+  clusterCount?: number;
+  noiseCount?: number;
+  error?: string | null;
+}
 
 /**
- * 主題分群持久層（T8.8，FR-18；Design §16.4）：把每群命名 + 每字群指派寫入 `topic_clusters` /
- * `keyword_cluster_assignments`（標準型別 → typed `prisma.<model>`）。一個 transaction 內先寫 clusters
- * （產 id、建 label→id 映射）再寫 assignments（clusterId 由 label 解析、noise→null）。
+ * 主題分群持久層（T8.8/T8.9，FR-15/18；Design §16.4）：TopicRun 生命週期（create/idempotency/status/progress）
+ * + 把每群命名 + 每字群指派寫入 `topic_clusters` / `keyword_cluster_assignments`（標準型別 → typed
+ * `prisma.<model>`）。persist 於一個 transaction 內先寫 clusters（產 id、建 label→id 映射）再寫 assignments。
  *
  * **絕不觸碰 FR-4 `keyword_intents`**（群層 intent 與每字 multi-label 分表互補、不覆寫；Design §16.1 註）。
  */
 @Injectable()
 export class TopicRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 建立分群 run（狀態 queued）。idempotency：`idempotencyKey` 命中既有 → 回既有 runId（`created=false`），
+   * 不重複建立。並發同 key（都未先查到）以 DB `@unique` 為最終仲裁（P2002 → 回既有）。
+   */
+  async createRun(input: CreateTopicRunInput): Promise<CreateTopicRunResult> {
+    const existing = await this.prisma.topicRun.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (existing) {
+      return { runId: existing.id, created: false };
+    }
+    try {
+      const run = await this.prisma.topicRun.create({
+        data: {
+          keywordAnalysisId: input.keywordAnalysisId,
+          snapshotId: input.snapshotId,
+          status: 'queued',
+          params: input.params,
+          progress: input.progress ?? {},
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+      return { runId: run.id, created: true };
+    } catch (error) {
+      // 並發相同 key → unique violation（P2002）→ 回既有（NFR-8 並發下仍 idempotent）。
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const row = await this.prisma.topicRun.findUniqueOrThrow({
+          where: { idempotencyKey: input.idempotencyKey },
+        });
+        return { runId: row.id, created: false };
+      }
+      throw error;
+    }
+  }
+
+  /** 取某 idempotencyKey 的 run（無則 null）。 */
+  async findByIdempotencyKey(
+    idempotencyKey: string,
+  ): Promise<{ id: string; status: string } | null> {
+    const row = await this.prisma.topicRun.findUnique({
+      where: { idempotencyKey },
+      select: { id: true, status: true },
+    });
+    return row;
+  }
+
+  /** 更新狀態（+ 選配 clusterCount/noiseCount/error）。undefined 欄位 Prisma 略過、不覆寫既有值。 */
+  async markStatus(
+    runId: string,
+    status: TopicRunStatus,
+    outcome: TopicRunOutcome = {},
+  ): Promise<void> {
+    await this.prisma.topicRun.update({
+      where: { id: runId },
+      data: {
+        status,
+        clusterCount: outcome.clusterCount,
+        noiseCount: outcome.noiseCount,
+        error: outcome.error,
+      },
+    });
+  }
+
+  /** 更新進度（SSE / GET 回報）。 */
+  async updateProgress(runId: string, progress: Prisma.InputJsonValue): Promise<void> {
+    await this.prisma.topicRun.update({ where: { id: runId }, data: { progress } });
+  }
 
   /** 寫入某 run 的所有群 + 每字指派（transaction 原子）。clusters 先寫以供 assignments 解析 clusterId。 */
   async persist(

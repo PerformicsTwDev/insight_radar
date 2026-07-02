@@ -60,6 +60,7 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   './src/topics/representatives.ts': coreThreshold,
   './src/topics/topic-naming.postprocess.ts': coreThreshold,
   './src/topics/assemble-assignments.ts': coreThreshold,
+  './src/topics/topic-idempotency.ts': coreThreshold,
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
 // 讓門檻集中定義於此、並在對應 core 目錄一建立就「自動生效」（毋需事後回頭補設定）。
