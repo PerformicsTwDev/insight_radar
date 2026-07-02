@@ -4,6 +4,7 @@ import { cacheConfig } from './cache.config';
 import { clusteringConfig } from './clustering.config';
 import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
+import { topicsConfig } from './topics.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
 import { queryConfig } from './query.config';
@@ -69,6 +70,9 @@ const ENV: Record<string, string> = {
   CLUSTER_SERVICE_TIMEOUT_MS: '90000',
   CLUSTER_SERVICE_RETRIES: '2',
   CLUSTER_SERVICE_BACKOFF_BASE_MS: '1000',
+  TOPIC_LLM_BATCH_CLUSTERS: '20',
+  TOPIC_PROMPT_VERSION: 'v1',
+  TOPIC_SCHEMA_VERSION: 'v1',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -178,6 +182,14 @@ describe('config namespaces (registerAs, typed)', () => {
       timeoutMs: 90000,
       retries: 2,
       backoffBaseMs: 1000,
+    });
+  });
+
+  it('topicsConfig maps topic naming env (batch coerced to number; M8)', () => {
+    expect(topicsConfig()).toEqual({
+      llmBatchClusters: 20,
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
     });
   });
 

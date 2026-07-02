@@ -12,6 +12,7 @@ export * from './query.config';
 export * from './embeddings.config';
 export * from './serp.config';
 export * from './clustering.config';
+export * from './topics.config';
 
 import { appConfig } from './app.config';
 import { googleAdsConfig } from './google-ads.config';
@@ -24,6 +25,7 @@ import { queryConfig } from './query.config';
 import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
 import { clusteringConfig } from './clustering.config';
+import { topicsConfig } from './topics.config';
 
 /** 供 `ConfigModule.forRoot({ load: configNamespaces })` 一次掛載所有 namespace。 */
 export const configNamespaces = [
@@ -38,4 +40,5 @@ export const configNamespaces = [
   embeddingsConfig,
   serpConfig,
   clusteringConfig,
+  topicsConfig,
 ];
