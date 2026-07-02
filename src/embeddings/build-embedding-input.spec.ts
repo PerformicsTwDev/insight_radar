@@ -39,16 +39,31 @@ describe('buildEmbeddingInput (T8.2 / TC-39)', () => {
     expect(out.text).toBe('running shoes');
   });
 
-  it('truncates the assembled input to the token cap (~2048)', () => {
-    const bigSnippet = Array.from({ length: 5000 }, (_, i) => `w${i}`).join(' ');
+  it('bounds a long latin input to the estimated token cap (~2048, ~4 chars/token)', () => {
+    const bigSnippet = Array.from({ length: 20000 }, (_, i) => `w${i}`).join(' ');
     const out = buildEmbeddingInput(
       'coffee',
       { organic: [{ title: 't', snippet: bigSnippet }] },
       OPTS,
     );
 
-    const tokenCount = out.text.split(/\s+/).filter(Boolean).length;
-    expect(tokenCount).toBe(MAX_EMBEDDING_TOKENS);
+    // 拉丁 ≈ 0.25 token/字 → 2048 tokens ≈ ~8192 字元；截斷後遠短於原文，且長度有界。
+    expect(out.text.length).toBeLessThanOrEqual(MAX_EMBEDDING_TOKENS * 4 + 1);
+    expect(out.text.length).toBeGreaterThan(1000); // 有實際內容（非空/未過度截斷）
+  });
+
+  it('truncates long CJK text — the whitespace-word approximation would never fire (M8-R1)', () => {
+    // 中文無空白：舊 word 數近似把整段當 ~1 word → 永不截斷 → 爆 Gemini 2048 token 上限。新估以字元估 token。
+    const longChinese = '關鍵字分析'.repeat(2000); // 10000 個 CJK 字 ≈ 10000 est tokens
+    const out = buildEmbeddingInput(
+      'coffee',
+      { organic: [{ title: '標題', snippet: longChinese }] },
+      OPTS,
+    );
+
+    // CJK ≈ 1 token/字 → 截到 ~2048 字元（含前綴 keyword/標題）。必須遠短於原 10000+ 字。
+    expect(out.text.length).toBeLessThanOrEqual(MAX_EMBEDDING_TOKENS + 50);
+    expect(out.text).toContain('關鍵字'); // 前段內容保留
   });
 
   it('respects an explicit topN, dropping later organic results', () => {

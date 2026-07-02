@@ -171,6 +171,37 @@ describe('GeminiEmbeddingService (T8.2b / TC-40)', () => {
     }
   });
 
+  // M8-R1：長時間 ~1 QPS 批次呼叫最常見的暫時失敗是傳輸層（連線重置/逾時），非乾淨 5xx——須可重試。
+  it.each([
+    [
+      'ECONNRESET (node system code)',
+      Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+    ],
+    ['ETIMEDOUT', Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })],
+    [
+      'AbortError (httpOptions timeout)',
+      Object.assign(new Error('aborted'), { name: 'AbortError' }),
+    ],
+    ['undici fetch failed', new Error('fetch failed')],
+  ])('retries a transport transient (%s) then succeeds', async (_label, transientError) => {
+    jest.useFakeTimers();
+    try {
+      const { client, calls } = fakeClient((_p, i) =>
+        i === 0 ? transientError : response([vec(1, 3072)]),
+      );
+      const service = new GeminiEmbeddingService(client, CONFIG);
+
+      const promise = service.embed(['coffee']);
+      await jest.advanceTimersByTimeAsync(500);
+      const out = await promise;
+
+      expect(calls).toHaveLength(2); // 傳輸層暫時錯一次 + 成功一次
+      expect(out).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('throws when the response has no embeddings array (wire-shape guard)', async () => {
     const { client } = fakeClient(() => ({})); // 缺 embeddings
     const service = new GeminiEmbeddingService(client, CONFIG);
