@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { embeddingsConfig } from '../config/embeddings.config';
 import { buildEmbeddingInput } from './build-embedding-input';
+import { mergeCacheFirst, partitionCacheMisses } from './cache-first';
 import { EmbeddingCache } from './embedding-cache';
 import { EmbeddingRepository, type EmbeddingRecord } from './embedding.repository';
 import { EMBEDDING_PROVIDER, type EmbeddingProvider } from './embedding-provider.port';
@@ -40,15 +41,11 @@ export class EmbeddingService {
 
     const cached = await this.cache.mget(inputs.map((input) => input.inputHash));
 
-    // 只對 miss 收集要送 Gemini 的文字（保留原索引以回填）。
-    const missIndexes: number[] = [];
-    const missTexts: string[] = [];
-    cached.forEach((vector, index) => {
-      if (!vector) {
-        missIndexes.push(index);
-        missTexts.push(inputs[index].text);
-      }
-    });
+    // 只對 miss 收集要送 Gemini 的文字（保留原索引以回填）——純核心 {@link partitionCacheMisses}。
+    const { missIndexes, missTexts } = partitionCacheMisses(
+      cached,
+      inputs.map((input) => input.text),
+    );
 
     let missVectors: number[][] = [];
     if (missTexts.length > 0) {
@@ -73,8 +70,7 @@ export class EmbeddingService {
       );
     }
 
-    // 組裝：命中用快取值，miss 用剛取得的向量（依 missIndexes 順序回填）。
-    let missCursor = 0;
-    return cached.map((vector) => vector ?? missVectors[missCursor++]);
+    // 組裝：命中用快取值，miss 用剛取得的向量（依 missIndexes 順序回填）——純核心 {@link mergeCacheFirst}。
+    return mergeCacheFirst(cached, missVectors);
   }
 }
