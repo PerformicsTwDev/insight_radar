@@ -18,6 +18,7 @@ const validEnv: Record<string, string> = {
   GEMINI_API_KEY: 'test-gemini-key',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+  CLUSTER_SERVICE_URL: 'http://localhost:8000',
 };
 
 describe('env validation schema (TC-19 fail-fast)', () => {
@@ -26,16 +27,19 @@ describe('env validation schema (TC-19 fail-fast)', () => {
     expect(error).toBeUndefined();
   });
 
-  it.each(['API_KEY', 'GOOGLE_ADS_DEVELOPER_TOKEN', 'AZURE_OPENAI_ENDPOINT', 'DATABASE_URL'])(
-    'rejects when required %s is missing',
-    (key) => {
-      const env: Record<string, string> = { ...validEnv };
-      delete env[key];
-      const { error } = validationSchema.validate(env, { abortEarly: false });
-      expect(error).toBeDefined();
-      expect(error?.message).toContain(key);
-    },
-  );
+  it.each([
+    'API_KEY',
+    'GOOGLE_ADS_DEVELOPER_TOKEN',
+    'AZURE_OPENAI_ENDPOINT',
+    'DATABASE_URL',
+    'CLUSTER_SERVICE_URL',
+  ])('rejects when required %s is missing', (key) => {
+    const env: Record<string, string> = { ...validEnv };
+    delete env[key];
+    const { error } = validationSchema.validate(env, { abortEarly: false });
+    expect(error).toBeDefined();
+    expect(error?.message).toContain(key);
+  });
 
   it('rejects AZURE_OPENAI_API_VERSION outside the allowlist (allowlist, not lexical >=)', () => {
     const { error } = validationSchema.validate(
@@ -99,6 +103,24 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       );
       expect(error).toBeDefined();
       expect(error?.message).toContain('SERP_API_KEY');
+    });
+
+    it('requires CLUSTER_SERVICE_URL and defaults the cluster-service tunables (M8)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv);
+      expect(error).toBeUndefined();
+      expect(value.CLUSTER_SERVICE_TIMEOUT_MS).toBe(90000);
+      expect(value.CLUSTER_SERVICE_RETRIES).toBe(2);
+      expect(value.CLUSTER_SERVICE_BACKOFF_BASE_MS).toBe(1000);
+    });
+
+    it('rejects a non-URI CLUSTER_SERVICE_URL (fail-fast, not lexical)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, CLUSTER_SERVICE_URL: 'not-a-url' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('CLUSTER_SERVICE_URL');
     });
 
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
