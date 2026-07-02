@@ -55,9 +55,10 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   './src/embeddings/build-embedding-input.ts': coreThreshold,
   './src/embeddings/l2-normalize.ts': coreThreshold,
   './src/embeddings/gemini-embedding.service.ts': coreThreshold,
-  // topics core = **純邏輯**：代表字萃取（TC-43，top-K/質心 cosine/volume/noise）。processor/module/
-  // client 等 DI adapter 另走 global 85%。
+  // topics core = **純邏輯**：代表字萃取（TC-43）+ 群命名後處理（TC-44 對齊/清洗/fallback）。
+  // service/module 等 DI adapter 另走 global 85%。
   './src/topics/representatives.ts': coreThreshold,
+  './src/topics/topic-naming.postprocess.ts': coreThreshold,
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
 // 讓門檻集中定義於此、並在對應 core 目錄一建立就「自動生效」（毋需事後回頭補設定）。

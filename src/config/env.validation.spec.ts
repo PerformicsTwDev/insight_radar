@@ -123,6 +123,24 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(error?.message).toContain('CLUSTER_SERVICE_URL');
     });
 
+    it('defaults the topic naming tunables (batch/prompt/schema versions, M8)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv);
+      expect(error).toBeUndefined();
+      expect(value.TOPIC_LLM_BATCH_CLUSTERS).toBe(20);
+      expect(value.TOPIC_PROMPT_VERSION).toBe('v1');
+      expect(value.TOPIC_SCHEMA_VERSION).toBe('v1');
+    });
+
+    it('rejects a malformed TOPIC_SCHEMA_VERSION (no `:` injection)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, TOPIC_SCHEMA_VERSION: 'v1:evil' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('TOPIC_SCHEMA_VERSION');
+    });
+
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
       const { error } = validationSchema.validate(
         { ...validEnv, GOOGLE_ADS_SEED_BATCH_SIZE: '21' },

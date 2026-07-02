@@ -116,4 +116,14 @@ export const validationSchema = Joi.object({
   CLUSTER_SERVICE_TIMEOUT_MS: Joi.number().integer().min(0).default(90000), // CPU-bound UMAP+HDBSCAN 需長 timeout
   CLUSTER_SERVICE_RETRIES: Joi.number().integer().min(0).default(2), // 逾時/5xx/傳輸層退避重試上限（達上限 → partial）
   CLUSTER_SERVICE_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(1000), // 退避起始延遲（2^(n-1)*base）
+
+  // —— Topics（M8，Design §14/§16；群命名複用 Azure LLM）——
+  TOPIC_LLM_BATCH_CLUSTERS: Joi.number().integer().min(1).default(20), // 每批送 LLM 命名的群數
+  // 命名 prompt / json_schema 版本（bump → 下游快取/紀錄失效；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
+  TOPIC_PROMPT_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
+  TOPIC_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
 });
