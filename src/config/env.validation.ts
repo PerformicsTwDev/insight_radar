@@ -81,9 +81,14 @@ export const validationSchema = Joi.object({
   // 時才失敗（fake configurability）。故 fail-fast 在**開機**即擋（`valid(3072)`）而非延到寫入。截短 768/1536
   // 為未來增強——需另開 migration 改 `vector` 型別 + 手動 normalize，屆時再放寬此 allowlist（Design §14）。
   GEMINI_EMBEDDING_DIM: Joi.number().integer().valid(3072).default(3072),
+  GEMINI_API_KEY: Joi.string().required(), // ★ redact（NFR-5）；@google/genai client 憑證
   GEMINI_EMBEDDING_MODEL: Joi.string().default('gemini-embedding-001'), // 鎖此 id
   GEMINI_EMBEDDING_TASK_TYPE: Joi.string().default('CLUSTERING'),
   GEMINI_EMBEDDING_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(100), // >500 有順序 bug
+  // 批次並發（p-limit）+ 429/5xx/傳輸層退避（Number.isFinite 由 Joi min 保證；避免 NaN → 無限迴圈，M8-R1 review）。
+  GEMINI_EMBEDDING_CONCURRENCY: Joi.number().integer().min(1).default(4),
+  GEMINI_EMBEDDING_MAX_RETRIES: Joi.number().integer().min(0).default(5),
+  GEMINI_EMBEDDING_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(500),
   // embedding 快取 namespace 版本（schema/prompt/輸入組裝變更即 bump → 整批失效；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
   EMBEDDING_SCHEMA_VERSION: Joi.string()
     .pattern(/^v\d+$/)

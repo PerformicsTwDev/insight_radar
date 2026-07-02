@@ -24,5 +24,6 @@ export function configureApp(app: INestApplication): void {
     config.get<string>('googleAds.refreshToken'),
     config.get<string>('googleAds.clientSecret'),
     config.get<string>('azure.apiKey'),
+    config.get<string>('embeddings.apiKey'),
   ]);
 }

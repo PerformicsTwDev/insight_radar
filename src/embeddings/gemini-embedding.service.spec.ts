@@ -9,6 +9,7 @@ const CONFIG: GeminiEmbedConfig = {
   batchSize: 100,
   concurrency: 2,
   maxRetries: 3,
+  backoffBaseMs: 500,
 };
 
 /** length-n 向量：第 0 位為 `head`、其餘 0（用於驗證 pass-through / normalize）。 */
