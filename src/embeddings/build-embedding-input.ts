@@ -1,16 +1,40 @@
 import { sha256Hex } from '../common/sha256';
 import type { EmbeddingInput, SerpContext } from './embedding.types';
 
-/**
- * Embedding 輸入 token 上限（Design §16 / TC-39）。⚠ 無真實 tokenizer 依賴 → 以**空白切分的 word 數**保守
- * 近似「token」（word 數通常 ≤ token 數；作為有界輸入的近似上限）。組裝文字超過即截斷，避免 Gemini 端截斷。
- */
+/** Embedding 輸入 token 上限（Design §16 / TC-39；gemini-embedding-001 上限）。 */
 export const MAX_EMBEDDING_TOKENS = 2048;
 
-/** 以近似 token（空白切分）截斷並正規化空白（單一空白 join，確保同輸入 → 同輸出 → 穩定 hash）。 */
+/**
+ * CJK / 全形字元範圍（中日韓統一表意 + 擴展 A + Hiragana/Katakana + Hangul + 全形/半形）。這些字元多為
+ * **1 字 ≈ 1 token**（無空白），故不能用 word 數近似。
+ */
+const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/**
+ * 近似 token 估計（M8-R1）：⚠ 無真實 tokenizer → 以**字元類別**估——CJK/全形字 ≈ **1 token/字**（無空白，word 數
+ * 近似失效、原本 zh 大段永不截斷、爆 Gemini 2048 上限），其餘（拉丁等）≈ **~4 字/token**（0.25/字）。此估對 CJK
+ * 保守（不低估）、對拉丁合理，是無 tokenizer 下的可靠上界近似。精確 token 需 `countTokens`（網路呼叫，非純函式）。
+ */
+function estimateTokens(char: string): number {
+  return CJK_RE.test(char) ? 1 : 0.25;
+}
+
+/**
+ * 依 {@link estimateTokens} 累積截斷 + 正規化空白（單一空白，確保同輸入→同輸出→穩定 hash）。CJK 大段亦會被
+ * 正確截斷（M8-R1；原 word 數近似對無空白 CJK 失效）。
+ */
 function truncateToTokens(text: string, maxTokens: number): string {
-  const tokens = text.split(/\s+/).filter(Boolean);
-  return tokens.slice(0, maxTokens).join(' ');
+  const normalized = text.split(/\s+/).filter(Boolean).join(' ');
+  let estimate = 0;
+  let end = 0;
+  for (const char of normalized) {
+    estimate += estimateTokens(char);
+    if (estimate > maxTokens) {
+      break;
+    }
+    end += char.length; // 以 UTF-16 單位推進（for..of 逐 code point，代理對 length=2）
+  }
+  return normalized.slice(0, end);
 }
 
 /**

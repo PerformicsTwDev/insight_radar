@@ -77,9 +77,10 @@ export const validationSchema = Joi.object({
   AGG_MAX_GROUPS: Joi.number().integer().min(1).max(5000).default(1000),
 
   // —— Embeddings（M8，Design §14）——
-  // 維度須與 keyword_embeddings migration 的 halfvec(3072) 一致（T8.1）；預設 3072（gemini 全維、原生已
-  // normalize、免手動）。截短 768/1536 可省儲存，但需手動 normalize + 改用 `vector` 型別（另開 migration）。
-  GEMINI_EMBEDDING_DIM: Joi.number().integer().valid(768, 1536, 3072).default(3072),
+  // ⚠ 固定 **3072**（M8-R1）：keyword_embeddings 欄為 `halfvec(3072)`，非 3072 的維度會在 pgvector INSERT
+  // 時才失敗（fake configurability）。故 fail-fast 在**開機**即擋（`valid(3072)`）而非延到寫入。截短 768/1536
+  // 為未來增強——需另開 migration 改 `vector` 型別 + 手動 normalize，屆時再放寬此 allowlist（Design §14）。
+  GEMINI_EMBEDDING_DIM: Joi.number().integer().valid(3072).default(3072),
   GEMINI_EMBEDDING_MODEL: Joi.string().default('gemini-embedding-001'), // 鎖此 id
   GEMINI_EMBEDDING_TASK_TYPE: Joi.string().default('CLUSTERING'),
   GEMINI_EMBEDDING_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(100), // >500 有順序 bug

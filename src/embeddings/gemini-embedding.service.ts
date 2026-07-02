@@ -22,12 +22,41 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-/** SDK 是否回報可重試錯誤（429 或 5xx）——以 status/code 數值判定，避免綁特定 SDK 錯誤類別。 */
+/**
+ * 傳輸層暫時性錯誤碼（node 系統碼）——長時間 ~1 QPS 批次呼叫**最常見**的暫時失敗其實是連線重置/逾時，
+ * 而非乾淨的 HTTP 5xx（M8-R1）。與 error-classification.ts 的 TRANSIENT_INFRA_CODES 概念一致。
+ */
+const TRANSIENT_TRANSPORT_CODES = new Set([
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ECONNREFUSED',
+  'EPIPE',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+]);
+
+/**
+ * 是否可重試（M8-R1）：(a) 數值 HTTP `status`/`code` = 429 或 5xx（@google/genai `ApiError.status` 為 number）；
+ * (b) **傳輸層暫時性**——node 系統碼（字串 `code`）、`AbortError`（httpOptions timeout）、undici `fetch failed`
+ * （這些無數值 status，原本會被誤判不可重試 → 整批在一次 socket blip 即失敗）。避免綁特定 SDK 錯誤類別。
+ */
 function isRetryableEmbedError(err: unknown): boolean {
-  const status = (err as { status?: unknown; code?: unknown } | null)?.status;
-  const code = (err as { code?: unknown } | null)?.code;
-  const value = typeof status === 'number' ? status : typeof code === 'number' ? code : undefined;
-  return value === 429 || (typeof value === 'number' && value >= 500 && value < 600);
+  const e = err as { status?: unknown; code?: unknown; name?: unknown } | null;
+  const httpStatus =
+    typeof e?.status === 'number' ? e.status : typeof e?.code === 'number' ? e.code : undefined;
+  if (
+    httpStatus === 429 ||
+    (typeof httpStatus === 'number' && httpStatus >= 500 && httpStatus < 600)
+  ) {
+    return true;
+  }
+  if (typeof e?.code === 'string' && TRANSIENT_TRANSPORT_CODES.has(e.code)) {
+    return true;
+  }
+  if (e?.name === 'AbortError') {
+    return true;
+  }
+  return err instanceof Error && /fetch failed/i.test(err.message);
 }
 
 /**
