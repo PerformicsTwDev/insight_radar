@@ -7,6 +7,7 @@ import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
+import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
 import { PrismaService } from 'src/prisma';
@@ -66,6 +67,8 @@ describe('auth boundary (e2e, TC-25)', () => {
       .overrideProvider(PrismaService)
       .useValue(prisma)
       .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .overrideProvider(TopicClusterProcessor)
       .useValue({})
       .compile();
 
