@@ -92,7 +92,10 @@ function naming(label: number, degraded = false): ClusterNaming {
   };
 }
 
-function job(params: Partial<TopicJobPayload['params']> = {}): Job<TopicJobPayload> {
+function job(
+  params: Partial<TopicJobPayload['params']> = {},
+  jobUpdateProgress: jest.Mock = jest.fn().mockResolvedValue(undefined),
+): Job<TopicJobPayload> {
   return {
     data: {
       runId: 'run-1',
@@ -109,7 +112,8 @@ function job(params: Partial<TopicJobPayload['params']> = {}): Job<TopicJobPaylo
         ...params,
       },
     },
-  } as Job<TopicJobPayload>;
+    updateProgress: jobUpdateProgress, // BullMQ QueueEvents → SSE（M8-R8）
+  } as unknown as Job<TopicJobPayload>;
 }
 
 describe('TopicClusterProcessor (T8.9b / TC-46 · TC-51)', () => {
@@ -135,6 +139,26 @@ describe('TopicClusterProcessor (T8.9b / TC-46 · TC-51)', () => {
     expect(deps.persist).toHaveBeenCalledTimes(1);
     expect(deps.fetch).not.toHaveBeenCalled(); // serpEnabled=false
     const phases = deps.updateProgress.mock.calls.map((c) => c[1].phase);
+    expect(phases).toEqual(['load', 'serp', 'embed', 'cluster', 'represent', 'name', 'persist']);
+  });
+
+  it('publishes phase progress to job.updateProgress for the SSE stream (M8-R8)', async () => {
+    const { processor, deps } = makeProcessor();
+    deps.findMany.mockResolvedValue([snapshotRow('a'), snapshotRow('b'), snapshotRow('c')]);
+    deps.embed.mockResolvedValue([
+      [1, 0],
+      [1, 0],
+      [0, 1],
+    ]);
+    deps.cluster.mockResolvedValue(clusterResult([0, 0, 1], [0.9, 0.8, 0.95]));
+    deps.nameClusters.mockResolvedValue([naming(0), naming(1)]);
+    const jobUpdateProgress = jest.fn<Promise<void>, [{ phase: string; percent: number }]>();
+    jobUpdateProgress.mockResolvedValue(undefined);
+
+    await processor.process(job({}, jobUpdateProgress));
+
+    // BullMQ QueueEvents 'progress' 由 job.updateProgress 觸發 → topics @Sse 串流才收得到進度。
+    const phases = jobUpdateProgress.mock.calls.map((c) => c[0].phase);
     expect(phases).toEqual(['load', 'serp', 'embed', 'cluster', 'represent', 'name', 'persist']);
   });
 
