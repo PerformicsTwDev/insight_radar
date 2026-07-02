@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type { ConfigType } from '@nestjs/config';
 import type { Job } from 'bullmq';
+import type { PinoLogger } from 'nestjs-pino';
 import type { ClusteringProvider } from '../clustering/clustering-provider.port';
 import { ClusteringUnavailableError } from '../clustering/clustering.errors';
 import type { ClusterResult } from '../clustering/clustering.types';
@@ -28,7 +29,7 @@ interface Deps {
   persist: jest.Mock;
 }
 
-function makeProcessor(): { processor: TopicClusterProcessor; deps: Deps } {
+function makeProcessor(metricsInfo?: jest.Mock): { processor: TopicClusterProcessor; deps: Deps } {
   const deps: Deps = {
     findMany: jest.fn(),
     fetch: jest.fn(),
@@ -50,6 +51,7 @@ function makeProcessor(): { processor: TopicClusterProcessor; deps: Deps } {
     persist: deps.persist,
   } as unknown as TopicRepository;
   const config = { queueConcurrency: 3 } as ConfigType<typeof topicsConfig>;
+  const metricsLog = metricsInfo ? ({ info: metricsInfo } as unknown as PinoLogger) : undefined;
   const processor = new TopicClusterProcessor(
     prisma,
     serp,
@@ -58,6 +60,7 @@ function makeProcessor(): { processor: TopicClusterProcessor; deps: Deps } {
     naming,
     repo,
     config,
+    metricsLog,
   );
   return { processor, deps };
 }
@@ -290,5 +293,85 @@ describe('TopicClusterProcessor worker lifecycle (T8.9b)', () => {
 
     const fresh = makeProcessor().processor;
     await expect(fresh.onModuleDestroy()).resolves.toBeUndefined();
+  });
+});
+
+describe('TopicClusterProcessor observability (T8.12)', () => {
+  function primeHappy(deps: Deps): void {
+    deps.findMany.mockResolvedValue([snapshotRow('a'), snapshotRow('b'), snapshotRow('c')]);
+    deps.embed.mockResolvedValue([
+      [1, 0],
+      [1, 0],
+      [0, 1],
+    ]);
+    deps.cluster.mockResolvedValue(clusterResult([0, 0, 1], [0.9, 0.8, 0.95]));
+    deps.nameClusters.mockResolvedValue([naming(0), naming(1)]);
+  }
+
+  it('emits a structured metrics log with per-phase timings and counts on completion', async () => {
+    const info = jest.fn();
+    const { processor, deps } = makeProcessor(info);
+    primeHappy(deps);
+
+    await processor.process(job());
+
+    expect(info).toHaveBeenCalledTimes(1);
+    const [fields, msg] = info.mock.calls[0] as [Record<string, unknown>, string];
+    expect(msg).toBe('topic job metrics');
+    expect(fields).toMatchObject({
+      status: 'completed',
+      keywordCount: 3,
+      clusterCount: 2,
+      noiseCount: 0,
+      degraded: false,
+    });
+    // 各階段皆被計時（phases 物件含所有階段 key）。
+    expect(Object.keys(fields.phases as Record<string, number>).sort()).toEqual(
+      ['cluster', 'embed', 'load', 'name', 'persist', 'represent', 'serp'].sort(),
+    );
+  });
+
+  it('emits partial metrics when clustering degrades', async () => {
+    const info = jest.fn();
+    const { processor, deps } = makeProcessor(info);
+    deps.findMany.mockResolvedValue([snapshotRow('a')]);
+    deps.embed.mockResolvedValue([[1, 0]]);
+    deps.cluster.mockRejectedValue(new ClusteringUnavailableError('unavailable'));
+
+    await processor.process(job());
+
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'partial', clusterCount: 0, degraded: true }),
+      'topic job metrics',
+    );
+  });
+
+  it('emit is best-effort: a throwing logger does not fail a completed job', async () => {
+    const info = jest.fn().mockImplementation(() => {
+      throw new Error('pino down');
+    });
+    const { processor, deps } = makeProcessor(info);
+    primeHappy(deps);
+
+    // 不因觀測副作用而讓 job 失敗（仍回 completed）。
+    await expect(processor.process(job())).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('emits failed metrics before rethrowing an infra error', async () => {
+    const info = jest.fn();
+    const { processor, deps } = makeProcessor(info);
+    deps.findMany.mockResolvedValue([snapshotRow('a')]);
+    deps.embed.mockResolvedValue([[1, 0]]);
+    deps.cluster.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('db', { code: 'P1001', clientVersion: 'test' }),
+    );
+
+    await expect(processor.process(job())).rejects.toBeInstanceOf(
+      Prisma.PrismaClientKnownRequestError,
+    );
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+      'topic job metrics',
+    );
   });
 });

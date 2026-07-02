@@ -1,8 +1,15 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Inject, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
+import {
+  Inject,
+  Logger,
+  Optional,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { Job, Worker } from 'bullmq';
+import { PinoLogger } from 'nestjs-pino';
 import {
   CLUSTERING_PROVIDER,
   type ClusteringProvider,
@@ -21,6 +28,7 @@ import { decideRunStatus, PHASE_PERCENT } from './decide-run-status';
 import { extractRepresentatives } from './representatives';
 import type { TopicJobPayload, TopicJobResult } from './topic-job.types';
 import type { ClusterToName } from './topic-naming.prompt';
+import { TopicJobMetrics } from './topic-job-metrics';
 import { TopicNamingService } from './topic-naming.service';
 import { TopicRepository } from './topic.repository';
 
@@ -69,6 +77,9 @@ export class TopicClusterProcessor
     private readonly naming: TopicNamingService,
     private readonly repo: TopicRepository,
     @Inject(topicsConfig.KEY) private readonly config: ConfigType<typeof topicsConfig>,
+    // 結構化可觀測 log（T8.12，NFR-11/NFR-6）：pino 承載各階段耗時+計數。@Optional：未提供（多數單元測試以
+    // 手動 new 建構）→ emitMetrics no-op（觀測缺席不影響 job 行為）。生產由 LoggerModule（@Global）注入。
+    @Optional() private readonly metricsLog?: PinoLogger,
   ) {
     super();
   }
@@ -93,86 +104,118 @@ export class TopicClusterProcessor
 
   async process(job: Job<TopicJobPayload>): Promise<TopicJobResult> {
     const { runId, snapshotId, geo, language, params } = job.data;
-    await this.repo.markStatus(runId, 'running');
-
-    // load（DB 讀；失敗 → throw → BullMQ 重試）
-    const keywords = await this.loadKeywords(snapshotId);
-    await this.repo.updateProgress(runId, { phase: 'load', percent: PHASE_PERCENT.load });
-
-    // serp（可選；失敗 → 降級純文字、續跑）
-    let serpDegraded = false;
-    let serpByText = new Map<string, SerpContext>();
-    if (params.serpEnabled) {
-      try {
-        serpByText = await this.fetchSerp(keywords, geo, language);
-      } catch (error) {
-        serpDegraded = true;
-        this.logger.warn(`SERP degraded (plain-text fallback): ${scrubSecrets(String(error))}`);
-      }
-    }
-    await this.repo.updateProgress(runId, { phase: 'serp', percent: PHASE_PERCENT.serp });
-
-    // embed + cluster（外部階段；外部失敗 → partial 0 群、infra → rethrow）
-    let labels: number[];
-    let probabilities: number[];
-    let vectors: number[][];
+    const metrics = new TopicJobMetrics(runId); // 各階段耗時 + 計數（NFR-11/NFR-6，T8.12）
     try {
-      vectors = await this.embeddings.embed(
-        keywords.map((keyword) => ({
-          geo,
-          language,
-          normalizedText: keyword.normalizedText,
-          serp: serpByText.get(keyword.normalizedText),
-        })),
-      );
-      await this.repo.updateProgress(runId, { phase: 'embed', percent: PHASE_PERCENT.embed });
-      const result = await this.clustering.cluster(vectors, {
-        umap: params.umap,
-        hdbscan: params.hdbscan,
-        top_k: params.topK,
-      });
-      labels = result.labels;
-      probabilities = result.probabilities;
-      await this.repo.updateProgress(runId, { phase: 'cluster', percent: PHASE_PERCENT.cluster });
-    } catch (error) {
-      if (isInfraError(error)) {
-        throw error; // 基礎設施故障 → BullMQ 整 job 重試
+      await this.repo.markStatus(runId, 'running');
+
+      // load（DB 讀；失敗 → throw → BullMQ 重試）
+      const endLoad = metrics.startPhase('load');
+      const keywords = await this.loadKeywords(snapshotId);
+      endLoad();
+      await this.repo.updateProgress(runId, { phase: 'load', percent: PHASE_PERCENT.load });
+
+      // serp（可選；失敗 → 降級純文字、續跑）
+      let serpDegraded = false;
+      let serpByText = new Map<string, SerpContext>();
+      const endSerp = metrics.startPhase('serp');
+      if (params.serpEnabled) {
+        try {
+          serpByText = await this.fetchSerp(keywords, geo, language);
+        } catch (error) {
+          serpDegraded = true;
+          this.logger.warn(`SERP degraded (plain-text fallback): ${scrubSecrets(String(error))}`);
+        }
       }
-      return this.finalizePartial(runId, keywords.length, error); // 外部階段降級 → partial（0 群）
+      endSerp();
+      await this.repo.updateProgress(runId, { phase: 'serp', percent: PHASE_PERCENT.serp });
+
+      // embed + cluster（外部階段；外部失敗 → partial 0 群、infra → rethrow）
+      let labels: number[];
+      let probabilities: number[];
+      let vectors: number[][];
+      try {
+        const endEmbed = metrics.startPhase('embed');
+        vectors = await this.embeddings.embed(
+          keywords.map((keyword) => ({
+            geo,
+            language,
+            normalizedText: keyword.normalizedText,
+            serp: serpByText.get(keyword.normalizedText),
+          })),
+        );
+        endEmbed();
+        await this.repo.updateProgress(runId, { phase: 'embed', percent: PHASE_PERCENT.embed });
+        const endCluster = metrics.startPhase('cluster');
+        const result = await this.clustering.cluster(vectors, {
+          umap: params.umap,
+          hdbscan: params.hdbscan,
+          top_k: params.topK,
+        });
+        labels = result.labels;
+        probabilities = result.probabilities;
+        endCluster();
+        await this.repo.updateProgress(runId, { phase: 'cluster', percent: PHASE_PERCENT.cluster });
+      } catch (error) {
+        if (isInfraError(error)) {
+          throw error; // 基礎設施故障 → BullMQ 整 job 重試
+        }
+        return this.finalizePartial(runId, keywords.length, error, metrics); // 外部降級 → partial（0 群）
+      }
+
+      // represent → name → persist
+      const endRep = metrics.startPhase('represent');
+      const rep = extractRepresentatives({
+        labels,
+        probabilities,
+        keywords,
+        vectors,
+        topK: params.topK,
+      });
+      endRep();
+      await this.repo.updateProgress(runId, {
+        phase: 'represent',
+        percent: PHASE_PERCENT.represent,
+      });
+
+      const endName = metrics.startPhase('name');
+      const namings = await this.naming.nameClusters(toClustersToName(rep.clusters));
+      endName();
+      const namingDegraded = namings.some((naming) => naming.degraded);
+      await this.repo.updateProgress(runId, { phase: 'name', percent: PHASE_PERCENT.name });
+
+      const endPersist = metrics.startPhase('persist');
+      const clusterRecords = assembleClusterRecords(rep.clusters, namings);
+      const assignments = assembleAssignments(labels, probabilities, keywords, namings);
+      await this.repo.persist(runId, clusterRecords, assignments);
+      endPersist();
+      await this.repo.updateProgress(runId, { phase: 'persist', percent: PHASE_PERCENT.persist });
+
+      const status = decideRunStatus({ serpDegraded, namingDegraded });
+      await this.repo.markStatus(runId, status, {
+        clusterCount: rep.clusters.length,
+        noiseCount: rep.noiseCount,
+      });
+      metrics.setCounts({
+        keywordCount: keywords.length,
+        clusterCount: rep.clusters.length,
+        noiseCount: rep.noiseCount,
+      });
+      metrics.setDegraded(serpDegraded || namingDegraded);
+      this.emitMetrics(metrics, status);
+      return { status, clusterCount: rep.clusters.length, noiseCount: rep.noiseCount };
+    } catch (error) {
+      // infra rethrow / 非預期錯：發 failed 觀測 log（best-effort）後上拋（BullMQ 重試）。
+      this.emitMetrics(metrics, 'failed');
+      throw error;
     }
-
-    // represent → name → persist
-    const rep = extractRepresentatives({
-      labels,
-      probabilities,
-      keywords,
-      vectors,
-      topK: params.topK,
-    });
-    await this.repo.updateProgress(runId, { phase: 'represent', percent: PHASE_PERCENT.represent });
-
-    const namings = await this.naming.nameClusters(toClustersToName(rep.clusters));
-    const namingDegraded = namings.some((naming) => naming.degraded);
-    await this.repo.updateProgress(runId, { phase: 'name', percent: PHASE_PERCENT.name });
-
-    const clusterRecords = assembleClusterRecords(rep.clusters, namings);
-    const assignments = assembleAssignments(labels, probabilities, keywords, namings);
-    await this.repo.persist(runId, clusterRecords, assignments);
-    await this.repo.updateProgress(runId, { phase: 'persist', percent: PHASE_PERCENT.persist });
-
-    const status = decideRunStatus({ serpDegraded, namingDegraded });
-    await this.repo.markStatus(runId, status, {
-      clusterCount: rep.clusters.length,
-      noiseCount: rep.noiseCount,
-    });
-    return { status, clusterCount: rep.clusters.length, noiseCount: rep.noiseCount };
   }
 
-  /** 外部階段降級收尾：標 partial（0 群、noise=全部）、保留 run，回可辨識結果（不 throw）。 */
+  /** 外部階段降級收尾：標 partial（0 群、noise=全部）、保留 run + 發 partial 觀測 log，回可辨識結果（不 throw）。 */
   private async finalizePartial(
     runId: string,
     keywordCount: number,
     error: unknown,
+    metrics: TopicJobMetrics,
   ): Promise<TopicJobResult> {
     this.logger.warn(`clustering pipeline degraded → partial: ${scrubSecrets(String(error))}`);
     await this.repo.markStatus(runId, 'partial', {
@@ -180,7 +223,25 @@ export class TopicClusterProcessor
       noiseCount: keywordCount,
       error: scrubSecrets(error instanceof Error ? error.message : String(error)),
     });
+    metrics.setCounts({ keywordCount, clusterCount: 0, noiseCount: keywordCount });
+    metrics.setDegraded(true);
+    this.emitMetrics(metrics, 'partial');
     return { status: 'partial', clusterCount: 0, noiseCount: keywordCount };
+  }
+
+  /**
+   * 發射每 job 結構化可觀測 log（NFR-6/NFR-11）。**best-effort**：觀測副作用絕不可讓已持久化的 job 失敗
+   * （否則 catch 誤判 → BullMQ 重跑已完成 job、重打外部）。無 logger（單元測試手動建構）→ no-op。
+   */
+  private emitMetrics(metrics: TopicJobMetrics, status: string): void {
+    if (!this.metricsLog) {
+      return;
+    }
+    try {
+      this.metricsLog.info(metrics.toLogFields(status), 'topic job metrics');
+    } catch (error) {
+      this.logger.warn(`metrics emit failed (best-effort): ${scrubSecrets(String(error))}`);
+    }
   }
 
   /** 讀不可變 snapshot 的關鍵字列（依 rowIndex 序）。 */
