@@ -1,6 +1,7 @@
 import { appConfig } from './app.config';
 import { azureConfig } from './azure.config';
 import { cacheConfig } from './cache.config';
+import { embeddingsConfig } from './embeddings.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
 import { queryConfig } from './query.config';
@@ -44,6 +45,16 @@ const ENV: Record<string, string> = {
   QUERY_MAX_PAGE_SIZE: '200',
   AGG_MAX_BUCKETS: '200',
   AGG_MAX_GROUPS: '1000',
+  GEMINI_API_KEY: 'gkey',
+  GEMINI_EMBEDDING_DIM: '3072',
+  GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+  GEMINI_EMBEDDING_TASK_TYPE: 'CLUSTERING',
+  GEMINI_EMBEDDING_BATCH_SIZE: '100',
+  GEMINI_EMBEDDING_CONCURRENCY: '4',
+  GEMINI_EMBEDDING_MAX_RETRIES: '5',
+  GEMINI_EMBEDDING_BACKOFF_BASE_MS: '500',
+  EMBEDDING_SCHEMA_VERSION: 'v1',
+  CACHE_TTL_EMBEDDING_MS: '5184000000',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -115,6 +126,21 @@ describe('config namespaces (registerAs, typed)', () => {
       metricsTtlMs: 1814400000,
       intentTtlMs: 5184000000,
       intentSchemaVersion: 'v1',
+    });
+  });
+
+  it('embeddingsConfig maps gemini/embedding env (coerced to number; M8)', () => {
+    expect(embeddingsConfig()).toEqual({
+      apiKey: 'gkey',
+      model: 'gemini-embedding-001',
+      taskType: 'CLUSTERING',
+      dim: 3072,
+      batchSize: 100,
+      concurrency: 4,
+      maxRetries: 5,
+      backoffBaseMs: 500,
+      schemaVersion: 'v1',
+      cacheTtlMs: 5184000000,
     });
   });
 

@@ -15,6 +15,7 @@ const validEnv: Record<string, string> = {
   AZURE_OPENAI_API_KEY: 'test-azure-key',
   AZURE_OPENAI_DEPLOYMENT: 'gpt-4o-mini',
   AZURE_OPENAI_API_VERSION: '2024-10-21',
+  GEMINI_API_KEY: 'test-gemini-key',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
 };
@@ -71,6 +72,18 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.WORKER_CONCURRENCY).toBe(5);
       expect(value.LOG_LEVEL).toBe('info');
       expect(value.INTENT_SCHEMA_VERSION).toBe('v1'); // 預設 → 不致 intent:undefined: 的 namespace
+      expect(value.GEMINI_EMBEDDING_DIM).toBe(3072); // 固定 3072（M8-R1）
+      expect(value.GEMINI_EMBEDDING_MODEL).toBe('gemini-embedding-001');
+      expect(value.GEMINI_EMBEDDING_BATCH_SIZE).toBe(100);
+    });
+
+    it('pins GEMINI_EMBEDDING_DIM to 3072 (rejects 768/1536 until a vector-type migration exists, M8-R1)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, GEMINI_EMBEDDING_DIM: '768' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('GEMINI_EMBEDDING_DIM');
     });
 
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {

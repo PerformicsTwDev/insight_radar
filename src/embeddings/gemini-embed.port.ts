@@ -26,6 +26,8 @@ export interface GeminiEmbedConfig {
   batchSize: number;
   /** 批次並發上限（p-limit）。 */
   concurrency: number;
-  /** 429/5xx 就地退避重試上限。 */
+  /** 429/5xx/傳輸層就地退避重試上限。 */
   maxRetries: number;
+  /** 退避起始延遲（ms，指數 `2^(n-1)*base`）。 */
+  backoffBaseMs: number;
 }

@@ -10,9 +10,6 @@ import {
 } from './gemini-embed.port';
 import { GEMINI_NATIVE_DIM, l2normalize } from './l2-normalize';
 
-/** 429/5xx 就地退避起始延遲（ms）；指數 2^(n-1)*base。 */
-const BACKOFF_BASE_MS = 500;
-
 /** 陣列切批（每批 ≤ size）。 */
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -126,7 +123,7 @@ export class GeminiEmbeddingService implements EmbeddingProvider {
         if (attempt > this.config.maxRetries || !isRetryableEmbedError(error)) {
           throw error;
         }
-        const delayMs = BACKOFF_BASE_MS * 2 ** (attempt - 1);
+        const delayMs = this.config.backoffBaseMs * 2 ** (attempt - 1);
         // 祕密不入 log（NFR-5）：SDK 錯誤訊息可夾帶端點/金鑰片段。
         this.logger.warn(
           `Gemini embed retry ${attempt}/${this.config.maxRetries} after ${delayMs}ms: ${scrubSecrets(String(error))}`,
