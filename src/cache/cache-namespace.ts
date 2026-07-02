@@ -8,6 +8,7 @@ export const CacheNamespace = {
   SNAPSHOT: 'snapshot',
   JOB: 'job',
   IDEMP: 'idemp',
+  EMBEDDING: 'embedding',
 } as const;
 
 export type CacheNamespace = (typeof CacheNamespace)[keyof typeof CacheNamespace];

@@ -1,7 +1,9 @@
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import type { EmbedContentResponse } from '@google/genai';
+import { CacheModule } from '../cache/cache.module';
 import { embeddingsConfig } from '../config/embeddings.config';
+import { PrismaModule } from '../prisma';
 import { EMBEDDING_PROVIDER, type EmbeddingProvider } from './embedding-provider.port';
 import { EmbeddingsModule } from './embeddings.module';
 import {
@@ -43,7 +45,9 @@ describe('EmbeddingsModule (T8.2c wiring)', () => {
   it('wires EMBEDDING_PROVIDER to GeminiEmbeddingService with a config-sourced GEMINI_EMBED_CONFIG', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [
-        ConfigModule.forRoot({ load: [embeddingsConfig], ignoreEnvFile: true }),
+        ConfigModule.forRoot({ load: [embeddingsConfig], ignoreEnvFile: true, isGlobal: true }),
+        PrismaModule, // @Global PrismaService（lazy connect，測試不查詢）
+        CacheModule, // @Global CacheService（test 用記憶體 Keyv）
         EmbeddingsModule,
       ],
     })
