@@ -9,6 +9,10 @@ import { configureApp } from 'src/bootstrap';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
+import {
+  TOPIC_JOB_EVENTS_CONNECTION,
+  TOPIC_QUEUE_EVENTS,
+} from 'src/queue/topic-job-events.constants';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
 import { PrismaService } from 'src/prisma';
 
@@ -62,6 +66,10 @@ describe('auth boundary (e2e, TC-25)', () => {
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)
       .useValue(new RedisMock())
+      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(TOPIC_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(PrismaService)

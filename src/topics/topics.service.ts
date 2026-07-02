@@ -136,4 +136,13 @@ export class TopicsService {
     ]);
     return buildTopicsResponse(run, clusters, assignments, keywordTexts);
   }
+
+  /**
+   * SSE 用輕量 run 參照：analysisId → 最新 run 的 {runId, status}（SSE key=runId，因 queue.add jobId=runId）。
+   * 無 run → null（SSE handler 據此回空串流）。
+   */
+  async getRunRef(analysisId: string): Promise<{ runId: string; status: string } | null> {
+    const run = await this.repo.findLatestRunByAnalysis(analysisId);
+    return run ? { runId: run.id, status: run.status } : null;
+  }
 }
