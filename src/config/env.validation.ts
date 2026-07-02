@@ -107,4 +107,6 @@ export const validationSchema = Joi.object({
   SERP_TOP_N: Joi.number().integer().min(1).default(5),
   SERP_FRESHNESS_DAYS: Joi.number().integer().min(0).default(30), // 窗內重用 serp_fetches、不重抓
   SERP_RETENTION_DAYS: Joi.number().integer().min(1).optional(), // 未設＝保留全部歷史（SERP-over-time）
+  SERP_MAX_RETRIES: Joi.number().integer().min(0).default(3), // 429/5xx/傳輸層退避重試上限
+  SERP_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(500), // 退避起始延遲（2^(n-1)*base）
 });
