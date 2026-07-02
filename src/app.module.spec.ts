@@ -5,6 +5,10 @@ import { AppModule } from './app.module';
 import { KeywordAnalysisProcessor } from './keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from './topics/topic-cluster.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from './queue/job-events.constants';
+import {
+  TOPIC_JOB_EVENTS_CONNECTION,
+  TOPIC_QUEUE_EVENTS,
+} from './queue/topic-job-events.constants';
 import { BULL_CONNECTION } from './queue/queue.constants';
 
 describe('AppModule (smoke)', () => {
@@ -25,6 +29,10 @@ describe('AppModule (smoke)', () => {
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)
       .useValue(new RedisMock())
+      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(TOPIC_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(KeywordAnalysisProcessor)

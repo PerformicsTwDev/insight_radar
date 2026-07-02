@@ -11,6 +11,7 @@ import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { IntentModule } from '../intent/intent.module';
 import { QueueModule } from '../queue/queue.module';
 import { TOPICS_QUEUE } from '../queue/queue.constants';
+import { TopicJobEventsModule } from '../queue/topic-job-events.module';
 import { SerpModule } from '../serp/serp.module';
 import { TopicClusterProcessor } from './topic-cluster.processor';
 import { TopicNamingService, TOPIC_NAMING_CONFIG } from './topic-naming.service';
@@ -28,6 +29,7 @@ import { TopicsService } from './topics.service';
   imports: [
     QueueModule,
     BullModule.registerQueue({ name: TOPICS_QUEUE }),
+    TopicJobEventsModule,
     EmbeddingsModule,
     SerpModule,
     ClusteringModule,

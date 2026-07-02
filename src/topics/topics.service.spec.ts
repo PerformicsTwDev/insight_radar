@@ -206,4 +206,20 @@ describe('TopicsService.getTopics (T8.10b / TC-49)', () => {
     // 讀取以 run.id / run.snapshotId 為 key。
     expect(deps.loadKeywordTexts).toHaveBeenCalledWith('snap-1');
   });
+
+  it('getRunRef returns {runId,status} for the latest run, or null', async () => {
+    const { service, deps } = makeService();
+    deps.findLatestRunByAnalysis.mockResolvedValueOnce({
+      id: 'run-9',
+      snapshotId: 'snap-9',
+      status: 'running',
+      progress: {},
+      clusterCount: null,
+      noiseCount: null,
+    });
+    expect(await service.getRunRef('a-1')).toEqual({ runId: 'run-9', status: 'running' });
+
+    deps.findLatestRunByAnalysis.mockResolvedValueOnce(null);
+    expect(await service.getRunRef('a-2')).toBeNull();
+  });
 });

@@ -6,6 +6,10 @@ import { CacheService } from 'src/cache/cache.service';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
+import {
+  TOPIC_JOB_EVENTS_CONNECTION,
+  TOPIC_QUEUE_EVENTS,
+} from 'src/queue/topic-job-events.constants';
 import { BULL_CONNECTION } from 'src/queue/queue.constants';
 
 /**
@@ -40,6 +44,10 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
       .useValue(jobEventsConnection)
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: queueEventsClose })
+      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(TOPIC_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       // 替身 processor → 不起真 Worker（避免 ioredis-mock 阻塞輪詢在 Linux CI 卡住）；保留 onModuleDestroy
       // 以驗證「drain 早於連線 quit」的 lifecycle 序（真 processor 於此 hook 內 await worker.close，見單元測）。
       .overrideProvider(KeywordAnalysisProcessor)
