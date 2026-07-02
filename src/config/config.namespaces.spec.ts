@@ -73,6 +73,7 @@ const ENV: Record<string, string> = {
   TOPIC_LLM_BATCH_CLUSTERS: '20',
   TOPIC_PROMPT_VERSION: 'v1',
   TOPIC_SCHEMA_VERSION: 'v1',
+  TOPICS_QUEUE_CONCURRENCY: '3',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -190,6 +191,7 @@ describe('config namespaces (registerAs, typed)', () => {
       llmBatchClusters: 20,
       promptVersion: 'v1',
       schemaVersion: 'v1',
+      queueConcurrency: 3,
     });
   });
 

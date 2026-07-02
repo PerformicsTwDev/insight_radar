@@ -8,10 +8,13 @@ export interface TopicsConfig {
   promptVersion: string;
   /** 命名 json_schema 版本（同上）。 */
   schemaVersion: string;
+  /** `topics` BullMQ worker 並發（TOPICS_QUEUE_CONCURRENCY，預設 3）。 */
+  queueConcurrency: number;
 }
 
 export const topicsConfig = registerAs('topics', (): TopicsConfig => ({
   llmBatchClusters: Number(process.env.TOPIC_LLM_BATCH_CLUSTERS),
   promptVersion: process.env.TOPIC_PROMPT_VERSION ?? 'v1',
   schemaVersion: process.env.TOPIC_SCHEMA_VERSION ?? 'v1',
+  queueConcurrency: Number(process.env.TOPICS_QUEUE_CONCURRENCY),
 }));
