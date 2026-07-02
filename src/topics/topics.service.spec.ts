@@ -13,6 +13,10 @@ interface Deps {
   findUnique: jest.Mock;
   deleteRun: jest.Mock;
   createRun: jest.Mock<Promise<CreateTopicRunResult>, [unknown]>;
+  findLatestRunByAnalysis: jest.Mock;
+  loadClusters: jest.Mock;
+  loadAssignments: jest.Mock;
+  loadKeywordTexts: jest.Mock;
 }
 
 function makeService(): { service: TopicsService; deps: Deps } {
@@ -21,13 +25,23 @@ function makeService(): { service: TopicsService; deps: Deps } {
     findUnique: jest.fn(),
     deleteRun: jest.fn().mockResolvedValue(undefined),
     createRun: jest.fn<Promise<CreateTopicRunResult>, [unknown]>(),
+    findLatestRunByAnalysis: jest.fn(),
+    loadClusters: jest.fn().mockResolvedValue([]),
+    loadAssignments: jest.fn().mockResolvedValue([]),
+    loadKeywordTexts: jest.fn().mockResolvedValue(new Map()),
   };
   const queue = { add: deps.add } as unknown as Queue;
   const prisma = {
     keywordAnalysis: { findUnique: deps.findUnique },
     topicRun: { delete: deps.deleteRun },
   } as unknown as PrismaService;
-  const repo = { createRun: deps.createRun } as unknown as TopicRepository;
+  const repo = {
+    createRun: deps.createRun,
+    findLatestRunByAnalysis: deps.findLatestRunByAnalysis,
+    loadClusters: deps.loadClusters,
+    loadAssignments: deps.loadAssignments,
+    loadKeywordTexts: deps.loadKeywordTexts,
+  } as unknown as TopicRepository;
   const topics = { promptVersion: 'v1', schemaVersion: 'v1' } as ConfigType<typeof topicsConfig>;
   const embeddings = {
     model: 'gemini-embedding-001',
@@ -138,5 +152,58 @@ describe('TopicsService.create (T8.10 / TC-48)', () => {
 
     await expect(service.create('a-1', {})).rejects.toThrow('redis down');
     expect(deps.deleteRun).toHaveBeenCalledWith({ where: { id: 'run-3' } });
+  });
+});
+
+describe('TopicsService.getTopics (T8.10b / TC-49)', () => {
+  it('404 when the analysis has no topic run', async () => {
+    const { service, deps } = makeService();
+    deps.findLatestRunByAnalysis.mockResolvedValue(null);
+
+    await expect(service.getTopics('a-1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('assembles the response from the latest run + clusters + assignments', async () => {
+    const { service, deps } = makeService();
+    deps.findLatestRunByAnalysis.mockResolvedValue({
+      id: 'run-1',
+      snapshotId: 'snap-1',
+      status: 'completed',
+      progress: { phase: 'persist', percent: 100 },
+      clusterCount: 1,
+      noiseCount: 0,
+    });
+    deps.loadClusters.mockResolvedValue([
+      {
+        clusterId: 'c0',
+        clusterLabel: 0,
+        topicName: 'Coffee',
+        parentTopic: 'Beverages',
+        intentLabel: 'commercial',
+        topicType: 'head',
+        reason: 'r',
+        clusterVolume: 100n,
+        keywordCount: 1,
+        confidence: 0.9,
+        representativeKeywords: [],
+      },
+    ]);
+    deps.loadAssignments.mockResolvedValue([
+      { normalizedText: 'a', clusterId: 'c0', confidence: 0.9, isNoise: false },
+    ]);
+    deps.loadKeywordTexts.mockResolvedValue(new Map([['a', 'Keyword A']]));
+
+    const res = await service.getTopics('a-1');
+
+    expect(res.status).toBe('completed');
+    expect(res.meta.runId).toBe('run-1');
+    expect(res.clusters[0].topicName).toBe('Coffee');
+    expect(res.keywords[0]).toMatchObject({
+      text: 'Keyword A',
+      intentLabel: 'commercial',
+      isNoise: false,
+    });
+    // 讀取以 run.id / run.snapshotId 為 key。
+    expect(deps.loadKeywordTexts).toHaveBeenCalledWith('snap-1');
   });
 });

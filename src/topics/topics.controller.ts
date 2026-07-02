@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import type { TopicsResponse } from './build-topics-response';
 import { CreateTopicRunDto } from './dto/create-topic-run.dto';
 import { TopicsService } from './topics.service';
 
@@ -16,5 +17,11 @@ export class TopicsController {
   @HttpCode(HttpStatus.ACCEPTED)
   create(@Param('id') id: string, @Body() dto: CreateTopicRunDto): Promise<{ topicJobId: string }> {
     return this.service.create(id, dto);
+  }
+
+  /** 取分群結果（clusters + 每字 labels）。無 run → 404（service 拋）。 */
+  @Get(':id/topics')
+  getTopics(@Param('id') id: string): Promise<TopicsResponse> {
+    return this.service.getTopics(id);
   }
 }

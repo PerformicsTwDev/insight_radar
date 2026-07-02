@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma';
 import type { KeywordAssignment, TopicClusterRecord } from './assemble-assignments';
+import type { AssignmentRow, TopicClusterRow, TopicRunView } from './build-topics-response';
 import type { TopicRunStatus } from './topic-run.types';
 
 /** 建立 TopicRun 的輸入（params/progress 為已序列化 Json）。 */
@@ -104,6 +105,74 @@ export class TopicRepository {
   /** 更新進度（SSE / GET 回報）。 */
   async updateProgress(runId: string, progress: Prisma.InputJsonValue): Promise<void> {
     await this.prisma.topicRun.update({ where: { id: runId }, data: { progress } });
+  }
+
+  /** 取某分析的最新 run（GET 回應；無→null）。 */
+  async findLatestRunByAnalysis(analysisId: string): Promise<TopicRunView | null> {
+    const run = await this.prisma.topicRun.findFirst({
+      where: { keywordAnalysisId: analysisId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!run) {
+      return null;
+    }
+    return {
+      id: run.id,
+      snapshotId: run.snapshotId,
+      status: run.status,
+      progress: run.progress,
+      clusterCount: run.clusterCount,
+      noiseCount: run.noiseCount,
+    };
+  }
+
+  /** 讀某 run 的群（依 clusterLabel 升冪）。 */
+  async loadClusters(runId: string): Promise<TopicClusterRow[]> {
+    const rows = await this.prisma.topicCluster.findMany({
+      where: { runId },
+      orderBy: { clusterLabel: 'asc' },
+    });
+    return rows.map((row) => ({
+      clusterId: row.id,
+      clusterLabel: row.clusterLabel,
+      topicName: row.topicName,
+      parentTopic: row.parentTopic,
+      intentLabel: row.intentLabel,
+      topicType: row.topicType,
+      reason: row.reason,
+      clusterVolume: row.clusterVolume,
+      keywordCount: row.keywordCount,
+      confidence: row.confidence,
+      representativeKeywords: row.representativeKeywords,
+    }));
+  }
+
+  /** 讀某 run 的每字指派（依 normalizedText 升冪）。 */
+  async loadAssignments(runId: string): Promise<AssignmentRow[]> {
+    const rows = await this.prisma.keywordClusterAssignment.findMany({
+      where: { runId },
+      orderBy: { normalizedText: 'asc' },
+    });
+    return rows.map((row) => ({
+      normalizedText: row.normalizedText,
+      clusterId: row.clusterId,
+      confidence: row.confidence,
+      isNoise: row.isNoise,
+    }));
+  }
+
+  /** 讀 snapshot 的 normalizedText→原字 text 映射（GET 回應補 keyword 原字）。 */
+  async loadKeywordTexts(snapshotId: string): Promise<Map<string, string>> {
+    const rows = await this.prisma.snapshotRow.findMany({
+      where: { snapshotId },
+      select: { data: true },
+    });
+    const byNorm = new Map<string, string>();
+    for (const row of rows) {
+      const data = row.data as unknown as { normalizedText: string; text: string };
+      byNorm.set(data.normalizedText, data.text);
+    }
+    return byNorm;
   }
 
   /** 寫入某 run 的所有群 + 每字指派（transaction 原子）。clusters 先寫以供 assignments 解析 clusterId。 */
