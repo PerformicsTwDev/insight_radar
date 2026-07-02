@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { embeddingsConfig } from '../config/embeddings.config';
 import { EMBEDDING_PROVIDER } from './embedding-provider.port';
+import { EmbeddingCache } from './embedding-cache';
+import { EmbeddingRepository } from './embedding.repository';
+import { EmbeddingService } from './embedding.service';
 import { createGeminiEmbedClient, toGeminiEmbedConfig } from './gemini-embed.factory';
 import { GEMINI_EMBED_CLIENT, GEMINI_EMBED_CONFIG } from './gemini-embed.port';
 import { GeminiEmbeddingService } from './gemini-embedding.service';
@@ -16,6 +19,9 @@ import { GeminiEmbeddingService } from './gemini-embedding.service';
   imports: [ConfigModule.forFeature(embeddingsConfig)],
   providers: [
     GeminiEmbeddingService,
+    EmbeddingCache,
+    EmbeddingRepository,
+    EmbeddingService,
     {
       provide: GEMINI_EMBED_CLIENT,
       useFactory: (config: Parameters<typeof createGeminiEmbedClient>[0]) =>
@@ -30,6 +36,7 @@ import { GeminiEmbeddingService } from './gemini-embedding.service';
     },
     { provide: EMBEDDING_PROVIDER, useExisting: GeminiEmbeddingService },
   ],
-  exports: [EMBEDDING_PROVIDER, GeminiEmbeddingService],
+  // EmbeddingService 為對外編排入口（cache-first embed）；EMBEDDING_PROVIDER 供進階直接呼叫。
+  exports: [EmbeddingService, EMBEDDING_PROVIDER, GeminiEmbeddingService],
 })
 export class EmbeddingsModule {}
