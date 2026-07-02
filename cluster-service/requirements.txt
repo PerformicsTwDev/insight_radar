@@ -1,0 +1,10 @@
+# Pinned for reproducibility (NFR-11) — cluster-service runtime deps.
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4
+numpy==1.26.4
+scipy==1.13.1
+scikit-learn==1.5.2
+numba==0.60.0
+umap-learn==0.5.7
+hdbscan==0.8.40

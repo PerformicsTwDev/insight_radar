@@ -1,0 +1,38 @@
+name: cluster-service
+
+# 獨立 Python 服務（T8.4）：僅在 cluster-service/** 變動時跑（不拖累主 jest CI），加每週 smoke。
+on:
+  push:
+    branches: [main]
+    paths: ['cluster-service/**']
+  pull_request:
+    branches: [main]
+    paths: ['cluster-service/**']
+  schedule:
+    - cron: '0 6 * * 1' # 週一 06:00 UTC 容器 smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cluster-service-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (umap + hdbscan)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cluster-service
+    env:
+      OMP_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
