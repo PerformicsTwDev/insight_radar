@@ -215,7 +215,13 @@ export class TopicRepository {
       }),
     );
 
+    // 冪等（M8-R1，NFR-12）：先清該 run 既有 clusters/assignments 再寫 → BullMQ 重跑同 job（persist 後
+    // markStatus/updateProgress 暫時失敗、或 worker 被殺）重新 persist 時**覆寫**而非撞 PK (run_id,
+    // normalized_text) 的 P2002（原會 rollback → job 永久失敗、run 卡 running、重打 Python/Azure）。
+    // 全在單一 transaction 內原子：delete（assignments、clusters）→ create（clusters、assignments）。
     await this.prisma.$transaction([
+      this.prisma.keywordClusterAssignment.deleteMany({ where: { runId } }),
+      this.prisma.topicCluster.deleteMany({ where: { runId } }),
       this.prisma.topicCluster.createMany({ data: clusterRows }),
       this.prisma.keywordClusterAssignment.createMany({ data: assignmentRows }),
     ]);
