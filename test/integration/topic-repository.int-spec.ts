@@ -157,6 +157,31 @@ describe('TopicRepository (integration · Testcontainers, TC-45)', () => {
     expect(await prisma.keywordClusterAssignment.count({ where: { runId } })).toBe(2);
   });
 
+  it('re-persist with a different membership overwrites stale rows + re-points assignments (M8-R6)', async () => {
+    const runId = await createRun();
+    // 首次：2 群 + 3 assignments（a→0, b→1, c→0）。
+    await repo.persist(
+      runId,
+      [clusterRecord(0), clusterRecord(1)],
+      [assignment('a', 0), assignment('b', 1), assignment('c', 0)],
+    );
+    const firstClusterIds = (await prisma.topicCluster.findMany({ where: { runId } })).map(
+      (c) => c.id,
+    );
+
+    // 重跑（不同結果，如降級）：1 群 + 1 assignment（a→0）。舊的 b/c + cluster 1 應被清除，
+    // 且 'a' 應指向**新**的 cluster uuid（delete-by-runId 全清 → createMany 產新 id；clusterId 無 DB FK，
+    // 若殘留舊 id 會靜默 dangling）。
+    await repo.persist(runId, [clusterRecord(0)], [assignment('a', 0)]);
+
+    expect(await prisma.topicCluster.count({ where: { runId } })).toBe(1);
+    const rows = await prisma.keywordClusterAssignment.findMany({ where: { runId } });
+    expect(rows.map((r) => r.normalizedText)).toEqual(['a']); // b/c stale 已清
+    const newClusterId = (await prisma.topicCluster.findFirstOrThrow({ where: { runId } })).id;
+    expect(rows[0].clusterId).toBe(newClusterId); // 指向新 cluster
+    expect(firstClusterIds).not.toContain(rows[0].clusterId); // 非首次的舊 id（已 re-point）
+  });
+
   describe('run lifecycle (T8.9a / TC-46)', () => {
     const runInput = (idempotencyKey: string) => ({
       keywordAnalysisId: randomUUID(),
