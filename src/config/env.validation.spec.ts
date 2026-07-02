@@ -32,7 +32,8 @@ describe('env validation schema (TC-19 fail-fast)', () => {
     'GOOGLE_ADS_DEVELOPER_TOKEN',
     'AZURE_OPENAI_ENDPOINT',
     'DATABASE_URL',
-    'CLUSTER_SERVICE_URL',
+    'GEMINI_API_KEY', // M8 embeddings 憑證（★ redact）
+    'CLUSTER_SERVICE_URL', // M8 分群服務端點
   ])('rejects when required %s is missing', (key) => {
     const env: Record<string, string> = { ...validEnv };
     delete env[key];
@@ -139,6 +140,65 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       );
       expect(error).toBeDefined();
       expect(error?.message).toContain('TOPIC_SCHEMA_VERSION');
+    });
+
+    // —— T8.13：M8 全 env 盤點——確認整批 embeddings/SERP/cluster/topics 可調參數 default 一致套用 ——
+    it('applies all M8 defaults when the tunables are omitted (embeddings/SERP/cluster/topics)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv);
+      expect(error).toBeUndefined();
+      // embeddings
+      expect(value.GEMINI_EMBEDDING_MODEL).toBe('gemini-embedding-001');
+      expect(value.GEMINI_EMBEDDING_TASK_TYPE).toBe('CLUSTERING');
+      expect(value.GEMINI_EMBEDDING_BATCH_SIZE).toBe(100);
+      expect(value.GEMINI_EMBEDDING_CONCURRENCY).toBe(4);
+      expect(value.GEMINI_EMBEDDING_MAX_RETRIES).toBe(5);
+      expect(value.GEMINI_EMBEDDING_BACKOFF_BASE_MS).toBe(500);
+      expect(value.EMBEDDING_SCHEMA_VERSION).toBe('v1');
+      expect(value.CACHE_TTL_EMBEDDING_MS).toBe(5184000000);
+      // SERP（預設關閉→純關鍵字；憑證免填）
+      expect(value.SERP_ENABLED).toBe(false);
+      expect(value.SERP_TOP_N).toBe(5);
+      expect(value.SERP_FRESHNESS_DAYS).toBe(30);
+      expect(value.SERP_MAX_RETRIES).toBe(3);
+      expect(value.SERP_BACKOFF_BASE_MS).toBe(500);
+      // cluster-service
+      expect(value.CLUSTER_SERVICE_TIMEOUT_MS).toBe(90000);
+      expect(value.CLUSTER_SERVICE_RETRIES).toBe(2);
+      expect(value.CLUSTER_SERVICE_BACKOFF_BASE_MS).toBe(1000);
+      // topics
+      expect(value.TOPIC_LLM_BATCH_CLUSTERS).toBe(20);
+      expect(value.TOPICS_QUEUE_CONCURRENCY).toBe(3);
+    });
+
+    it.each(['EMBEDDING_SCHEMA_VERSION', 'TOPIC_PROMPT_VERSION', 'TOPIC_SCHEMA_VERSION'])(
+      'rejects a non-`v\\d+` %s (cache-namespace version pin)',
+      (key) => {
+        const { error } = validationSchema.validate(
+          { ...validEnv, [key]: 'nope' },
+          { abortEarly: false },
+        );
+        expect(error).toBeDefined();
+        expect(error?.message).toContain(key);
+      },
+    );
+
+    it('pins GEMINI_EMBEDDING_BATCH_SIZE to the 500 hard cap (>500 order bug)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, GEMINI_EMBEDDING_BATCH_SIZE: '501' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('GEMINI_EMBEDDING_BATCH_SIZE');
+    });
+
+    it('requires SERP_API_URL as a URI when SERP_ENABLED=true', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, SERP_ENABLED: 'true', SERP_API_KEY: 'k', SERP_API_URL: 'not-a-url' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('SERP_API_URL');
     });
 
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
