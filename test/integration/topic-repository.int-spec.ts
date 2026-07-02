@@ -134,6 +134,29 @@ describe('TopicRepository (integration · Testcontainers, TC-45)', () => {
     expect(intentCount).toBe(0);
   });
 
+  it('persist is idempotent on job re-entry (BullMQ retry does not P2002, M8-R1)', async () => {
+    const runId = await createRun();
+    await repo.persist(
+      runId,
+      [clusterRecord(0), clusterRecord(1)],
+      [assignment('a', 0), assignment('b', 1)],
+    );
+
+    // 模擬 BullMQ 重跑同 job（例如 persist 後 markStatus 拋暫時錯）→ 再 persist 同 runId。
+    // 修前：assignments PK (run_id, normalized_text) → P2002 → transaction rollback → job 永久失敗。
+    await expect(
+      repo.persist(
+        runId,
+        [clusterRecord(0), clusterRecord(1)],
+        [assignment('a', 0), assignment('b', 1)],
+      ),
+    ).resolves.toBeUndefined();
+
+    // 冪等：最終仍為一組（覆寫、不重複、不報錯）。
+    expect(await prisma.topicCluster.count({ where: { runId } })).toBe(2);
+    expect(await prisma.keywordClusterAssignment.count({ where: { runId } })).toBe(2);
+  });
+
   describe('run lifecycle (T8.9a / TC-46)', () => {
     const runInput = (idempotencyKey: string) => ({
       keywordAnalysisId: randomUUID(),
