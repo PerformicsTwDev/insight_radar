@@ -30,6 +30,7 @@ import type { TopicJobPayload, TopicJobResult } from './topic-job.types';
 import type { ClusterToName } from './topic-naming.prompt';
 import { TopicJobMetrics } from './topic-job-metrics';
 import { TopicNamingService } from './topic-naming.service';
+import type { TopicPhase } from './topic-run.types';
 import { TopicRepository } from './topic.repository';
 
 /** pipeline 內部關鍵字（snapshot row 子集，滿足 representatives/embed/assemble 輸入）。 */
@@ -112,7 +113,7 @@ export class TopicClusterProcessor
       const endLoad = metrics.startPhase('load');
       const keywords = await this.loadKeywords(snapshotId);
       endLoad();
-      await this.repo.updateProgress(runId, { phase: 'load', percent: PHASE_PERCENT.load });
+      await this.reportProgress(job, runId, 'load', PHASE_PERCENT.load);
 
       // serp（可選；失敗 → 降級純文字、續跑）
       let serpDegraded = false;
@@ -127,7 +128,7 @@ export class TopicClusterProcessor
         }
       }
       endSerp();
-      await this.repo.updateProgress(runId, { phase: 'serp', percent: PHASE_PERCENT.serp });
+      await this.reportProgress(job, runId, 'serp', PHASE_PERCENT.serp);
 
       // embed + cluster（外部階段；外部失敗 → partial 0 群、infra → rethrow）
       let labels: number[];
@@ -144,7 +145,7 @@ export class TopicClusterProcessor
           })),
         );
         endEmbed();
-        await this.repo.updateProgress(runId, { phase: 'embed', percent: PHASE_PERCENT.embed });
+        await this.reportProgress(job, runId, 'embed', PHASE_PERCENT.embed);
         const endCluster = metrics.startPhase('cluster');
         const result = await this.clustering.cluster(vectors, {
           umap: params.umap,
@@ -154,7 +155,7 @@ export class TopicClusterProcessor
         labels = result.labels;
         probabilities = result.probabilities;
         endCluster();
-        await this.repo.updateProgress(runId, { phase: 'cluster', percent: PHASE_PERCENT.cluster });
+        await this.reportProgress(job, runId, 'cluster', PHASE_PERCENT.cluster);
       } catch (error) {
         if (isInfraError(error)) {
           throw error; // 基礎設施故障 → BullMQ 整 job 重試
@@ -172,23 +173,20 @@ export class TopicClusterProcessor
         topK: params.topK,
       });
       endRep();
-      await this.repo.updateProgress(runId, {
-        phase: 'represent',
-        percent: PHASE_PERCENT.represent,
-      });
+      await this.reportProgress(job, runId, 'represent', PHASE_PERCENT.represent);
 
       const endName = metrics.startPhase('name');
       const namings = await this.naming.nameClusters(toClustersToName(rep.clusters));
       endName();
       const namingDegraded = namings.some((naming) => naming.degraded);
-      await this.repo.updateProgress(runId, { phase: 'name', percent: PHASE_PERCENT.name });
+      await this.reportProgress(job, runId, 'name', PHASE_PERCENT.name);
 
       const endPersist = metrics.startPhase('persist');
       const clusterRecords = assembleClusterRecords(rep.clusters, namings);
       const assignments = assembleAssignments(labels, probabilities, keywords, namings);
       await this.repo.persist(runId, clusterRecords, assignments);
       endPersist();
-      await this.repo.updateProgress(runId, { phase: 'persist', percent: PHASE_PERCENT.persist });
+      await this.reportProgress(job, runId, 'persist', PHASE_PERCENT.persist);
 
       const status = decideRunStatus({ serpDegraded, namingDegraded });
       await this.repo.markStatus(runId, status, {
@@ -242,6 +240,21 @@ export class TopicClusterProcessor
     } catch (error) {
       this.logger.warn(`metrics emit failed (best-effort): ${scrubSecrets(String(error))}`);
     }
+  }
+
+  /**
+   * 回報階段進度：**同時**寫 DB（GET 輪詢真實來源）與 `job.updateProgress`（BullMQ QueueEvents → topics @Sse
+   * 即時串流，M8-R8）。少了後者，SSE 只會收到終態事件、進度條永不前進（xhigh confirmed）。
+   */
+  private async reportProgress(
+    job: Job<TopicJobPayload>,
+    runId: string,
+    phase: TopicPhase,
+    percent: number,
+  ): Promise<void> {
+    const progress = { phase, percent };
+    await this.repo.updateProgress(runId, progress);
+    await job.updateProgress(progress);
   }
 
   /** 讀不可變 snapshot 的關鍵字列（依 rowIndex 序）。 */

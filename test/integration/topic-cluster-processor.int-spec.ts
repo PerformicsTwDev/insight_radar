@@ -123,7 +123,8 @@ describe('TopicClusterProcessor (integration · Testcontainers, TC-46/TC-51)', (
           schemaVersion: 'v1',
         },
       },
-    } as Job<TopicJobPayload>;
+      updateProgress: jest.fn().mockResolvedValue(undefined), // BullMQ SSE 進度（M8-R8）
+    } as unknown as Job<TopicJobPayload>;
   }
 
   it('completes end-to-end: persists clusters + assignments, TopicRun=completed, snapshot immutable', async () => {
