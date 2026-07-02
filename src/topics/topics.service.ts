@@ -16,6 +16,7 @@ import { topicsConfig } from '../config/topics.config';
 import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
 import { TOPICS_QUEUE } from '../queue/queue.constants';
+import { buildTopicsResponse, type TopicsResponse } from './build-topics-response';
 import type { CreateTopicRunDto } from './dto/create-topic-run.dto';
 import { computeTopicIdempotencyKey } from './topic-idempotency';
 import type { TopicJobPayload } from './topic-job.types';
@@ -117,5 +118,22 @@ export class TopicsService {
     }
 
     return { topicJobId: runId };
+  }
+
+  /**
+   * 取某分析的分群結果（GET，Design §16.3）。無 run→404；進行中→回其 status（clusters 可能為空、client 續輪詢）。
+   * 每字 topic/parent/intent 由所屬群繼承（不覆寫 FR-4 keyword_intents）。
+   */
+  async getTopics(analysisId: string): Promise<TopicsResponse> {
+    const run = await this.repo.findLatestRunByAnalysis(analysisId);
+    if (!run) {
+      throw new NotFoundException(`no topic run for analysis ${analysisId}`);
+    }
+    const [clusters, assignments, keywordTexts] = await Promise.all([
+      this.repo.loadClusters(run.id),
+      this.repo.loadAssignments(run.id),
+      this.repo.loadKeywordTexts(run.snapshotId),
+    ]);
+    return buildTopicsResponse(run, clusters, assignments, keywordTexts);
   }
 }
