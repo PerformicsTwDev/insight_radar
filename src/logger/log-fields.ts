@@ -17,6 +17,11 @@ export const LogField = {
   EXPANDED: 'expanded',
   LABELED: 'labeled',
   TOTAL: 'total',
+  // 分群 job 摘要欄位（T8.12，NFR-11）。
+  KEYWORD_COUNT: 'keywordCount',
+  CLUSTER_COUNT: 'clusterCount',
+  NOISE_COUNT: 'noiseCount',
+  DEGRADED: 'degraded',
 } as const;
 
 export type LogField = (typeof LogField)[keyof typeof LogField];
