@@ -48,7 +48,13 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   // 不把 @Injectable + class-typed 參數 emitDecoratorMetadata 產生的不可測 undefined-guard 分支當 core 門檻。
   './src/**/intent-postprocess*.ts': coreThreshold, // intent 後處理（TC-7）
   './src/**/intent.service.ts': coreThreshold, // 韌性/length 拆批（T2.5）+ cache-first 編排（T4.2）
-  './src/embeddings/**': coreThreshold, // buildEmbeddingInput/L2 normalize（TC-39/40）
+  // embeddings core = **邏輯**：輸入組裝（TC-39）、L2 normalize、Gemini adapter 的 batch/backoff/normalize/
+  // dim-guard（TC-40）。`embedding.repository`（raw-SQL DB adapter）、`embeddings.module`/`gemini-embed.factory`
+  // （DI wiring/factory）走 global 85%——與 snapshot-query / IntentCache / MetricsCache adapter 一致（不把
+  // @Injectable + class-typed 參數 emitDecoratorMetadata 的不可測 undefined-guard 分支當 core 門檻）。
+  './src/embeddings/build-embedding-input.ts': coreThreshold,
+  './src/embeddings/l2-normalize.ts': coreThreshold,
+  './src/embeddings/gemini-embedding.service.ts': coreThreshold,
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
 // 讓門檻集中定義於此、並在對應 core 目錄一建立就「自動生效」（毋需事後回頭補設定）。
