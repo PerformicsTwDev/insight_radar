@@ -128,3 +128,53 @@ model SerpFetch {
   @@index([geo, language, normalizedText, fetchedAt])
   @@map("serp_fetches")
 }
+
+// topic_cluster_runs / topic_clusters / keyword_cluster_assignments（T8.8，Design §16.4，FR-15/18）：
+// 主題分群 job 的獨立實體（不複用 KeywordAnalysis）+ 每群命名 + 每字群指派。標準型別（無 pgvector）→ typed
+// `prisma.<model>` delegate。群層 intent 與 FR-4 每字 `keyword_intents` **分表互補、不覆寫**（Design §16.1 註）。
+model TopicRun {
+  id                String         @id @default(uuid()) @db.Uuid
+  keywordAnalysisId String         @map("keyword_analysis_id") @db.Uuid
+  snapshotId        String         @map("snapshot_id") @db.Uuid
+  status            String // queued|running|completed|partial|failed|canceled
+  params            Json // embedding+umap+hdbscan+serpEnabled+promptVer+schemaVer
+  progress          Json
+  idempotencyKey    String         @unique @map("idempotency_key") // hash(snapshot.checksum + canonical params)
+  clusterCount      Int?           @map("cluster_count")
+  noiseCount        Int?           @map("noise_count")
+  error             String?
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  clusters          TopicCluster[]
+
+  @@map("topic_cluster_runs")
+}
+
+model TopicCluster {
+  id                     String   @id @default(uuid()) @db.Uuid
+  run                    TopicRun @relation(fields: [runId], references: [id])
+  runId                  String   @map("run_id") @db.Uuid
+  clusterLabel           Int      @map("cluster_label") // HDBSCAN label（≥0）
+  topicName              String   @map("topic_name")
+  parentTopic            String   @map("parent_topic")
+  intentLabel            String   @map("intent_label") // 群主導意圖（4 值；不覆寫 FR-4 每字 label）
+  topicType              String   @map("topic_type")
+  reason                 String?
+  clusterVolume          BigInt?  @map("cluster_volume") // Σ avgMonthlySearches（null 略過→可能為 null）
+  keywordCount           Int      @map("keyword_count")
+  confidence             Float?
+  representativeKeywords Json     @map("representative_keywords")
+
+  @@index([runId])
+  @@map("topic_clusters")
+}
+
+model KeywordClusterAssignment {
+  runId          String  @map("run_id") @db.Uuid
+  normalizedText String  @map("normalized_text")
+  clusterId      String? @map("cluster_id") @db.Uuid // null = noise
+  confidence     Float // HDBSCAN soft probability
+  isNoise        Boolean @map("is_noise")
+
+  @@id([runId, normalizedText])
+  @@map("keyword_cluster_assignments")
+}
