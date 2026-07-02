@@ -109,4 +109,11 @@ export const validationSchema = Joi.object({
   SERP_RETENTION_DAYS: Joi.number().integer().min(1).optional(), // 未設＝保留全部歷史（SERP-over-time）
   SERP_MAX_RETRIES: Joi.number().integer().min(0).default(3), // 429/5xx/傳輸層退避重試上限
   SERP_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(500), // 退避起始延遲（2^(n-1)*base）
+
+  // —— Clustering（M8，Design §16；HTTP → Python cluster-service）——
+  // topics 分群一律經此服務（無 enable 旗標）→ URL 必填、開機即 fail-fast（缺值不留到 job 才炸）。
+  CLUSTER_SERVICE_URL: Joi.string().uri().required(),
+  CLUSTER_SERVICE_TIMEOUT_MS: Joi.number().integer().min(0).default(90000), // CPU-bound UMAP+HDBSCAN 需長 timeout
+  CLUSTER_SERVICE_RETRIES: Joi.number().integer().min(0).default(2), // 逾時/5xx/傳輸層退避重試上限（達上限 → partial）
+  CLUSTER_SERVICE_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(1000), // 退避起始延遲（2^(n-1)*base）
 });

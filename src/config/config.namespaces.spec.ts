@@ -1,6 +1,7 @@
 import { appConfig } from './app.config';
 import { azureConfig } from './azure.config';
 import { cacheConfig } from './cache.config';
+import { clusteringConfig } from './clustering.config';
 import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
 import { databaseConfig } from './database.config';
@@ -64,6 +65,10 @@ const ENV: Record<string, string> = {
   SERP_FRESHNESS_DAYS: '30',
   SERP_MAX_RETRIES: '3',
   SERP_BACKOFF_BASE_MS: '500',
+  CLUSTER_SERVICE_URL: 'http://cluster-service:8000',
+  CLUSTER_SERVICE_TIMEOUT_MS: '90000',
+  CLUSTER_SERVICE_RETRIES: '2',
+  CLUSTER_SERVICE_BACKOFF_BASE_MS: '1000',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -164,6 +169,15 @@ describe('config namespaces (registerAs, typed)', () => {
       retentionDays: undefined, // 未設＝保留全部
       maxRetries: 3,
       backoffBaseMs: 500,
+    });
+  });
+
+  it('clusteringConfig maps cluster-service env (coerced to number; M8)', () => {
+    expect(clusteringConfig()).toEqual({
+      serviceUrl: 'http://cluster-service:8000',
+      timeoutMs: 90000,
+      retries: 2,
+      backoffBaseMs: 1000,
     });
   });
 
