@@ -62,6 +62,8 @@ const ENV: Record<string, string> = {
   SERP_API_URL: 'https://serpapi.com/search',
   SERP_TOP_N: '5',
   SERP_FRESHNESS_DAYS: '30',
+  SERP_MAX_RETRIES: '3',
+  SERP_BACKOFF_BASE_MS: '500',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -160,6 +162,8 @@ describe('config namespaces (registerAs, typed)', () => {
       topN: 5,
       freshnessDays: 30,
       retentionDays: undefined, // 未設＝保留全部
+      maxRetries: 3,
+      backoffBaseMs: 500,
     });
   });
 

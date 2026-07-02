@@ -16,6 +16,10 @@ export interface SerpConfig {
   freshnessDays: number;
   /** `serp_fetches` 歷史保留天數；undefined = 保留全部（SERP-over-time）。 */
   retentionDays: number | undefined;
+  /** 429/5xx/傳輸層退避重試上限。 */
+  maxRetries: number;
+  /** 退避起始延遲（ms，指數 `2^(n-1)*base`）。 */
+  backoffBaseMs: number;
 }
 
 export const serpConfig = registerAs('serp', (): SerpConfig => ({
@@ -29,4 +33,6 @@ export const serpConfig = registerAs('serp', (): SerpConfig => ({
     process.env.SERP_RETENTION_DAYS === undefined
       ? undefined
       : Number(process.env.SERP_RETENTION_DAYS),
+  maxRetries: Number(process.env.SERP_MAX_RETRIES),
+  backoffBaseMs: Number(process.env.SERP_BACKOFF_BASE_MS),
 }));

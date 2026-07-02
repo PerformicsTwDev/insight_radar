@@ -14,6 +14,8 @@ describe('serpConfig (T8.3)', () => {
       SERP_TOP_N: '10',
       SERP_FRESHNESS_DAYS: '7',
       SERP_RETENTION_DAYS: '90',
+      SERP_MAX_RETRIES: '2',
+      SERP_BACKOFF_BASE_MS: '250',
     };
     expect(serpConfig()).toEqual({
       enabled: false,
@@ -23,6 +25,8 @@ describe('serpConfig (T8.3)', () => {
       topN: 10,
       freshnessDays: 7,
       retentionDays: 90,
+      maxRetries: 2,
+      backoffBaseMs: 250,
     });
   });
 });
