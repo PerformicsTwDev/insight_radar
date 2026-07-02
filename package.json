@@ -30,6 +30,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@google/genai": "^2.10.0",
     "@keyv/redis": "^5.1.6",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/cache-manager": "^3.1.3",
