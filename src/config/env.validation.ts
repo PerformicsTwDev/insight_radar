@@ -94,4 +94,17 @@ export const validationSchema = Joi.object({
     .pattern(/^v\d+$/)
     .default('v1'),
   CACHE_TTL_EMBEDDING_MS: Joi.number().integer().min(0).default(5184000000), // 60 天（ms）
+
+  // —— SERP（M8，Design §14/§16；MVP 預設關閉→純文字 embedding）——
+  SERP_ENABLED: Joi.boolean().default(false),
+  // 供應商/憑證/端點：僅 SERP_ENABLED 時必填（Joi conditional；關閉時省設定即可跑純關鍵字）。
+  SERP_PROVIDER: Joi.string()
+    .valid('serpapi', 'serper')
+    .when('SERP_ENABLED', { is: true, then: Joi.required(), otherwise: Joi.optional() })
+    .default('serpapi'),
+  SERP_API_KEY: Joi.string().when('SERP_ENABLED', { is: true, then: Joi.required() }), // ★ redact（NFR-5）
+  SERP_API_URL: Joi.string().uri().when('SERP_ENABLED', { is: true, then: Joi.required() }),
+  SERP_TOP_N: Joi.number().integer().min(1).default(5),
+  SERP_FRESHNESS_DAYS: Joi.number().integer().min(0).default(30), // 窗內重用 serp_fetches、不重抓
+  SERP_RETENTION_DAYS: Joi.number().integer().min(1).optional(), // 未設＝保留全部歷史（SERP-over-time）
 });

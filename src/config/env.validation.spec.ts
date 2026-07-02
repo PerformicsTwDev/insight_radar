@@ -86,6 +86,21 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(error?.message).toContain('GEMINI_EMBEDDING_DIM');
     });
 
+    it('defaults SERP off → SERP credentials not required (MVP pure-keyword)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      expect(error).toBeUndefined(); // validEnv has no SERP_* keys
+      expect(validatedValue(validEnv).SERP_ENABLED).toBe(false);
+    });
+
+    it('requires SERP_API_KEY / SERP_API_URL when SERP_ENABLED=true (Joi conditional)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, SERP_ENABLED: 'true' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('SERP_API_KEY');
+    });
+
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
       const { error } = validationSchema.validate(
         { ...validEnv, GOOGLE_ADS_SEED_BATCH_SIZE: '21' },
