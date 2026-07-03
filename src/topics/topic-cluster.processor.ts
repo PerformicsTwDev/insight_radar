@@ -245,6 +245,11 @@ export class TopicClusterProcessor
   /**
    * 回報階段進度：**同時**寫 DB（GET 輪詢真實來源）與 `job.updateProgress`（BullMQ QueueEvents → topics @Sse
    * 即時串流，M8-R8）。少了後者，SSE 只會收到終態事件、進度條永不前進（xhigh confirmed）。
+   *
+   * `repo.updateProgress`（Prisma，durable）失敗 → 上拋，讓呼叫端 {@link isInfraError} 判為 infra → BullMQ 重試。
+   * `job.updateProgress`（Redis/BullMQ 進度發布）為**純觀測副作用**，**best-effort**：吞錯記 warn（同
+   * {@link emitMetrics}）。否則 embed/cluster try/catch 會把 Redis 短暫失敗誤判為外部降級、把已成功的昂貴管線
+   * 標成 `partial`（0 群、丟棄結果、且不重試）——違 NFR-12（partial 僅限外部階段失敗）。（M8-R12）
    */
   private async reportProgress(
     job: Job<TopicJobPayload>,
@@ -254,7 +259,11 @@ export class TopicClusterProcessor
   ): Promise<void> {
     const progress = { phase, percent };
     await this.repo.updateProgress(runId, progress);
-    await job.updateProgress(progress);
+    try {
+      await job.updateProgress(progress);
+    } catch (error) {
+      this.logger.warn(`job progress publish failed (best-effort): ${scrubSecrets(String(error))}`);
+    }
   }
 
   /** 讀不可變 snapshot 的關鍵字列（依 rowIndex 序）。 */
