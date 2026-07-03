@@ -25,5 +25,5 @@ gh label create "status:needs-info" --color cccccc -f
 gh label create "spike"             --color fbca04 -f   # spike.yml 模板引用，需先建立否則被靜默忽略
 
 # 註：`dependencies` 由 Dependabot 自動建立；dependabot.yml 的 github-actions 區塊用既有的 `area:ci`（非裸 `ci`）
-# milestone：不用 label，改用原生 GitHub Milestone（M0–M7，§4.4）
+# milestone：不用 label，改用原生 GitHub Milestone（M0–M8，§4.4；新增里程碑時以 Task.md §0.1 為準）
 echo "✓ labels 已建立"

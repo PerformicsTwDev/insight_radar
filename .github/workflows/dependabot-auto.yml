@@ -1,0 +1,26 @@
+# Dependabot dev 相依 minor/patch 自動 approve（DevelopmentRules §14.1 方案①）。
+# major 與生產相依一律人工評估（§14.2：不可盲合 major）。
+# 合併動作仍由人/Claude 執行——受 guard-bash 的 merge 驗綠 hook 把關（ADR-0003）。
+name: dependabot-auto
+
+on: pull_request
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  auto-approve:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - uses: dependabot/fetch-metadata@v2
+        id: meta
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Approve dev minor/patch
+        if: ${{ steps.meta.outputs.dependency-type == 'direct:development' && steps.meta.outputs.update-type != 'version-update:semver-major' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr review --approve "$PR_URL"

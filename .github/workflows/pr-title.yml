@@ -44,6 +44,7 @@ jobs:
             queue
             db
             deps
+            deps-dev
             release
           requireScope: false
           subjectPattern: ^.{1,60}$

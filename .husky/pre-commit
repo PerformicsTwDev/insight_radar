@@ -1,1 +1,9 @@
 pnpm exec lint-staged
+
+# 本機祕密掃描（NFR-5 defense-in-depth）：私有 repo 無 GHAS push protection，
+# 這層在 commit 前就擋、比 CI secret-scan 更早。未安裝則警告不擋（CI 仍會把關）。
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact
+else
+  echo "⚠ gitleaks 未安裝（brew install gitleaks）— 跳過本機祕密掃描，CI secret-scan 仍會把關" >&2
+fi
