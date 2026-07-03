@@ -125,6 +125,30 @@ describe('TopicsService.create (T8.10 / TC-48)', () => {
     });
   });
 
+  it('derives distinct idempotency keys for distinct analyses with identical checksum + params (M8-R7 wiring · M8-R13)', async () => {
+    const { service, deps } = makeService();
+    deps.createRun.mockResolvedValue({ runId: 'run-x', created: false });
+    // 兩個 analysisId 不同、但 snapshot.checksum + params 位元完全相同的分析。
+    const mkAnalysis = (id: string) => ({
+      id,
+      status: 'completed',
+      params: { geo: 'US', language: 'en' },
+      resultSnapshot: { id: `snap-${id}`, checksum: 'IDENTICAL', keywordCount: 3 },
+    });
+
+    deps.findUnique.mockResolvedValueOnce(mkAnalysis('analysis-A'));
+    await service.create('analysis-A', { topK: 20 });
+    deps.findUnique.mockResolvedValueOnce(mkAnalysis('analysis-B'));
+    await service.create('analysis-B', { topK: 20 });
+
+    const keyA = (deps.createRun.mock.calls[0][0] as { idempotencyKey: string }).idempotencyKey;
+    const keyB = (deps.createRun.mock.calls[1][0] as { idempotencyKey: string }).idempotencyKey;
+    // 綁 analysisId → 內容位元相同的不同分析必得不同 key（否則後者複用前者的 run、GET 永久 404，M8-R7）。
+    // 若把 analysisId 從 key 組成中拿掉（回退 M8-R7），兩 key 相同 → 本測試轉紅。
+    expect(keyA).toMatch(/^[0-9a-f]{64}$/);
+    expect(keyA).not.toBe(keyB);
+  });
+
   it('does not re-enqueue on idempotency hit (created=false)', async () => {
     const { service, deps } = makeService();
     deps.findUnique.mockResolvedValue(analysis('completed'));
