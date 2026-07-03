@@ -162,6 +162,59 @@ describe('TopicClusterProcessor (T8.9b / TC-46 · TC-51)', () => {
     expect(phases).toEqual(['load', 'serp', 'embed', 'cluster', 'represent', 'name', 'persist']);
   });
 
+  it('does NOT downgrade a successful run to partial when a Redis progress-publish blips mid-pipeline (M8-R12)', async () => {
+    const { processor, deps } = makeProcessor();
+    deps.findMany.mockResolvedValue([snapshotRow('a'), snapshotRow('b'), snapshotRow('c')]);
+    deps.embed.mockResolvedValue([
+      [1, 0],
+      [1, 0],
+      [0, 1],
+    ]);
+    deps.cluster.mockResolvedValue(clusterResult([0, 0, 1], [0.9, 0.8, 0.95]));
+    deps.nameClusters.mockResolvedValue([naming(0), naming(1)]);
+    // Transient Redis 失敗只發生在 'cluster' 進度發布——此時 embed+cluster 皆已成功。progress publish 是
+    // 純觀測副作用（SSE），best-effort：Redis blip 絕不可讓 embed/cluster try/catch 誤判為外部降級而標 partial。
+    const jobUpdateProgress = jest.fn<Promise<void>, [{ phase: string; percent: number }]>();
+    jobUpdateProgress.mockImplementation((p) =>
+      p.phase === 'cluster' ? Promise.reject(new Error('redis blip')) : Promise.resolve(),
+    );
+
+    const result = await processor.process(job({}, jobUpdateProgress));
+
+    expect(result).toEqual({ status: 'completed', clusterCount: 2, noiseCount: 0 });
+    expect(deps.markStatus).toHaveBeenLastCalledWith('run-1', 'completed', {
+      clusterCount: 2,
+      noiseCount: 0,
+    });
+    // 成功且昂貴的管線結果不得被丟棄、run 不得被標成 partial。
+    expect(deps.markStatus).not.toHaveBeenCalledWith('run-1', 'partial', expect.anything());
+    expect(deps.persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT fail/retry a completed job when a Redis progress-publish blips on an outer-try phase (M8-R12)', async () => {
+    const { processor, deps } = makeProcessor();
+    deps.findMany.mockResolvedValue([snapshotRow('a'), snapshotRow('b'), snapshotRow('c')]);
+    deps.embed.mockResolvedValue([
+      [1, 0],
+      [1, 0],
+      [0, 1],
+    ]);
+    deps.cluster.mockResolvedValue(clusterResult([0, 0, 1], [0.9, 0.8, 0.95]));
+    deps.nameClusters.mockResolvedValue([naming(0), naming(1)]);
+    // 'persist' 進度發布在外層 try——同屬 best-effort：Redis blip 也不可讓已持久化的 job 被上拋而整批重試。
+    const jobUpdateProgress = jest.fn<Promise<void>, [{ phase: string; percent: number }]>();
+    jobUpdateProgress.mockImplementation((p) =>
+      p.phase === 'persist' ? Promise.reject(new Error('redis blip')) : Promise.resolve(),
+    );
+
+    await expect(processor.process(job({}, jobUpdateProgress))).resolves.toEqual({
+      status: 'completed',
+      clusterCount: 2,
+      noiseCount: 0,
+    });
+    expect(deps.persist).toHaveBeenCalledTimes(1);
+  });
+
   it('marks partial (0 clusters, no persist) when clustering is unavailable (TC-51)', async () => {
     const { processor, deps } = makeProcessor();
     deps.findMany.mockResolvedValue([snapshotRow('a'), snapshotRow('b')]);
