@@ -46,11 +46,13 @@ export default tseslint.config(
             { name: '@nestjs/bull', message: '本案用 @nestjs/bullmq（非舊版 @nestjs/bull）。' },
             {
               name: 'cache-manager-redis-store',
-              message: '本案用 cache-manager v6 + @keyv/redis（非舊 redis-store）。',
+              message:
+                '本案用 cache-manager v6+（Keyv 架構：keyv + @keyv/redis），禁舊 redis-store。',
             },
             {
               name: 'cache-manager-ioredis',
-              message: '本案用 cache-manager v6 + @keyv/redis（非 ioredis store）。',
+              message:
+                '本案用 cache-manager v6+（Keyv 架構：keyv + @keyv/redis），禁 ioredis store。',
             },
           ],
         },

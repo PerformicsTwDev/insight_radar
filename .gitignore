@@ -27,6 +27,8 @@ npm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 
-# === Claude Code ===
-# 提交共享設定（settings.json / hooks / commands / agents / CLAUDE.md）；忽略個人本機覆寫
+# === Claude Code / 專案文件 ===
+# ⚠ 實際政策（ADR-0004，本機 only）：.claude/、CLAUDE.md、docs/_p/ 整批由「全域」
+# ~/.gitignore_global 忽略、不入庫（以全域為權威來源）。下行僅為 defense-in-depth：
+# 防全域規則缺失的機器意外提交個人覆寫檔。
 .claude/settings.local.json

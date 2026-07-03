@@ -10,10 +10,11 @@ on:
 permissions:
   contents: read
 
-# 同一 PR 後續 push 取消前一輪，省 runner
+# 同一 PR 後續 push 取消前一輪，省 runner；main 分支不取消——
+# 連續 squash merge 時 main 的紅燈 run 若被取消會吞掉 stop-the-line 訊號（DevRules §11.8）
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   NODE_ENV: test # 觸發 ConfigModule 載入 .env.test（假 env、外部 mock）
@@ -21,34 +22,13 @@ env:
   FORCE_COLOR: '1'
 
 jobs:
-  # —— Bootstrap 守門 ——
-  # T0.1 引入 package.json 之前（seed / Dependabot 階段）沒有可建置的應用程式。
-  # 不能用 job-level `if: hashFiles(...)`：job 條件在 checkout 之前求值、workspace 為空，
-  # GitHub 會判為 Invalid workflow file（startup failure）。故改用一個先 checkout 再偵測的
-  # 守門 job 輸出布林，quality/test 以 `needs` + `if` 乾淨地 skip（中性，不紅）。
-  # T0.1 之後 package.json 恆存在 → 兩個 job 永遠執行，本守門自動失效。
-  guard:
-    name: detect app
-    runs-on: ubuntu-latest
-    outputs:
-      app: ${{ steps.detect.outputs.app }}
-    steps:
-      - uses: actions/checkout@v7
-      - id: detect
-        run: |
-          if [ -f package.json ]; then
-            echo "app=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "app=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::尚未有 package.json（T0.1 之前）— 跳過 Node 建置/測試 job。"
-          fi
+  # （2026-07 移除 T0.1 前的 `guard: detect app` bootstrap 守門 job——package.json 恆存在後
+  #   只剩每個 PR 一段串行延遲，無守門價值。）
 
   # —— 第 1 段：lint / typecheck / build（與 Node 版本無關，單一 LTS）——
   quality:
     name: lint · typecheck · build
     runs-on: ubuntu-latest
-    needs: guard
-    if: ${{ needs.guard.outputs.app == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6 # 須在 setup-node 前；pnpm 版本取自 package.json 的 "packageManager" 欄位
@@ -66,8 +46,9 @@ jobs:
   test:
     name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest # GitHub-hosted runner 內建 Docker daemon → Testcontainers OK
-    needs: guard
-    if: ${{ needs.guard.outputs.app == 'true' }}
+    permissions:
+      contents: read
+      actions: read # coverage ratchet 需下載 main 的 coverage artifact
     strategy:
       fail-fast: false
       matrix:
@@ -97,6 +78,31 @@ jobs:
             const md = ["### Coverage (node 22.x)", "", "| metric | covered |", "| --- | --- |",
               row("statements"), row("branches"), row("functions"), row("lines"), ""].join("\n");
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          '
+      # coverage ratchet（DevRules §11.5）：PR 覆蓋率不得低於 main 基準（容忍 0.1pp）。
+      # 基準 = main 最近一次成功 ci run 上傳的 coverage artifact；缺失（過期/首次）→ 跳過並註記，不假紅。
+      - name: Coverage ratchet vs main baseline (PR only, node 22.x)
+        if: ${{ github.event_name == 'pull_request' && matrix.node == '22.x' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -z "${run_id:-}" ]; then echo "::notice::coverage ratchet: no successful main run found — skip"; exit 0; fi
+          if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name coverage --dir /tmp/base-coverage 2>/dev/null; then
+            echo "::notice::coverage ratchet: baseline artifact unavailable (expired?) — skip"; exit 0
+          fi
+          node -e '
+            const fs = require("node:fs");
+            const base = JSON.parse(fs.readFileSync("/tmp/base-coverage/coverage-summary.json", "utf8")).total;
+            const cur = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+            const TOL = 0.1; let bad = false;
+            for (const k of ["statements", "branches", "functions", "lines"]) {
+              const drop = base[k].pct - cur[k].pct;
+              console.log(`${k}: main ${base[k].pct}% -> pr ${cur[k].pct}% (${(-drop).toFixed(2)}pp)`);
+              if (drop > TOL) { console.error(`::error::coverage ratchet: ${k} dropped ${drop.toFixed(2)}pp (>${TOL}pp) vs main`); bad = true; }
+            }
+            process.exit(bad ? 1 : 0);
           '
       - name: Upload coverage report (single node，避免重複計數)
         if: ${{ matrix.node == '22.x' }}

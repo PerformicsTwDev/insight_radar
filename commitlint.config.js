@@ -39,6 +39,7 @@ module.exports = {
         'queue',
         'db',
         'deps',
+        'deps-dev', // Dependabot dev 相依（prefix-development + include: scope 產生）
         'release',
       ],
     ],
