@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  ioredis: 5.10.1
+  ioredis: 5.11.1
 
 importers:
 
@@ -63,8 +63,8 @@ importers:
         specifier: ^24.1.0
         version: 24.1.0
       ioredis:
-        specifier: 5.10.1
-        version: 5.10.1
+        specifier: 5.11.1
+        version: 5.11.1
       joi:
         specifier: ^18.2.3
         version: 18.2.3
@@ -119,7 +119,7 @@ importers:
         version: 12.0.3
       '@types/ioredis-mock':
         specifier: 8.2.7
-        version: 8.2.7(ioredis@5.10.1)
+        version: 8.2.7(ioredis@5.11.1)
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
@@ -146,7 +146,7 @@ importers:
         version: 9.1.7
       ioredis-mock:
         specifier: ^8.13.1
-        version: 8.13.1(@types/ioredis-mock@8.2.7(ioredis@5.10.1))(ioredis@5.10.1)
+        version: 8.13.1(@types/ioredis-mock@8.2.7(ioredis@5.11.1))(ioredis@5.11.1)
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@22.20.0)(ts-node@10.9.2(@types/node@22.20.0)(typescript@5.9.3))
@@ -703,6 +703,9 @@ packages:
   '@ioredis/as-callback@3.0.0':
     resolution: {integrity: sha512-Kqv1rZ3WbgOrS+hgzJ5xG5WQuhvzzSTRYvNeyPMLOAM78MHSnuKI20JeJGbpuAt//LCuP0vsexZcorqW7kWhJg==}
 
+  '@ioredis/commands@1.10.0':
+    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
+
   '@ioredis/commands@1.5.1':
     resolution: {integrity: sha512-JH8ZL/ywcJyR9MmJ5BNqZllXNZQqQbnVZOqpPQqE1vHiFgAw4NHbvE0FOduNU8IX9babitBT46571OnPTT0Zcw==}
 
@@ -1174,7 +1177,7 @@ packages:
   '@types/ioredis-mock@8.2.7':
     resolution: {integrity: sha512-YsGiaOIYBKeVvu/7GYziAD8qX3LJem5LK00d5PKykzsQJMLysAqXA61AkNuYWCekYl64tbMTqVOMF4SYoCPbQg==}
     peerDependencies:
-      ioredis: 5.10.1
+      ioredis: 5.11.1
 
   '@types/istanbul-lib-coverage@2.0.6':
     resolution: {integrity: sha512-2QF/t/auWm0lsy8XtKVPG19v3sSOQlJe/YHZgfjb/KBBHOGSV+J2q/S671rcq9uTBrLAXmZpqJiaQbMT+zNU1w==}
@@ -1800,6 +1803,10 @@ packages:
   clone@1.0.4:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
+
+  cluster-key-slot@1.1.1:
+    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
+    engines: {node: '>=0.10.0'}
 
   cluster-key-slot@1.1.2:
     resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
@@ -2675,10 +2682,10 @@ packages:
     engines: {node: '>=12.22'}
     peerDependencies:
       '@types/ioredis-mock': ^8
-      ioredis: 5.10.1
+      ioredis: 5.11.1
 
-  ioredis@5.10.1:
-    resolution: {integrity: sha512-HuEDBTI70aYdx1v6U97SbNx9F1+svQKBDo30o0b9fw055LMepzpOOd0Ccg9Q6tbqmBSJaMuY0fB7yw9/vjBYCA==}
+  ioredis@5.11.1:
+    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
     engines: {node: '>=12.22.0'}
 
   ipaddr.js@1.9.1:
@@ -3043,12 +3050,6 @@ packages:
 
   lodash.camelcase@4.3.0:
     resolution: {integrity: sha512-TwuEnCnxbc3rAvhf/LbG7tJUDzhqXyFnv3dtzLOPgCG/hODL7WFnsbwktkD7yUV0RrreP/l1PALq/YSg6VvjlA==}
-
-  lodash.defaults@4.2.0:
-    resolution: {integrity: sha512-qjxPLHd3r5DnsdGacqOMU6pb/avJzdh9tFX2ymgoZE27BmjXrNy/y4LoaiTeAb+O3gL8AfpJGtqfX/ae2leYYQ==}
-
-  lodash.isarguments@3.1.0:
-    resolution: {integrity: sha512-chi4NHZlZqZD18a0imDHnZPrDeBbTtVN7GXMwuGdRH9qotxAjYs3aVLKc7zNOG9eddR5Ksd8rvFEBc9SsggPpg==}
 
   lodash.isplainobject@4.0.6:
     resolution: {integrity: sha512-oSXzaWypCMHkPC3NvBEaPHf0KsA5mvPrOPgQWDsbg8n7orZ290M0BmC/jgRZ4vcJ6DTAhjrsSYgdsW/F+MFOBA==}
@@ -5001,6 +5002,8 @@ snapshots:
 
   '@ioredis/as-callback@3.0.0': {}
 
+  '@ioredis/commands@1.10.0': {}
+
   '@ioredis/commands@1.5.1': {}
 
   '@isaacs/cliui@8.0.2':
@@ -5566,9 +5569,9 @@ snapshots:
     dependencies:
       '@types/node': 22.20.0
 
-  '@types/ioredis-mock@8.2.7(ioredis@5.10.1)':
+  '@types/ioredis-mock@8.2.7(ioredis@5.11.1)':
     dependencies:
-      ioredis: 5.10.1
+      ioredis: 5.11.1
 
   '@types/istanbul-lib-coverage@2.0.6': {}
 
@@ -6164,7 +6167,7 @@ snapshots:
   bullmq@5.79.2:
     dependencies:
       cron-parser: 4.9.0
-      ioredis: 5.10.1
+      ioredis: 5.11.1
       msgpackr: 2.0.4
       node-abort-controller: 3.1.1
       semver: 7.8.5
@@ -6290,6 +6293,8 @@ snapshots:
       wrap-ansi: 7.0.0
 
   clone@1.0.4: {}
+
+  cluster-key-slot@1.1.1: {}
 
   cluster-key-slot@1.1.2: {}
 
@@ -7252,24 +7257,22 @@ snapshots:
 
   ini@4.1.1: {}
 
-  ioredis-mock@8.13.1(@types/ioredis-mock@8.2.7(ioredis@5.10.1))(ioredis@5.10.1):
+  ioredis-mock@8.13.1(@types/ioredis-mock@8.2.7(ioredis@5.11.1))(ioredis@5.11.1):
     dependencies:
       '@ioredis/as-callback': 3.0.0
       '@ioredis/commands': 1.5.1
-      '@types/ioredis-mock': 8.2.7(ioredis@5.10.1)
+      '@types/ioredis-mock': 8.2.7(ioredis@5.11.1)
       fengari: 0.1.5
       fengari-interop: 0.1.4(fengari@0.1.5)
-      ioredis: 5.10.1
+      ioredis: 5.11.1
       semver: 7.8.5
 
-  ioredis@5.10.1:
+  ioredis@5.11.1:
     dependencies:
-      '@ioredis/commands': 1.5.1
-      cluster-key-slot: 1.1.2
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
       debug: 4.4.3
       denque: 2.1.0
-      lodash.defaults: 4.2.0
-      lodash.isarguments: 3.1.0
       redis-errors: 1.2.0
       redis-parser: 3.0.0
       standard-as-callback: 2.1.0
@@ -7816,10 +7819,6 @@ snapshots:
       p-locate: 6.0.0
 
   lodash.camelcase@4.3.0: {}
-
-  lodash.defaults@4.2.0: {}
-
-  lodash.isarguments@3.1.0: {}
 
   lodash.isplainobject@4.0.6: {}
 
