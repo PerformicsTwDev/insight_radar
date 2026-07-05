@@ -52,7 +52,7 @@
     "keyv": "^5.6.0",
     "nestjs-pino": "^4.6.1",
     "openai": "^6.45.0",
-    "p-limit": "^3.1.0",
+    "p-limit": "^7.3.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
