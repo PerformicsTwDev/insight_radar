@@ -41,6 +41,7 @@ module.exports = {
         'deps',
         'deps-dev', // Dependabot dev 相依（prefix-development + include: scope 產生）
         'release',
+        'frontend', // 前端子專案（frontend/，spec: docs/_p/spec/frontend/）
       ],
     ],
     'scope-empty': [0], // 允許跨模組改動不帶 scope
