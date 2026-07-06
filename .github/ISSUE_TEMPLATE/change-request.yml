@@ -1,0 +1,45 @@
+name: 'Change Request（計畫外需求）'
+description: '臨時新功能/行為變更的入口——經 /add-task 分流後，spec-first 才動工（DevRules §19.1–§19.2）'
+title: '[CR] <一句話：想要什麼新行為>'
+labels: ['type:feat', 'change-request']
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: '動機 / 期望行為'
+      description: '為什麼需要？期望系統做到什麼（可觀察的行為）？'
+    validations: { required: true }
+  - type: dropdown
+    id: triage
+    attributes:
+      label: '初步分類（/add-task 會覆核；判準＝Requirement.md 有沒有承諾過）'
+      options:
+        - 新功能 / 行為變更（需 spec-first：新 FR/TC/Task）
+        - 疑似 bug（現行為 ≠ spec）→ 應改開 Bug Issue
+        - 內部改善（不改對外行為）→ 應改開 Chore Issue
+    validations: { required: true }
+  - type: textarea
+    id: impact
+    attributes:
+      label: '影響面'
+      value: |
+        - API / 契約：
+        - 資料模型：
+        - 受影響模組：
+        - 正確性單點是否新增/變動：
+    validations: { required: true }
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: '緊急度'
+      options: ['一般（排入里程碑）', '緊急（hotfix 級，spec+red+green 可同 PR、docs commit 先行）']
+    validations: { required: true }
+  - type: checkboxes
+    id: gate
+    attributes:
+      label: 'Spec-first 閘門（/add-task 執行時勾）'
+      options:
+        - label: 'Requirement.md 已新增 FR-__（續號）+ AC + 修訂紀錄'
+        - label: 'Design.md 已新增 TC-__；架構抉擇已寫 ADR（如適用）'
+        - label: 'Task.md 已插入 T__.__（(inserted) 註記）+ §0.2/§0.3/附錄A + 變更紀錄'
+        - label: '未撐爆進行中里程碑（插入 >3 個 → 改走 /plan-cycle）'
