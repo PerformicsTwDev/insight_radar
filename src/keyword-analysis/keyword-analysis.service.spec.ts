@@ -51,8 +51,10 @@ class FakePrisma {
           }),
         );
       }
-      this.rows.push(args.data);
-      return Promise.resolve(args.data);
+      // 模擬 Prisma `@default(now())`：未顯式提供時戳上 createdAt（idempotency freshness 判定需要）。
+      const row: Row = { createdAt: new Date(), ...args.data };
+      this.rows.push(row);
+      return Promise.resolve(row);
     }),
     findUnique: jest.fn((args: { where: { idempotencyKey?: string; id?: string } }) => {
       const row = this.rows.find(
@@ -189,6 +191,44 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
     expect(analysisId).toBe(winner.id);
     expect(prisma.rows).toHaveLength(1);
     expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it('並發旋轉競態：讓位後重試 create 撞他人新列（P2002）→ 回勝者 id（不無限恢復）', async () => {
+    const { service, prisma, queueAdd } = await buildHarness();
+    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params);
+    const stale = seedExisting(prisma, {
+      id: 'stale-analysis',
+      createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs - 1000),
+    });
+    const raceWinner: Row = {
+      id: 'race-winner',
+      status: 'queued',
+      seeds: baseInput.seeds,
+      params: baseInput.params,
+      progress: { phase: 'queued', percent: 0 },
+      idempotencyKey: hash,
+      createdAt: new Date(),
+    };
+
+    // 讓「讓位後的重試 create」（第 2 次 create）撞 P2002，模擬他人搶先建列佔用 hash。
+    const realCreate = prisma.keywordAnalysis.create.getMockImplementation();
+    let creates = 0;
+    prisma.keywordAnalysis.create.mockImplementation((args: { data: Row }) => {
+      creates += 1;
+      if (creates === 2) {
+        prisma.rows.push(raceWinner); // 並發勝者已落庫 → fallback findUnique 命中
+        return Promise.reject(
+          new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' }),
+        );
+      }
+      return realCreate!(args);
+    });
+
+    const { analysisId } = await service.create(baseInput);
+
+    expect(analysisId).toBe(raceWinner.id); // 回並發勝者，不拋、不無限恢復
+    expect(queueAdd).not.toHaveBeenCalled();
+    expect(prisma.rows.find((r) => r.id === stale.id)?.idempotencyKey).not.toBe(hash); // 舊列仍讓了位
   });
 });
 
