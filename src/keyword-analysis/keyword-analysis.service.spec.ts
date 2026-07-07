@@ -7,6 +7,7 @@ import { CacheNamespace } from '../cache/cache-namespace';
 import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma/prisma.service';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
+import { computeIdempotencyKey } from './idempotency';
 import { KeywordAnalysisService } from './keyword-analysis.service';
 import type { CreateAnalysisInput } from './keyword-analysis.service';
 
@@ -139,6 +140,57 @@ const baseInput: CreateAnalysisInput = {
   seeds: ['Running Shoes', 'trail shoes'],
   params: { geo: 'TW', language: 'zh-TW', mode: 'expand', includeAdult: false },
 };
+
+describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', () => {
+  function seedExisting(prisma: FakePrisma, over: Partial<Row>): Row {
+    const row: Row = {
+      id: 'seed-id',
+      status: 'completed',
+      seeds: baseInput.seeds,
+      params: baseInput.params,
+      progress: { phase: 'done', percent: 100 },
+      idempotencyKey: computeIdempotencyKey(baseInput.seeds, baseInput.params),
+      createdAt: new Date(),
+      ...over,
+    };
+    prisma.rows.push(row);
+    return row;
+  }
+
+  it('過 IDEMP_TTL_MS 窗後同語意重送 → 建新任務（不再由 DB fallback 永久回舊 analysisId）', async () => {
+    const { service, prisma, queueAdd } = await buildHarness();
+    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params);
+    // 上次分析的舊列：createdAt 超過 idempTtlMs 窗（Redis idemp 快取已過期，不預置）。
+    const stale = seedExisting(prisma, {
+      id: 'stale-analysis',
+      createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs - 60_000),
+    });
+
+    const { analysisId } = await service.create(baseInput);
+
+    expect(analysisId).not.toBe(stale.id); // 建了新任務，而非靜默回舊 id（#311）
+    expect(queueAdd).toHaveBeenCalledTimes(1); // 新任務確實入列
+    const fresh = prisma.rows.find((r) => r.id === analysisId);
+    expect(fresh?.idempotencyKey).toBe(hash); // 新列佔用 hash 唯一鍵
+    const kept = prisma.rows.find((r) => r.id === stale.id);
+    expect(kept).toBeDefined(); // 舊列保留（歷史/snapshot 不刪）
+    expect(kept?.idempotencyKey).not.toBe(hash); // 舊列已讓出唯一鍵
+  });
+
+  it('窗內同語意重送 → 回同一 analysisId（idempotent，不建新列/不入列）', async () => {
+    const { service, prisma, queueAdd } = await buildHarness();
+    const winner = seedExisting(prisma, {
+      id: 'fresh-winner',
+      createdAt: new Date(Date.now() - 1000),
+    });
+
+    const { analysisId } = await service.create(baseInput);
+
+    expect(analysisId).toBe(winner.id);
+    expect(prisma.rows).toHaveLength(1);
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+});
 
 describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
   it('enqueues a new job and persists a queued row + caches on first submit', async () => {
