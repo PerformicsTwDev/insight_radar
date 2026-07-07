@@ -19,6 +19,8 @@ export const validationSchema = Joi.object({
   PORT: Joi.number().port().default(3000),
   API_PREFIX: Joi.string().default('api/v1'),
   API_KEY: Joi.string().required(),
+  // CORS 白名單（逗號分隔 origin；空＝不允許跨域）。credentials 模式必為反射式白名單（不可 '*'），NFR-14。
+  ALLOWED_ORIGINS: Joi.string().allow('').default(''),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),

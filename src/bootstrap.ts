@@ -15,9 +15,18 @@ export const DEFAULT_API_PREFIX = 'api/v1';
 export function configureApp(app: INestApplication): void {
   app.setGlobalPrefix(process.env.API_PREFIX ?? DEFAULT_API_PREFIX, { exclude: ['health'] });
 
+  const config = app.get(ConfigService);
+
+  // NFR-14：CORS 白名單。`credentials:true` 為 M10 session cookie 預備（瀏覽器攜 cookie 的跨域請求）
+  // → origin 必為反射式白名單（`cors` 依 `ALLOWED_ORIGINS` 精確比對後回填對應 origin，**不**用萬用 `*`）。
+  // 空白名單 → 無 origin 命中 → 不回 `Access-Control-Allow-Origin`（等同不允許跨域，安全預設）。
+  app.enableCors({
+    origin: config.get<string[]>('app.allowedOrigins') ?? [],
+    credentials: true,
+  });
+
   // NFR-5/TC-29：把執行期祕密**值**註冊給 redaction（value-based）——即使某祕密值不慎內嵌於自由文字（非 keyed、
   // 非連線字串、非 Bearer），任何 log/error 路徑（scrubSecrets/errSerializer/HttpExceptionFilter）皆遮蔽。
-  const config = app.get(ConfigService);
   registerSecretValues([
     config.get<string>('app.apiKey'),
     config.get<string>('googleAds.developerToken'),
