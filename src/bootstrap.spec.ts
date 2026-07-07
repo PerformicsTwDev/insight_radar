@@ -3,10 +3,11 @@ import { configureApp, DEFAULT_API_PREFIX } from './bootstrap';
 import { clearRegisteredSecrets, REDACT_CENSOR, scrubSecrets } from './logger/redaction';
 
 describe('configureApp', () => {
-  /** app 替身：`setGlobalPrefix` + `get(ConfigService)` 回一個 `{ get(key) }` 的 ConfigService 替身。 */
-  const makeApp = (secrets: Record<string, string | undefined> = {}) => ({
+  /** app 替身：`setGlobalPrefix` + `enableCors` + `get(ConfigService)` 回一個 `{ get(key) }` 的 ConfigService 替身。 */
+  const makeApp = (config: Record<string, unknown> = {}) => ({
     setGlobalPrefix: jest.fn(),
-    get: jest.fn(() => ({ get: (key: string) => secrets[key] })),
+    enableCors: jest.fn(),
+    get: jest.fn(() => ({ get: (key: string) => config[key] })),
   });
 
   afterEach(() => {
@@ -27,6 +28,23 @@ describe('configureApp', () => {
     configureApp(app as unknown as INestApplication);
 
     expect(app.setGlobalPrefix).toHaveBeenCalledWith('api/v2', { exclude: ['health'] });
+  });
+
+  it('enables CORS with the config origin whitelist + credentials (NFR-14; reflected origin, not *)', () => {
+    const app = makeApp({ 'app.allowedOrigins': ['http://localhost:5173'] });
+    configureApp(app as unknown as INestApplication);
+
+    expect(app.enableCors).toHaveBeenCalledWith({
+      origin: ['http://localhost:5173'],
+      credentials: true,
+    });
+  });
+
+  it('defaults to an empty CORS whitelist (blocks all cross-origin) when unset', () => {
+    const app = makeApp();
+    configureApp(app as unknown as INestApplication);
+
+    expect(app.enableCors).toHaveBeenCalledWith({ origin: [], credentials: true });
   });
 
   it('registers config secret values for redaction so they never surface in logs (T7.3/TC-29)', () => {
