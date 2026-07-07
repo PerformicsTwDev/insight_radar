@@ -96,30 +96,32 @@ export class KeywordAnalysisService {
     const analysisId = randomUUID();
 
     // 慢路徑：以 DB `idempotencyKey @unique` 為「最終仲裁」。並發的相同提交可能都未命中快取、
-    // 各自 mint 不同 uuid，但只有一個 create 成功；落敗者得 P2002 → 改回查既有列回其 analysisId
+    // 各自 mint 不同 uuid，但只有一個 create 成功；落敗者得 P2002 → 依 freshness 窗解析
     // （NFR-8 並發下仍 idempotent，不對 client 拋 500）。
     try {
       await this.prisma.keywordAnalysis.create({
-        data: {
-          id: analysisId,
-          status: 'queued',
-          seeds: input.seeds,
-          params: input.params as Prisma.InputJsonValue,
-          progress: { phase: 'queued', percent: 0 },
-          idempotencyKey: hash,
-        },
+        data: this.buildQueuedRow(analysisId, hash, input),
       });
     } catch (error) {
-      if (isUniqueViolation(error)) {
-        const winner = await this.prisma.keywordAnalysis.findUnique({
-          where: { idempotencyKey: hash },
-        });
-        if (winner) {
-          await this.cache.set(idempKey, winner.id, this.config.idempTtlMs);
-          return { analysisId: winner.id };
-        }
+      if (!isUniqueViolation(error)) throw error;
+      const existing = await this.prisma.keywordAnalysis.findUnique({
+        where: { idempotencyKey: hash },
+      });
+      // 窗內既有列（含並發相同提交的落敗者）→ idempotent 回舊 id（AC-1.4）。
+      if (existing && this.isWithinIdempotencyWindow(existing.createdAt)) {
+        await this.cache.set(idempKey, existing.id, this.config.idempTtlMs);
+        return { analysisId: existing.id };
       }
-      throw error;
+      // 防禦：P2002 但列已消失（如並發刪除）→ 原錯上拋，不無限恢復。
+      if (!existing) {
+        throw error;
+      }
+      // #311：既有列已逾 `IDEMP_TTL_MS` freshness 窗——旋轉其唯一鍵讓位、建新任務，使 DB 慢路徑
+      // 與 Redis 快路徑 freshness 語意一致（否則舊列的永久 unique key 會靜默擊穿 1 天窗、月後重跑同
+      // seeds 仍回陳舊結果）。舊列（含其 snapshot/歷史）保留不刪。
+      const reuse = await this.rotateExpiredAndCreate(existing, hash, idempKey, analysisId, input);
+      if (reuse) return reuse; // 並發旋轉競態落敗 → 回勝者 id
+      // else：舊列已讓位、新列已建 → 續往下入列（analysisId 為新任務）。
     }
 
     // 入列。失敗（如 Redis 短暫不可用）必須補償刪除剛建立的列，否則留下無對應 job 的
@@ -157,6 +159,61 @@ export class KeywordAnalysisService {
     await this.cache.set(idempKey, analysisId, this.config.idempTtlMs);
 
     return { analysisId };
+  }
+
+  /** `queued` 列的 create data（idempotency 快/慢路徑共用，避免形狀漂移）。 */
+  private buildQueuedRow(
+    analysisId: string,
+    hash: string,
+    input: CreateAnalysisInput,
+  ): Prisma.KeywordAnalysisUncheckedCreateInput {
+    return {
+      id: analysisId,
+      status: 'queued',
+      seeds: input.seeds,
+      params: input.params as Prisma.InputJsonValue,
+      progress: { phase: 'queued', percent: 0 },
+      idempotencyKey: hash,
+    };
+  }
+
+  /** idempotency freshness 窗判定（#311）：Redis 快路徑與 DB 慢路徑共用同一 `IDEMP_TTL_MS` 語意。 */
+  private isWithinIdempotencyWindow(createdAt: Date): boolean {
+    return Date.now() - createdAt.getTime() <= this.config.idempTtlMs;
+  }
+
+  /**
+   * #311 慢路徑修正：既有列逾 freshness 窗時，把其 `idempotencyKey` 旋轉成不與任何真實 hash 相碰的
+   * 存檔值（保留列本身），讓出唯一鍵後建新任務。回傳非 null＝並發旋轉競態下他人已建新列 → 回其 id。
+   */
+  private async rotateExpiredAndCreate(
+    existing: { id: string },
+    hash: string,
+    idempKey: string,
+    analysisId: string,
+    input: CreateAnalysisInput,
+  ): Promise<{ analysisId: string } | null> {
+    await this.prisma.keywordAnalysis.update({
+      where: { id: existing.id },
+      data: { idempotencyKey: expiredIdempotencyKey(hash, existing.id) },
+    });
+    try {
+      await this.prisma.keywordAnalysis.create({
+        data: this.buildQueuedRow(analysisId, hash, input),
+      });
+      return null;
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        const winner = await this.prisma.keywordAnalysis.findUnique({
+          where: { idempotencyKey: hash },
+        });
+        if (winner) {
+          await this.cache.set(idempKey, winner.id, this.config.idempTtlMs);
+          return { analysisId: winner.id };
+        }
+      }
+      throw error;
+    }
   }
 
   /**
@@ -236,6 +293,14 @@ const TERMINAL_STATUSES = new Set<AnalysisStatus>(['completed', 'partial', 'fail
 /** Prisma 唯一鍵衝突（P2002）判定。 */
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+/**
+ * 逾 freshness 窗的舊列「讓位」用的存檔 idempotencyKey（#311）。含原 hash（可追溯來源）+ 列 id
+ * （保證唯一），且尾綴 `#expired#` 使其**不可能**等於任何真實 sha256 hex hash → 不與新提交相碰。
+ */
+function expiredIdempotencyKey(hash: string, id: string): string {
+  return `${hash}#expired#${id}`;
 }
 
 /** DB progress（Json 欄位）是否為我們的進度結構（phase+percent）。 */
