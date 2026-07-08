@@ -7,6 +7,8 @@ export interface AppConfig {
   apiKey: string;
   /** CORS 白名單（逗號分隔 `ALLOWED_ORIGINS` 解析；空＝不允許跨域），NFR-14。 */
   allowedOrigins: string[];
+  /** SSE heartbeat 事件週期（毫秒），FR-9 AC-9.6/9.7。 */
+  sseHeartbeatMs: number;
 }
 
 /** 逗號分隔 origin 白名單 → 去空白、去空項的陣列。 */
@@ -24,4 +26,5 @@ export const appConfig = registerAs('app', (): AppConfig => ({
   apiPrefix: process.env.API_PREFIX as string,
   apiKey: process.env.API_KEY as string,
   allowedOrigins: parseOrigins(process.env.ALLOWED_ORIGINS),
+  sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS),
 }));

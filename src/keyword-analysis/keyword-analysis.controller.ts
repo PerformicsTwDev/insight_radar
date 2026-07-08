@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Logger,
   NotFoundException,
   Param,
@@ -12,9 +13,12 @@ import {
   Sse,
   type MessageEvent,
 } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
+import { withHeartbeat } from '../common/sse-heartbeat';
+import { appConfig } from '../config/app.config';
 import { scrubSecrets } from '../logger/redaction';
 import { JobEventsService } from '../queue/job-events.service';
 import type { JobEvent } from '../queue/job-events.service';
@@ -54,6 +58,7 @@ export class KeywordAnalysisController {
   constructor(
     private readonly service: KeywordAnalysisService,
     private readonly events: JobEventsService,
+    @Inject(appConfig.KEY) private readonly config: ConfigType<typeof appConfig>,
   ) {}
 
   @Post()
@@ -105,10 +110,12 @@ export class KeywordAnalysisController {
     if (TERMINAL_STATUSES.has(status.status)) {
       return of(terminalSnapshot(status));
     }
-    return this.events.forJob(id).pipe(
+    // live-stream：疊加 heartbeat（AC-9.6/9.7）保活；終態（takeWhile complete）時 heartbeat 一併停止。
+    const events$ = this.events.forJob(id).pipe(
       takeWhile((event) => !isTerminalEvent(event), true), // inclusive：發出終態事件後才 complete
       map(toMessageEvent),
     );
+    return withHeartbeat(events$, this.config.sseHeartbeatMs);
   }
 
   /** 查狀態；不存在或非預期錯誤皆回 null（SSE handler 不可 reject）；非預期錯誤記錄日誌（不靜默吞）。 */

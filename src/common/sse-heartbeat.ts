@@ -1,5 +1,5 @@
 import type { MessageEvent } from '@nestjs/common';
-import type { Observable } from 'rxjs';
+import { Observable } from 'rxjs';
 
 /**
  * SSE 保活 heartbeat 事件（FR-9/AC-9.6）。**named event（非 `:` comment）**——NestJS `@Sse` 的 `SseStream`
@@ -14,8 +14,25 @@ export const HEARTBEAT_EVENT: MessageEvent = { type: 'heartbeat', data: '' };
  * heartbeat 不進來源的 `takeWhile(terminal)` 判定。keyword-analysis 與 topics 兩流共用此運算子。
  */
 export function withHeartbeat(
-  _source$: Observable<MessageEvent>,
-  _intervalMs: number,
+  source$: Observable<MessageEvent>,
+  intervalMs: number,
 ): Observable<MessageEvent> {
-  throw new Error('not implemented');
+  return new Observable<MessageEvent>((subscriber) => {
+    const timer = setInterval(() => subscriber.next(HEARTBEAT_EVENT), intervalMs);
+    const sub = source$.subscribe({
+      next: (event) => subscriber.next(event),
+      error: (err: unknown) => {
+        clearInterval(timer);
+        subscriber.error(err);
+      },
+      complete: () => {
+        clearInterval(timer);
+        subscriber.complete();
+      },
+    });
+    return () => {
+      clearInterval(timer);
+      sub.unsubscribe();
+    };
+  });
 }

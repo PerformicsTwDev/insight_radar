@@ -11,6 +11,9 @@ describe('KeywordAnalysisController (T3.3)', () => {
     controller = new KeywordAnalysisController(
       { create } as unknown as KeywordAnalysisService,
       { forJob: jest.fn() } as unknown as import('../queue/job-events.service').JobEventsService,
+      { sseHeartbeatMs: 15000 } as unknown as ConstructorParameters<
+        typeof KeywordAnalysisController
+      >[2],
     );
   });
 
@@ -64,6 +67,9 @@ describe('KeywordAnalysisController (T3.3)', () => {
     const ctrl = new KeywordAnalysisController(
       { cancel } as unknown as KeywordAnalysisService,
       { forJob: jest.fn() } as unknown as import('../queue/job-events.service').JobEventsService,
+      { sseHeartbeatMs: 15000 } as unknown as ConstructorParameters<
+        typeof KeywordAnalysisController
+      >[2],
     );
 
     expect(await ctrl.cancel('a-1')).toEqual({ status: 'canceled' });

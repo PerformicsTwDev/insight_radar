@@ -21,6 +21,8 @@ export const validationSchema = Joi.object({
   API_KEY: Joi.string().required(),
   // CORS 白名單（逗號分隔 origin；空＝不允許跨域）。credentials 模式必為反射式白名單（不可 '*'），NFR-14。
   ALLOWED_ORIGINS: Joi.string().allow('').default(''),
+  // SSE heartbeat 事件週期（毫秒），防 LB/proxy idle 切斷（FR-9 AC-9.6/9.7）；named event，非 : comment。
+  SSE_HEARTBEAT_MS: Joi.number().integer().min(0).default(15000),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),

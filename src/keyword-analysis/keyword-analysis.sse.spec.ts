@@ -38,7 +38,9 @@ function buildController(status: AnalysisStatusResponse | 'notfound' | 'error') 
     return Promise.resolve(status);
   });
   const service = { getStatus } as unknown as KeywordAnalysisService;
-  const controller = new KeywordAnalysisController(service, events);
+  const controller = new KeywordAnalysisController(service, events, {
+    sseHeartbeatMs: 15000,
+  } as unknown as ConstructorParameters<typeof KeywordAnalysisController>[2]);
   return { controller, subjects, forJob };
 }
 
@@ -153,7 +155,9 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
     );
     const service = { getStatus } as unknown as KeywordAnalysisService;
     const events = { forJob: jest.fn() } as unknown as JobEventsService;
-    const controller = new KeywordAnalysisController(service, events);
+    const controller = new KeywordAnalysisController(service, events, {
+      sseHeartbeatMs: 15000,
+    } as unknown as ConstructorParameters<typeof KeywordAnalysisController>[2]);
 
     await controller.stream('x');
 

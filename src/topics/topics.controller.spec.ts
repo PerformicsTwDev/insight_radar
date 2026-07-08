@@ -11,7 +11,9 @@ function makeController(
   forJob = jest.fn(),
 ): TopicsController {
   const events = { forJob } as unknown as JobEventsService;
-  return new TopicsController(serviceOverrides as unknown as TopicsService, events);
+  return new TopicsController(serviceOverrides as unknown as TopicsService, events, {
+    sseHeartbeatMs: 15000,
+  } as unknown as ConstructorParameters<typeof TopicsController>[2]);
 }
 
 describe('TopicsController (T8.10)', () => {
