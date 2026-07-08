@@ -21,6 +21,7 @@ export function placeholderTableView(
 ): ViewDefinition {
   return {
     name,
+    kind: 'table',
     requiresFeature,
     allowedSelect: columns.map((c) => c.key),
     allowedFilters: FILTER_KEYS,

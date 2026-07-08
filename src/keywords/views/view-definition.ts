@@ -74,12 +74,32 @@ export interface ChartViewResult {
 
 export type ViewResult = TableViewResult | TrendViewResult | ChartViewResult;
 
+/** view 回應形狀（前端據此挑渲染器：表格 / 趨勢折線 / 圖表分組）。對映 `ViewResult` 三型。 */
+export type ViewKind = 'table' | 'trend' | 'chart';
+
+/** view 未指定 `requiresFeature` 時的預設 feature（既有 snapshot pipeline，snapshot 就緒即 ready）。 */
+export const DEFAULT_VIEW_FEATURE: FeatureKey = 'keyword_metrics';
+
 /**
- * 具名視圖定義：固定其可選/可篩/可排欄位（白名單）與 `build`（filter → shape → format）。
+ * `GET /views` 自省 metadata（FR-22/NFR-10）：由 `ViewDefinition` 直接導出（單一來源，與 `/query`
+ * 白名單同源、不另抄），前端據此驅動 tab/欄位/篩選 config。
+ */
+export interface ViewMetadata {
+  name: string;
+  kind: ViewKind;
+  allowedSelect: string[];
+  allowedFilters: string[];
+  allowedSort: string[];
+  requiresFeature: FeatureKey;
+}
+
+/**
+ * 具名視圖定義：固定其可選/可篩/可排欄位（白名單）、回應形狀 `kind` 與 `build`（filter → shape → format）。
  * `build` 假設 `ctx.request` **已驗證**（白名單/型別/上限由 QueryViewService 於呼叫前把關）。
  */
 export interface ViewDefinition {
   name: string;
+  kind: ViewKind;
   allowedSelect: readonly string[];
   allowedFilters: readonly string[];
   allowedSort: readonly string[];

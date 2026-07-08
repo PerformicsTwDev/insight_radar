@@ -35,6 +35,7 @@ function pick(row: SnapshotRowData, keys: string[]): Record<string, unknown> {
  */
 export const keywordsView: ViewDefinition = {
   name: 'keywords',
+  kind: 'table',
   allowedSelect: ALLOWED_SELECT,
   allowedFilters: FILTER_KEYS,
   allowedSort: SORT_FIELDS,

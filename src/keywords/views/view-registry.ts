@@ -1,4 +1,4 @@
-import type { ViewDefinition } from './view-definition';
+import { DEFAULT_VIEW_FEATURE, type ViewDefinition, type ViewMetadata } from './view-definition';
 
 /**
  * 具名視圖登錄（T5.5，FR-14/NFR-10）。QueryViewService 以 `get(name)` 取 ViewDefinition；未知 view → 400。
@@ -27,5 +27,20 @@ export class ViewRegistry {
   /** 已註冊的 view 名稱（供錯誤訊息/探索）。 */
   names(): string[] {
     return [...this.views.keys()];
+  }
+
+  /**
+   * 導出所有 view 的自省 metadata（`GET /views`，FR-22/NFR-10）——直接由 `ViewDefinition` 映射，
+   * 與 `/query` 的白名單**同一來源**（不另抄）。新增 ViewDefinition 自動出現於此（閉環）。
+   */
+  metadata(): ViewMetadata[] {
+    return [...this.views.values()].map((view) => ({
+      name: view.name,
+      kind: view.kind,
+      allowedSelect: [...view.allowedSelect],
+      allowedFilters: [...view.allowedFilters],
+      allowedSort: [...view.allowedSort],
+      requiresFeature: view.requiresFeature ?? DEFAULT_VIEW_FEATURE,
+    }));
   }
 }
