@@ -18,17 +18,26 @@
             "type": "string"
           },
           "mode": {
-            "enum": ["expand", "exact"],
+            "enum": [
+              "expand",
+              "exact"
+            ],
             "example": "expand",
             "type": "string"
           },
           "network": {
-            "enum": ["GOOGLE_SEARCH", "GOOGLE_SEARCH_AND_PARTNERS"],
+            "enum": [
+              "GOOGLE_SEARCH",
+              "GOOGLE_SEARCH_AND_PARTNERS"
+            ],
             "example": "GOOGLE_SEARCH",
             "type": "string"
           },
           "seeds": {
-            "example": ["running shoes", "trail shoes"],
+            "example": [
+              "running shoes",
+              "trail shoes"
+            ],
             "items": {
               "type": "string"
             },
@@ -36,7 +45,11 @@
             "type": "array"
           }
         },
-        "required": ["seeds", "geo", "language"],
+        "required": [
+          "seeds",
+          "geo",
+          "language"
+        ],
         "type": "object"
       },
       "CreateTopicRunDto": {
@@ -61,7 +74,10 @@
             "type": "string"
           }
         },
-        "required": ["resultSnapshotId", "count"],
+        "required": [
+          "resultSnapshotId",
+          "count"
+        ],
         "type": "object"
       },
       "SseFailedEventDto": {
@@ -72,7 +88,9 @@
             "type": "string"
           }
         },
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "type": "object"
       },
       "SseProgressEventDto": {
@@ -101,7 +119,10 @@
             "type": "number"
           }
         },
-        "required": ["phase", "percent"],
+        "required": [
+          "phase",
+          "percent"
+        ],
         "type": "object"
       }
     },
@@ -140,7 +161,9 @@
             "description": ""
           }
         },
-        "tags": ["keyword-analyses"]
+        "tags": [
+          "keyword-analyses"
+        ]
       }
     },
     "/api/v1/keyword-analyses/{id}": {
@@ -161,7 +184,9 @@
             "description": ""
           }
         },
-        "tags": ["keyword-analyses"]
+        "tags": [
+          "keyword-analyses"
+        ]
       },
       "get": {
         "operationId": "KeywordAnalysisController_getStatus",
@@ -180,7 +205,9 @@
             "description": ""
           }
         },
-        "tags": ["keyword-analyses"]
+        "tags": [
+          "keyword-analyses"
+        ]
       }
     },
     "/api/v1/keyword-analyses/{id}/keywords": {
@@ -201,7 +228,9 @@
             "description": ""
           }
         },
-        "tags": ["keywords"]
+        "tags": [
+          "keywords"
+        ]
       }
     },
     "/api/v1/keyword-analyses/{id}/query": {
@@ -232,7 +261,9 @@
             "description": ""
           }
         },
-        "tags": ["keywords"]
+        "tags": [
+          "keywords"
+        ]
       }
     },
     "/api/v1/keyword-analyses/{id}/stream": {
@@ -253,7 +284,9 @@
             "description": ""
           }
         },
-        "tags": ["keyword-analyses"]
+        "tags": [
+          "keyword-analyses"
+        ]
       }
     },
     "/api/v1/keyword-analyses/{id}/topics": {
@@ -274,7 +307,9 @@
             "description": ""
           }
         },
-        "tags": ["topics"]
+        "tags": [
+          "topics"
+        ]
       },
       "post": {
         "operationId": "TopicsController_create",
@@ -303,7 +338,9 @@
             "description": ""
           }
         },
-        "tags": ["topics"]
+        "tags": [
+          "topics"
+        ]
       }
     },
     "/api/v1/keyword-analyses/{id}/topics/stream": {
@@ -324,7 +361,9 @@
             "description": ""
           }
         },
-        "tags": ["topics"]
+        "tags": [
+          "topics"
+        ]
       }
     },
     "/health": {
@@ -345,7 +384,9 @@
                             "type": "string"
                           }
                         },
-                        "required": ["status"],
+                        "required": [
+                          "status"
+                        ],
                         "type": "object"
                       },
                       "example": {
@@ -363,7 +404,9 @@
                             "type": "string"
                           }
                         },
-                        "required": ["status"],
+                        "required": [
+                          "status"
+                        ],
                         "type": "object"
                       },
                       "example": {},
@@ -378,7 +421,9 @@
                             "type": "string"
                           }
                         },
-                        "required": ["status"],
+                        "required": [
+                          "status"
+                        ],
                         "type": "object"
                       },
                       "example": {
@@ -413,7 +458,9 @@
                             "type": "string"
                           }
                         },
-                        "required": ["status"],
+                        "required": [
+                          "status"
+                        ],
                         "type": "object"
                       },
                       "example": {
@@ -435,7 +482,9 @@
                             "type": "string"
                           }
                         },
-                        "required": ["status"],
+                        "required": [
+                          "status"
+                        ],
                         "type": "object"
                       },
                       "example": {
@@ -455,7 +504,9 @@
                             "type": "string"
                           }
                         },
-                        "required": ["status"],
+                        "required": [
+                          "status"
+                        ],
                         "type": "object"
                       },
                       "example": {
@@ -478,7 +529,9 @@
             "description": "The Health Check is not successful"
           }
         },
-        "tags": ["health"]
+        "tags": [
+          "health"
+        ]
       }
     }
   },
