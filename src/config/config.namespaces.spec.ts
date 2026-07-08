@@ -17,6 +17,7 @@ const ENV: Record<string, string> = {
   API_PREFIX: 'api/v1',
   API_KEY: 'test-api-key',
   ALLOWED_ORIGINS: 'http://a.test, http://b.test', // 逗號分隔 + 空白 → parseOrigins 去空白/去空
+  SSE_HEARTBEAT_MS: '15000',
 
   GOOGLE_ADS_CLIENT_ID: 'cid',
   GOOGLE_ADS_CLIENT_SECRET: 'sec',
@@ -96,6 +97,7 @@ describe('config namespaces (registerAs, typed)', () => {
       apiPrefix: 'api/v1',
       apiKey: 'test-api-key',
       allowedOrigins: ['http://a.test', 'http://b.test'],
+      sseHeartbeatMs: 15000,
     });
   });
 

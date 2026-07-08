@@ -10,9 +10,12 @@ import {
   Post,
   Sse,
 } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
+import { withHeartbeat } from '../common/sse-heartbeat';
+import { appConfig } from '../config/app.config';
 import { type JobEvent, JobEventsService } from '../queue/job-events.service';
 import { TOPIC_JOB_EVENTS } from '../queue/topic-job-events.constants';
 import type { TopicsResponse } from './build-topics-response';
@@ -51,6 +54,7 @@ export class TopicsController {
   constructor(
     private readonly service: TopicsService,
     @Inject(TOPIC_JOB_EVENTS) private readonly events: JobEventsService,
+    @Inject(appConfig.KEY) private readonly config: ConfigType<typeof appConfig>,
   ) {}
 
   /** 觸發分群 run（enqueue-only）。未知分析 → 404；snapshot 未 ready → 425/409（service 拋）。 */
@@ -85,9 +89,11 @@ export class TopicsController {
     if (TERMINAL_TOPIC_STATUSES.has(ref.status as TopicRunStatus)) {
       return of(terminalSnapshot(ref));
     }
-    return this.events.forJob(ref.runId).pipe(
+    // live-stream：疊加 heartbeat（AC-9.6/9.7，與 keyword-analysis 兩流共用 withHeartbeat）；終態時一併停止。
+    const events$ = this.events.forJob(ref.runId).pipe(
       takeWhile((event) => !isTerminalEvent(event), true), // inclusive：發終態事件後才 complete
       map(toMessageEvent),
     );
+    return withHeartbeat(events$, this.config.sseHeartbeatMs);
   }
 }

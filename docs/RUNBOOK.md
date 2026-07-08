@@ -93,3 +93,11 @@ pnpm start:prod                       # node dist/main
 | intent 標籤過時       | prompt/schema 變更未 bump  | bump `INTENT_SCHEMA_VERSION`（見 §3）           |
 | `/health` 503         | DB 或 cache down           | 查 Postgres/Redis 連線                          |
 | 關閉時 Jest/程序 hang | 連線未在 shutdown 收回     | 查各 provider `onModuleDestroy`（見 §5）        |
+
+## 7. SSE 串流與 reverse proxy（FR-9 heartbeat）
+
+兩條 SSE 串流（`GET /api/v1/keyword-analyses/:id/stream`、`.../:id/topics/stream`）為長連線。部署於 LB / nginx 等 reverse proxy 後時：
+
+- **關閉回應緩衝**，否則事件會被 proxy 緩衝、前端收不到即時進度：nginx `proxy_buffering off;`（或後端已送 `X-Accel-Buffering: no` header，NestJS SSE 預設帶）。
+- **idle timeout 對策已內建**：後端每 `SSE_HEARTBEAT_MS`（預設 15000ms）發一則 `event: heartbeat` 保活事件（named event，非 `:` comment——NestJS `@Sse` serializer 無 comment 支援；前端忽略此事件名）。**確保 proxy 的 idle/read timeout > `SSE_HEARTBEAT_MS`**（常見預設 60s 即安全）；若調長 heartbeat 週期，需同步確認未超過 proxy timeout。
+- heartbeat 於串流收到 `completed`/`failed` 終態、或 client 斷線時自動停止（`clearInterval`），無殘留 timer。
