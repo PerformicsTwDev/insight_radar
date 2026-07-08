@@ -366,6 +366,20 @@
         ]
       }
     },
+    "/api/v1/views": {
+      "get": {
+        "operationId": "ViewsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "HealthController_check",

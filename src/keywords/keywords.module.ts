@@ -3,6 +3,7 @@ import { PrismaModule } from '../prisma';
 import { KeywordsController } from './keywords.controller';
 import { QueryViewService } from './query-view.service';
 import { SnapshotQueryService } from './snapshot-query.service';
+import { ViewsController } from './views.controller';
 import { ViewRegistry, createViewRegistry } from './views';
 
 /**
@@ -12,7 +13,7 @@ import { ViewRegistry, createViewRegistry } from './views';
  */
 @Module({
   imports: [PrismaModule],
-  controllers: [KeywordsController],
+  controllers: [KeywordsController, ViewsController],
   providers: [
     { provide: ViewRegistry, useFactory: createViewRegistry },
     QueryViewService,

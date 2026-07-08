@@ -16,6 +16,7 @@ const CPC_BUCKET_WIDTH = 1;
  */
 export const cpcHistogramView: ViewDefinition = {
   name: 'cpc_histogram',
+  kind: 'chart',
   allowedSelect: [],
   allowedFilters: FILTER_KEYS,
   allowedSort: [],

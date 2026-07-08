@@ -32,6 +32,7 @@ function srow(over: Partial<SnapshotRowData> = {}): SnapshotRowData {
 /** allowedSelect/Filters/Sort 皆受限的 view，供白名單拒絕測試。 */
 const restrictedView: ViewDefinition = {
   name: 'restricted',
+  kind: 'table',
   allowedSelect: ['text'],
   allowedFilters: ['q'],
   allowedSort: ['text'],
@@ -175,6 +176,7 @@ describe('QueryViewService (T5.5 / FR-14 / TC-36)', () => {
     const boom = new Error('view bug');
     const explodingView: ViewDefinition = {
       name: 'explode',
+      kind: 'table',
       allowedSelect: [],
       allowedFilters: [],
       allowedSort: [],

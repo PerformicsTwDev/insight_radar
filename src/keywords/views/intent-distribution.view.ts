@@ -13,6 +13,7 @@ import {
  */
 export const intentDistributionView: ViewDefinition = {
   name: 'intent_distribution',
+  kind: 'chart',
   allowedSelect: [],
   allowedFilters: FILTER_KEYS,
   allowedSort: [],

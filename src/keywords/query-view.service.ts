@@ -5,7 +5,7 @@ import { AggregateBoundsError } from './aggregate';
 import { FeatureNotReadyException } from './feature-not-ready.exception';
 import type { FilterSpec } from './filter-spec';
 import type { QueryLimits, QueryRequest, ViewDefinition, ViewResult } from './views';
-import { ViewRegistry } from './views';
+import { DEFAULT_VIEW_FEATURE, ViewRegistry } from './views';
 
 /** min ≤ max 檢查的欄位對（Design §9.1）。 */
 const RANGE_PAIRS: readonly (readonly [keyof FilterSpec, keyof FilterSpec])[] = [
@@ -39,7 +39,7 @@ export class QueryViewService {
         view: [`unknown view '${viewName}'; allowed: ${this.registry.names().join(', ')}`],
       });
     }
-    const feature = view.requiresFeature ?? 'keyword_metrics';
+    const feature = view.requiresFeature ?? DEFAULT_VIEW_FEATURE;
     if (features && features[feature].status !== 'ready') {
       throw new FeatureNotReadyException(feature, features[feature].status);
     }
