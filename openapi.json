@@ -1,0 +1,540 @@
+{
+  "components": {
+    "schemas": {
+      "CreateKeywordAnalysisDto": {
+        "properties": {
+          "geo": {
+            "description": "Google Ads geo target（國別）",
+            "example": "TW",
+            "type": "string"
+          },
+          "includeAdult": {
+            "example": false,
+            "type": "boolean"
+          },
+          "language": {
+            "description": "語言",
+            "example": "zh-TW",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "expand",
+              "exact"
+            ],
+            "example": "expand",
+            "type": "string"
+          },
+          "network": {
+            "enum": [
+              "GOOGLE_SEARCH",
+              "GOOGLE_SEARCH_AND_PARTNERS"
+            ],
+            "example": "GOOGLE_SEARCH",
+            "type": "string"
+          },
+          "seeds": {
+            "example": [
+              "running shoes",
+              "trail shoes"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "seeds",
+          "geo",
+          "language"
+        ],
+        "type": "object"
+      },
+      "CreateTopicRunDto": {
+        "properties": {},
+        "type": "object"
+      },
+      "QueryDto": {
+        "properties": {},
+        "type": "object"
+      },
+      "SseCompletedEventDto": {
+        "properties": {
+          "count": {
+            "example": 1980,
+            "nullable": true,
+            "type": "number"
+          },
+          "resultSnapshotId": {
+            "description": "結果 snapshot id（partial 亦以此收尾）",
+            "example": "6f…uuid",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "resultSnapshotId",
+          "count"
+        ],
+        "type": "object"
+      },
+      "SseFailedEventDto": {
+        "properties": {
+          "error": {
+            "description": "失敗理由（已 scrubSecrets 遮罩）",
+            "example": "RESOURCE_EXHAUSTED after 5 retries",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "SseProgressEventDto": {
+        "properties": {
+          "expanded": {
+            "example": 1980,
+            "type": "number"
+          },
+          "labeled": {
+            "example": 1420,
+            "type": "number"
+          },
+          "percent": {
+            "example": 72,
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "phase": {
+            "description": "目前階段（expand/intent/persist…）",
+            "example": "intent",
+            "type": "string"
+          },
+          "total": {
+            "example": 1980,
+            "type": "number"
+          }
+        },
+        "required": [
+          "phase",
+          "percent"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "x-api-key": {
+        "in": "header",
+        "name": "x-api-key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "contact": {},
+    "description": "關鍵字分析 dashboard 後端 API（業務路由掛 /api/v1，/health 除外）",
+    "title": "insight_radar_v3 API",
+    "version": "1"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/keyword-analyses": {
+      "post": {
+        "operationId": "KeywordAnalysisController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeywordAnalysisDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keyword-analyses"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}": {
+      "delete": {
+        "operationId": "KeywordAnalysisController_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keyword-analyses"
+        ]
+      },
+      "get": {
+        "operationId": "KeywordAnalysisController_getStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keyword-analyses"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/keywords": {
+      "get": {
+        "operationId": "KeywordsController_getKeywords",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keywords"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/query": {
+      "post": {
+        "operationId": "KeywordsController_postQuery",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keywords"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/stream": {
+      "get": {
+        "operationId": "KeywordAnalysisController_stream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keyword-analyses"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/topics": {
+      "get": {
+        "operationId": "TopicsController_getTopics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "topics"
+        ]
+      },
+      "post": {
+        "operationId": "TopicsController_create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTopicRunDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "topics"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/topics/stream": {
+      "get": {
+        "operationId": "TopicsController_stream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "topics"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "HealthController_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "example": {},
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "info": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "status": {
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The Health Check is successful"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        },
+                        "redis": {
+                          "message": "Could not connect",
+                          "status": "down"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "example": {
+                        "redis": {
+                          "message": "Could not connect",
+                          "status": "down"
+                        }
+                      },
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "info": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "status": {
+                      "example": "error",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The Health Check is not successful"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "servers": [],
+  "tags": []
+}

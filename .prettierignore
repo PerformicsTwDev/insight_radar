@@ -1,5 +1,8 @@
 # 產生物 / 鎖檔：勿讓 prettier 重排（pnpm-lock.yaml 一旦被改格式，CI --frozen-lockfile 會失敗）
 pnpm-lock.yaml
+# openapi.json 由 `pnpm openapi:generate` 決定性產出（serializeOpenApi）；prettier 重排陣列會與產生器
+# 輸出不符 → CI drift gate（git diff --exit-code）誤紅。務必以產生器格式為準。
+openapi.json
 CHANGELOG.md
 dist/
 coverage/

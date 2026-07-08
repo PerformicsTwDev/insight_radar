@@ -1,6 +1,22 @@
 import type { INestApplication } from '@nestjs/common';
-import { configureApp, DEFAULT_API_PREFIX } from './bootstrap';
+import { configureApp, DEFAULT_API_PREFIX, resolveApiPrefix } from './bootstrap';
 import { clearRegisteredSecrets, REDACT_CENSOR, scrubSecrets } from './logger/redaction';
+
+describe('resolveApiPrefix', () => {
+  afterEach(() => {
+    delete process.env.API_PREFIX;
+  });
+
+  it('defaults to /api/v1 when API_PREFIX is unset', () => {
+    delete process.env.API_PREFIX;
+    expect(resolveApiPrefix()).toBe(DEFAULT_API_PREFIX);
+  });
+
+  it('honours the API_PREFIX override', () => {
+    process.env.API_PREFIX = 'api/v2';
+    expect(resolveApiPrefix()).toBe('api/v2');
+  });
+});
 
 describe('configureApp', () => {
   /** app 替身：`setGlobalPrefix` + `enableCors` + `get(ConfigService)` 回一個 `{ get(key) }` 的 ConfigService 替身。 */

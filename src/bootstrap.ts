@@ -5,6 +5,11 @@ import { registerSecretValues } from './logger/redaction';
 /** 對外前綴；可由 `API_PREFIX` 覆寫（NFR-10）。 */
 export const DEFAULT_API_PREFIX = 'api/v1';
 
+/** 解析對外前綴（`API_PREFIX` 覆寫，否則預設）；`configureApp` 與 OpenAPI 產出共用，確保 paths 一致。 */
+export function resolveApiPrefix(): string {
+  return process.env.API_PREFIX ?? DEFAULT_API_PREFIX;
+}
+
 /**
  * 套用全域應用設定，**由 `main.ts` 與 e2e harness（`test/utils/createTestApp`）共用**，
  * 確保測試啟動與正式啟動一致、不漂移。
@@ -13,7 +18,7 @@ export const DEFAULT_API_PREFIX = 'api/v1';
  * 後續在此集中擴充：APP_GUARD（T0.5）、全域 ValidationPipe（T0.6）、HttpExceptionFilter（T0.6）等。
  */
 export function configureApp(app: INestApplication): void {
-  app.setGlobalPrefix(process.env.API_PREFIX ?? DEFAULT_API_PREFIX, { exclude: ['health'] });
+  app.setGlobalPrefix(resolveApiPrefix(), { exclude: ['health'] });
 
   const config = app.get(ConfigService);
 

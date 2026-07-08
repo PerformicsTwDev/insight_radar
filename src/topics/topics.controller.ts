@@ -10,6 +10,7 @@ import {
   Post,
   Sse,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
 import { type JobEvent, JobEventsService } from '../queue/job-events.service';
@@ -44,6 +45,7 @@ function terminalSnapshot(ref: { runId: string; status: string }): MessageEvent 
  * 全域 `ApiKeyGuard`（缺/錯 key → 401）與 `ValidationPipe`（未宣告欄位 → 400）已套用。`create` 為
  * **enqueue-only**：委派 service 入列即回 202，路徑不呼叫任何外部 API（NFR-1）。
  */
+@ApiTags('topics')
 @Controller('keyword-analyses')
 export class TopicsController {
   constructor(

@@ -12,6 +12,7 @@ import {
   Sse,
   type MessageEvent,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
 import { scrubSecrets } from '../logger/redaction';
@@ -45,6 +46,7 @@ function isTerminalEvent(event: JobEvent): boolean {
  * 全域 `ApiKeyGuard`（缺/錯 key → 401）與 `ValidationPipe`（空 seeds/缺 geo·language/非法 mode → 400）
  * 已套用。`create` 為 **enqueue-only**：委派 service 入列即回 202，路徑不呼叫任何外部 API（NFR-1）。
  */
+@ApiTags('keyword-analyses')
 @Controller('keyword-analyses')
 export class KeywordAnalysisController {
   private readonly logger = new Logger(KeywordAnalysisController.name);

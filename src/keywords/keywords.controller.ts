@@ -9,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 // 值匯入（非 `import type`）：DTO 為 @Query()/@Body() 的執行期 metatype，ValidationPipe 需真實 class 才會驗證/轉換。
 import { FilterKeywordsQueryDto } from './dto/filter-keywords-query.dto';
 import { QueryDto } from './dto/query.dto';
@@ -23,6 +24,7 @@ import type { ViewResult } from './views';
  * `id` 經 `ParseUUIDPipe`（非 UUID → 400，避免 Prisma UUID 欄位 P2023 → 500）。回 §6.4 `{ data, meta }`
  * 五欄列（`intent` 對外 `intentLabels`，AC-6.1）。
  */
+@ApiTags('keywords')
 @Controller('keyword-analyses')
 export class KeywordsController {
   constructor(private readonly snapshotQuery: SnapshotQueryService) {}

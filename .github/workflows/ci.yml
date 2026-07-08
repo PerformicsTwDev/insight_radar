@@ -41,6 +41,18 @@ jobs:
       - run: pnpm format:check # prettier --check（可選）
       - run: pnpm typecheck # tsc -p tsconfig.json --noEmit
       - run: pnpm build # nest build（M0：build 必綠）
+      - name: OpenAPI drift check（openapi.json 須與程式碼同步，FR-22）
+        run: |
+          pnpm openapi:generate
+          git diff --exit-code openapi.json \
+            || { echo "::error::openapi.json 過期——請本機跑 pnpm openapi:generate 並提交"; exit 1; }
+      - name: Upload openapi.json artifact（前端 codegen 用）
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi
+          path: openapi.json
+          retention-days: 7
 
   # —— 第 2/3 段：test + coverage gate（Node 矩陣；Testcontainers 需 Docker）——
   test:
