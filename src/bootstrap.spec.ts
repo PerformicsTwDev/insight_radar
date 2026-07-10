@@ -19,10 +19,15 @@ describe('resolveApiPrefix', () => {
 });
 
 describe('configureApp', () => {
-  /** app 替身：`setGlobalPrefix` + `enableCors` + `get(ConfigService)` 回一個 `{ get(key) }` 的 ConfigService 替身。 */
+  /**
+   * app 替身：`setGlobalPrefix` + `enableCors` + `use`（helmet）+ `useBodyParser`（body 上限）
+   * + `get(ConfigService)` 回一個 `{ get(key) }` 的 ConfigService 替身。
+   */
   const makeApp = (config: Record<string, unknown> = {}) => ({
     setGlobalPrefix: jest.fn(),
     enableCors: jest.fn(),
+    use: jest.fn(),
+    useBodyParser: jest.fn(),
     get: jest.fn(() => ({ get: (key: string) => config[key] })),
   });
 
@@ -61,6 +66,28 @@ describe('configureApp', () => {
     configureApp(app as unknown as INestApplication);
 
     expect(app.enableCors).toHaveBeenCalledWith({ origin: [], credentials: true });
+  });
+
+  it('applies helmet when HELMET_ENABLED is on (NFR-14)', () => {
+    const app = makeApp({ 'app.helmetEnabled': true });
+    configureApp(app as unknown as INestApplication);
+
+    expect(app.use).toHaveBeenCalledTimes(1);
+    expect(typeof (app.use.mock.calls[0] as unknown[])[0]).toBe('function'); // helmet middleware
+  });
+
+  it('skips helmet when HELMET_ENABLED is off (NFR-14)', () => {
+    const app = makeApp({ 'app.helmetEnabled': false });
+    configureApp(app as unknown as INestApplication);
+
+    expect(app.use).not.toHaveBeenCalled();
+  });
+
+  it('raises the JSON body limit to BODY_LIMIT_MB (NFR-14; over-limit → 413)', () => {
+    const app = makeApp({ 'app.bodyLimitMb': 2 });
+    configureApp(app as unknown as INestApplication);
+
+    expect(app.useBodyParser).toHaveBeenCalledWith('json', { limit: '2mb' });
   });
 
   it('registers config secret values for redaction so they never surface in logs (T7.3/TC-29)', () => {

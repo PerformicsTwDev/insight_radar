@@ -18,6 +18,8 @@ const ENV: Record<string, string> = {
   API_KEY: 'test-api-key',
   ALLOWED_ORIGINS: 'http://a.test, http://b.test', // 逗號分隔 + 空白 → parseOrigins 去空白/去空
   SSE_HEARTBEAT_MS: '15000',
+  HELMET_ENABLED: 'true',
+  BODY_LIMIT_MB: '1',
 
   GOOGLE_ADS_CLIENT_ID: 'cid',
   GOOGLE_ADS_CLIENT_SECRET: 'sec',
@@ -98,6 +100,8 @@ describe('config namespaces (registerAs, typed)', () => {
       apiKey: 'test-api-key',
       allowedOrigins: ['http://a.test', 'http://b.test'],
       sseHeartbeatMs: 15000,
+      helmetEnabled: true,
+      bodyLimitMb: 1,
     });
   });
 

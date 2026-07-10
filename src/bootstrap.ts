@@ -1,5 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import helmet from 'helmet';
 import { registerSecretValues } from './logger/redaction';
 
 /** 對外前綴；可由 `API_PREFIX` 覆寫（NFR-10）。 */
@@ -28,6 +30,20 @@ export function configureApp(app: INestApplication): void {
   app.enableCors({
     origin: config.get<string[]>('app.allowedOrigins') ?? [],
     credentials: true,
+  });
+
+  // NFR-14：安全 header（helmet）——nosniff / frameguard / HSTS 等。可由 `HELMET_ENABLED=false` 關閉
+  // （本機除錯 / 特定測試）；預設開。
+  if (config.get<boolean>('app.helmetEnabled')) {
+    app.use(helmet());
+  }
+
+  // NFR-14：JSON body 上限。自 express 預設 100kb 提高到 `BODY_LIMIT_MB`（exact 模式大 seeds 需要）；
+  // 逾此 body-parser 拋 PayloadTooLargeError → 413（由 HttpExceptionFilter 尊重 http-errors 的 4xx status）。
+  // 於 `init()` 前呼叫 → 註冊具名 `jsonParser`，Nest 的 registerParserMiddleware 因 isMiddlewareApplied 命中
+  // 而略過預設 100kb parser（單一 parser、單一上限，不雙註冊）。
+  (app as NestExpressApplication).useBodyParser('json', {
+    limit: `${config.get<number>('app.bodyLimitMb')}mb`,
   });
 
   // NFR-5/TC-29：把執行期祕密**值**註冊給 redaction（value-based）——即使某祕密值不慎內嵌於自由文字（非 keyed、
