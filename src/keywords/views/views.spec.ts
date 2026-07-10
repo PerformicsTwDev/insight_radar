@@ -5,6 +5,7 @@ import {
   type TableViewResult,
   type TrendViewResult,
   type ViewContext,
+  type ViewDefinition,
   ViewRegistry,
   cpcHistogramView,
   createViewRegistry,
@@ -68,6 +69,46 @@ describe('ViewRegistry (T5.5 / FR-14 / NFR-10)', () => {
 
   it('throws on duplicate view names (fail-fast config error)', () => {
     expect(() => new ViewRegistry([keywordsView, keywordsView])).toThrow(/duplicate view name/);
+  });
+
+  it('metadata() 導出 AC-22.2 形狀；select 欄位缺型別來源 → 退回 text（M9-R5）', () => {
+    // typed：'a' 有 selectColumn（number），'b' 無 → 退回 text（覆蓋 `?.type ?? 'text'`）。
+    const typed: ViewDefinition = {
+      name: 'typed',
+      kind: 'table',
+      grain: 'thing',
+      allowedSelect: ['a', 'b'],
+      selectColumns: [{ key: 'a', label: 'A', type: 'number' }],
+      allowedFilters: ['a'],
+      allowedSort: ['a'],
+      build: () => ({
+        view: 'typed',
+        columns: [],
+        rows: [],
+        pagination: { total: 0, page: 1, pageSize: 20, cursor: null },
+      }),
+    };
+    // untyped：非空 allowedSelect 但**無** selectColumns → 退回 text（覆蓋 `selectColumns?.` undefined 路徑）。
+    const untyped: ViewDefinition = {
+      name: 'untyped',
+      kind: 'chart',
+      grain: 'g2',
+      allowedSelect: ['x'],
+      allowedFilters: [],
+      allowedSort: [],
+      build: () => ({ view: 'untyped', groups: [], meta: { total: 0, truncated: false } }),
+    };
+
+    const meta = new ViewRegistry([typed, untyped]).metadata();
+    const t = meta.find((m) => m.name === 'typed');
+    expect(t).toMatchObject({ name: 'typed', grain: 'thing', responseShape: 'table' });
+    expect(t?.allowedSelect).toEqual([
+      { key: 'a', type: 'number' },
+      { key: 'b', type: 'text' }, // 缺 selectColumn → fallback
+    ]);
+    expect(t?.requiresFeature).toBe('keyword_metrics'); // 未指定 → 預設 feature
+    const u = meta.find((m) => m.name === 'untyped');
+    expect(u?.allowedSelect).toEqual([{ key: 'x', type: 'text' }]); // 無 selectColumns → fallback
   });
 });
 
