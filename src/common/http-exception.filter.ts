@@ -84,14 +84,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
         }
       }
     } else if (clientStatus !== undefined) {
-      // http-errors 4xx（框架 middleware，如 body-parser）：其 `expose=true` 訊息為安全通用字串
-      // （如「request entity too large」）——可安全外露；仍記 server log（scrub）便於觀測。
+      // http-errors 4xx（框架 middleware，如 body-parser）：其 `expose=true` 訊息通常為安全通用字串
+      // （如「request entity too large」），但仍可能內嵌連線字串/token（如反映 request body 的 parse 錯誤）
+      // → **進 response 前一律 scrubSecrets**（NFR-5：raw 例外文字不得未遮蔽抵達 client；M9-R1）。
       code = HttpStatus[clientStatus] ?? code;
       const safeMessage = (exception as { message?: unknown }).message;
       if (typeof safeMessage === 'string') {
-        message = safeMessage;
+        message = scrubSecrets(safeMessage);
       }
-      this.logger.warn(scrubSecrets(`Client error ${clientStatus}: ${message}`));
+      this.logger.warn(`Client error ${clientStatus}: ${message}`);
     } else {
       // 不洩漏細節：完整錯誤只進 server log，回應給通用訊息。
       // stack 以 scrubSecrets 清洗內嵌的連線字串密碼／bearer token（M0-R3；此處走原始字串
