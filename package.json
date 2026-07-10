@@ -92,7 +92,8 @@
   },
   "pnpm": {
     "overrides": {
-      "ioredis": "5.10.1"
+      "ioredis": "5.10.1",
+      "multer": "2.2.0"
     }
   }
 }
