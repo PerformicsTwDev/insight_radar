@@ -80,6 +80,9 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.GEMINI_EMBEDDING_DIM).toBe(3072); // 固定 3072（M8-R1）
       expect(value.GEMINI_EMBEDDING_MODEL).toBe('gemini-embedding-001');
       expect(value.GEMINI_EMBEDDING_BATCH_SIZE).toBe(100);
+      // NFR-14 hardening 預設（Design §14 config SSOT）。
+      expect(value.HELMET_ENABLED).toBe(true);
+      expect(value.BODY_LIMIT_MB).toBe(5);
     });
 
     it('pins GEMINI_EMBEDDING_DIM to 3072 (rejects 768/1536 until a vector-type migration exists, M8-R1)', () => {

@@ -5,9 +5,10 @@ import { createTestApp } from '../utils';
 
 /**
  * TC-58 部分（NFR-14）：HTTP 邊緣 hardening——helmet 安全 header + body size limit。
- * `BODY_LIMIT_MB`（.env.test / Joi 預設 1）把 JSON body 上限自 express 預設 100kb **提高**到 1MB
- * （exact 模式大 seeds 需要），逾此 → 413。`~500kb` 案（> 100kb 預設、< 1MB 上限）驗「限額確實提高」
- * （非仍是 100kb 預設）；`~1.5MB` 案驗「逾上限被擋」。
+ * `BODY_LIMIT_MB` 把 JSON body 上限自 express 預設 100kb **提高**（exact 模式大 seeds 需要），逾此 → 413。
+ * **prod 預設 5MB（Design §14）**；本 e2e 走 `.env.test` 的 `BODY_LIMIT_MB=1`（刻意收窄，讓 ~1.5MB 即逾限，
+ * 免用 >5MB 大 payload）。`~500kb` 案（> 100kb 預設、< 1MB 測試上限）驗「限額確實提高」（非仍是 100kb 預設）；
+ * `~1.5MB` 案驗「逾上限被擋」→ 413（由 HttpExceptionFilter 尊重 body-parser 的 http-errors 413，不遮成 500）。
  */
 const API_KEY = 'test-api-key';
 const UNDER = 'x'.repeat(500 * 1024); // ~500kb：> 100kb 預設、< 1MB 上限

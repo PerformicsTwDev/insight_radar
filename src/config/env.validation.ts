@@ -26,7 +26,8 @@ export const validationSchema = Joi.object({
   // helmet 安全 header 開關（預設開；非 production 可關以便本機/特定測試），NFR-14。
   HELMET_ENABLED: Joi.boolean().default(true),
   // JSON body 上限（MB）；自 express 預設 100kb 提高（exact 模式大 seeds），逾此 → 413，NFR-14。
-  BODY_LIMIT_MB: Joi.number().positive().default(1),
+  // 預設 5（Design §14 config SSOT）；.env.test 刻意收窄為 1 以廉價驗 TC-58 邊界（見該檔註）。
+  BODY_LIMIT_MB: Joi.number().positive().default(5),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),
