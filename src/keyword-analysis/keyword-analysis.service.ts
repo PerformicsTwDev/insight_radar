@@ -162,16 +162,23 @@ export class KeywordAnalysisService {
       });
       // 窗內既有列（含並發相同提交的落敗者）→ idempotent 回舊 id（AC-1.4）。
       if (existing && this.isWithinIdempotencyWindow(existing.createdAt)) {
-        await this.cache.set(idempKey, existing.id, this.config.idempTtlMs);
+        await this.recacheIdempWithinWindow(idempKey, existing.id, existing.createdAt);
         return { analysisId: existing.id };
       }
       // 防禦：P2002 但列已消失（如並發刪除）→ 原錯上拋，不無限恢復。
       if (!existing) {
         throw error;
       }
-      // #311：既有列已逾 `IDEMP_TTL_MS` freshness 窗——旋轉其唯一鍵讓位、建新任務，使 DB 慢路徑
-      // 與 Redis 快路徑 freshness 語意一致（否則舊列的永久 unique key 會靜默擊穿 1 天窗、月後重跑同
-      // seeds 仍回陳舊結果）。舊列（含其 snapshot/歷史）保留不刪。
+      // M9-R2：既有列逾窗但**仍在處理中**（queued/running）→ 一律 coalesce 到它，不旋轉、不重複入列。
+      // 否則 worker 落後 > `IDEMP_TTL_MS` 時，相同 seeds 的重送會為進行中的任務再建一個重複 job →
+      // 雙倍 Google Ads 用量（freshness 窗只該管「終態結果是否陳舊」，不該把在途任務旋轉掉）。
+      if (this.isInFlight(existing.status)) {
+        await this.recacheIdempWithinWindow(idempKey, existing.id, existing.createdAt);
+        return { analysisId: existing.id };
+      }
+      // #311：既有列逾窗且**已終態**——旋轉其唯一鍵讓位、建新任務，使 DB 慢路徑與 Redis 快路徑
+      // freshness 語意一致（否則舊列的永久 unique key 會靜默擊穿窗、月後重跑同 seeds 仍回陳舊結果）。
+      // 舊列（含其 snapshot/歷史）保留不刪。
       const reuse = await this.rotateExpiredAndCreate(existing, hash, idempKey, analysisId, input);
       if (reuse) return reuse; // 並發旋轉競態落敗 → 回勝者 id
       // else：舊列已讓位、新列已建 → 續往下入列（analysisId 為新任務）。
@@ -233,6 +240,27 @@ export class KeywordAnalysisService {
   /** idempotency freshness 窗判定（#311）：Redis 快路徑與 DB 慢路徑共用同一 `IDEMP_TTL_MS` 語意。 */
   private isWithinIdempotencyWindow(createdAt: Date): boolean {
     return Date.now() - createdAt.getTime() <= this.config.idempTtlMs;
+  }
+
+  /** 非終態（仍在處理中）→ 相同 seeds 的重送一律 coalesce、不得旋轉/重複入列（M9-R2）。 */
+  private isInFlight(status: string): boolean {
+    return status === 'queued' || status === 'running';
+  }
+
+  /**
+   * 窗內既有列的 idemp re-cache（M9-R3）：TTL = **剩餘窗**（`createdAt + idempTtlMs − now`），使 Redis
+   * 快路徑與 DB freshness 窗**同時**失效、不隨每次重送從 now 起算全 TTL 而延壽（否則逾 DB 窗後快路徑仍
+   * 命中、回陳舊 analysisId）。剩餘 ≤ 0（逾窗 in-flight 的 coalesce）則不寫快取，避免延壽。
+   */
+  private async recacheIdempWithinWindow(
+    idempKey: string,
+    id: string,
+    createdAt: Date,
+  ): Promise<void> {
+    const remainingMs = createdAt.getTime() + this.config.idempTtlMs - Date.now();
+    if (remainingMs > 0) {
+      await this.cache.set(idempKey, id, remainingMs);
+    }
   }
 
   /**
