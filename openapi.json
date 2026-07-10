@@ -143,6 +143,55 @@
   "openapi": "3.0.0",
   "paths": {
     "/api/v1/keyword-analyses": {
+      "get": {
+        "operationId": "KeywordAnalysisController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "上限＝QUERY_MAX_PAGE_SIZE（超過→400）",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "queued",
+                "running",
+                "completed",
+                "partial",
+                "failed",
+                "canceled"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "keyword-analyses"
+        ]
+      },
       "post": {
         "operationId": "KeywordAnalysisController_create",
         "parameters": [],

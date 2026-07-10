@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
 import { CacheNamespace } from '../cache/cache-namespace';
+import { queryConfig } from '../config/query.config';
 import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma/prisma.service';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
@@ -125,6 +126,7 @@ async function buildHarness(queueAdd?: jest.Mock): Promise<Harness> {
       { provide: CacheService, useValue: cache },
       { provide: PrismaService, useValue: prisma },
       { provide: queueConfig.KEY, useValue: QUEUE_CONFIG },
+      { provide: queryConfig.KEY, useValue: { maxPageSize: 200 } },
     ],
   }).compile();
 

@@ -10,6 +10,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Sse,
   type MessageEvent,
 } from '@nestjs/common';
@@ -23,8 +24,10 @@ import { scrubSecrets } from '../logger/redaction';
 import { JobEventsService } from '../queue/job-events.service';
 import type { JobEvent } from '../queue/job-events.service';
 import { CreateKeywordAnalysisDto } from './dto/create-keyword-analysis.dto';
+import { ListAnalysesQueryDto } from './dto/list-analyses-query.dto';
 import { KeywordAnalysisService } from './keyword-analysis.service';
 import type {
+  AnalysesListResponse,
   AnalysisParams,
   AnalysisStatus,
   AnalysisStatusResponse,
@@ -72,6 +75,16 @@ export class KeywordAnalysisController {
       network: dto.network ?? 'GOOGLE_SEARCH',
     };
     return this.service.create({ seeds: dto.seeds, params });
+  }
+
+  /**
+   * 分析歷史清單（T9.6，FR-23）：分頁 + `status` 過濾 + `createdAt desc`。未知 status / `pageSize` 超上限
+   * → 400（DTO + service 把關）。owner 過濾 M10 補（AC-23.4）。註冊於 `@Get(':id')` 之前——集合路徑（空）
+   * 與 `:id` 段結構不同、不衝突，但明確置前避免誤配。
+   */
+  @Get()
+  list(@Query() query: ListAnalysesQueryDto): Promise<AnalysesListResponse> {
+    return this.service.list(query);
   }
 
   /** 輪詢分析狀態（T3.4，FR-8）。不存在的 id → 404（service 拋 NotFoundException）。 */

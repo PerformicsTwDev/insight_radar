@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { JobStatus } from '@prisma/client';
@@ -8,8 +8,10 @@ import type { Queue } from 'bullmq';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { scrubSecrets } from '../logger/redaction';
+import { queryConfig } from '../config/query.config';
 import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma/prisma.service';
+import type { ListAnalysesQueryDto } from './dto/list-analyses-query.dto';
 import { KEYWORD_ANALYSIS_QUEUE } from '../queue/queue.constants';
 import { type FeaturesMap, computeFeatures } from './features';
 import { computeIdempotencyKey } from './idempotency';
@@ -67,6 +69,26 @@ export interface AnalysisStatusResponse {
 
 const DEFAULT_PROGRESS: AnalysisProgress = { phase: 'queued', percent: 0 };
 
+/** 歷史清單預設每頁筆數（AC-23.1；`pageSize` 上限另受 `QUERY_MAX_PAGE_SIZE` 把關）。 */
+const DEFAULT_HISTORY_PAGE_SIZE = 20;
+
+/** 歷史清單列（FR-23，AC-23.1）。 */
+export interface AnalysisListRow {
+  analysisId: string;
+  status: AnalysisStatus;
+  seeds: string[];
+  params: { mode?: string; geo?: string; language?: string };
+  createdAt: Date;
+  finishedAt: Date | null;
+  resultSnapshotId: string | null;
+  count: number | null;
+}
+
+export interface AnalysesListResponse {
+  data: AnalysisListRow[];
+  meta: { total: number; page: number; pageSize: number };
+}
+
 /**
  * KeywordAnalysisService（T3.2，FR-1）。`create` 負責：算 idempotency key → 命中即回舊
  * analysisId（不重複入列）→ 否則建 `KeywordAnalysis`（status='queued'）+ 入列 + 寫
@@ -81,7 +103,38 @@ export class KeywordAnalysisService {
     private readonly cache: CacheService,
     private readonly prisma: PrismaService,
     @Inject(queueConfig.KEY) private readonly config: ConfigType<typeof queueConfig>,
+    @Inject(queryConfig.KEY) private readonly queryCfg: ConfigType<typeof queryConfig>,
   ) {}
+
+  /**
+   * 分析歷史清單（T9.6，FR-23）：分頁 + `status` 過濾 + `createdAt desc`。`pageSize` 超 `QUERY_MAX_PAGE_SIZE`
+   * → 400（沿用讀取層上限，AC-23.3）。**owner 過濾 M10 補**（AC-23.4；M9 無 owner 欄位＝回全部）。
+   */
+  async list(query: ListAnalysesQueryDto): Promise<AnalysesListResponse> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? DEFAULT_HISTORY_PAGE_SIZE;
+    if (pageSize > this.queryCfg.maxPageSize) {
+      throw new BadRequestException({
+        code: 'QUERY_VALIDATION_FAILED',
+        message: 'Query validation failed',
+        fields: { pageSize: [`pageSize ${pageSize} exceeds max ${this.queryCfg.maxPageSize}`] },
+      });
+    }
+
+    const where: Prisma.KeywordAnalysisWhereInput = query.status ? { status: query.status } : {};
+    const [rows, total] = await Promise.all([
+      this.prisma.keywordAnalysis.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { resultSnapshot: true },
+      }),
+      this.prisma.keywordAnalysis.count({ where }),
+    ]);
+
+    return { data: rows.map(toListRow), meta: { total, page, pageSize } };
+  }
 
   async create(input: CreateAnalysisInput): Promise<{ analysisId: string }> {
     const hash = computeIdempotencyKey(input.seeds, input.params);
@@ -301,6 +354,27 @@ function isUniqueViolation(error: unknown): boolean {
  */
 function expiredIdempotencyKey(hash: string, id: string): string {
   return `${hash}#expired#${id}`;
+}
+
+/**
+ * 歷史清單列映射（FR-23，AC-23.1）：DB 列 → 對外形狀（params 取 mode/geo/language；count 取 snapshot）。
+ * `seeds`/`params` 為 **non-null `Json`**（schema 保證）、由 `create()` 寫入 `string[]` / `AnalysisParams`
+ * 物件，故此處直接收斂型別（不加 corrupt-DB 防禦分支）。
+ */
+function toListRow(
+  row: Prisma.KeywordAnalysisGetPayload<{ include: { resultSnapshot: true } }>,
+): AnalysisListRow {
+  const params = row.params as { mode?: string; geo?: string; language?: string };
+  return {
+    analysisId: row.id,
+    status: row.status,
+    seeds: row.seeds as string[],
+    params: { mode: params.mode, geo: params.geo, language: params.language },
+    createdAt: row.createdAt,
+    finishedAt: row.finishedAt,
+    resultSnapshotId: row.resultSnapshotId,
+    count: row.resultSnapshot?.keywordCount ?? null,
+  };
 }
 
 /** DB progress（Json 欄位）是否為我們的進度結構（phase+percent）。 */

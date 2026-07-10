@@ -1,0 +1,177 @@
+import { getQueueToken } from '@nestjs/bullmq';
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import RedisMock from 'ioredis-mock';
+import request from 'supertest';
+import type { App } from 'supertest/types';
+import { AppModule } from 'src/app.module';
+import { configureApp } from 'src/bootstrap';
+import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
+import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
+import {
+  TOPIC_JOB_EVENTS_CONNECTION,
+  TOPIC_QUEUE_EVENTS,
+} from 'src/queue/topic-job-events.constants';
+import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
+import { PrismaService } from 'src/prisma';
+
+/**
+ * TC-56（FR-23，AC-23.1~23.3）：`GET /api/v1/keyword-analyses` 分析歷史清單——分頁 + `status` 過濾 +
+ * `createdAt desc`；未知 status→400；`pageSize`>上限→400；未認證→401。Prisma 以忠實 mock（honour
+ * where.status / orderBy createdAt desc / skip / take）驗真實分頁/過濾/排序語意。
+ */
+const API_KEY = 'test-api-key';
+
+interface Row {
+  id: string;
+  status: string;
+  seeds: string[];
+  params: { mode: string; geo: string; language: string };
+  createdAt: Date;
+  finishedAt: Date | null;
+  resultSnapshotId: string | null;
+  resultSnapshot: { id: string; keywordCount: number } | null;
+}
+
+function row(id: string, status: string, day: number, snapCount: number | null): Row {
+  return {
+    id,
+    status,
+    seeds: [`seed-${id}`],
+    params: { mode: 'expand', geo: 'TW', language: 'zh-TW' },
+    createdAt: new Date(Date.UTC(2026, 0, day)),
+    finishedAt: snapCount !== null ? new Date(Date.UTC(2026, 0, day, 1)) : null,
+    resultSnapshotId: snapCount !== null ? `snap-${id}` : null,
+    resultSnapshot: snapCount !== null ? { id: `snap-${id}`, keywordCount: snapCount } : null,
+  };
+}
+
+// createdAt 由新到舊：a5(day5) a4 a3 a2 a1(day1)
+const ROWS: Row[] = [
+  row('a1', 'queued', 1, null),
+  row('a2', 'completed', 2, 50),
+  row('a3', 'failed', 3, null),
+  row('a4', 'completed', 4, 120),
+  row('a5', 'running', 5, null),
+];
+
+describe('GET /api/v1/keyword-analyses 歷史清單 (e2e · TC-56 · FR-23)', () => {
+  let app: INestApplication<App>;
+
+  beforeAll(async () => {
+    const select = (where?: { status?: string }): Row[] => {
+      const filtered = where?.status ? ROWS.filter((r) => r.status === where.status) : ROWS;
+      return [...filtered].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    };
+    const prisma = {
+      keywordAnalysis: {
+        findMany: jest.fn(
+          (args: { where?: { status?: string }; skip?: number; take?: number }): Promise<Row[]> => {
+            const sorted = select(args.where);
+            const skip = args.skip ?? 0;
+            const take = args.take ?? sorted.length;
+            return Promise.resolve(sorted.slice(skip, skip + take));
+          },
+        ),
+        count: jest.fn((args: { where?: { status?: string } }): Promise<number> =>
+          Promise.resolve(select(args.where).length),
+        ),
+      },
+    };
+
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
+      .useValue({ add: jest.fn(), getJob: jest.fn() })
+      .overrideProvider(BULL_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(TOPIC_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(JOB_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    configureApp(app);
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('未認證 → 401', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses');
+    expect(res.status).toBe(401);
+  });
+
+  it('分頁 + createdAt desc + 回應形狀', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses?page=1&pageSize=2')
+      .set('x-api-key', API_KEY);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      data: Array<{
+        analysisId: string;
+        status: string;
+        seeds: string[];
+        params: { mode: string; geo: string; language: string };
+        createdAt: string;
+        finishedAt: string | null;
+        resultSnapshotId: string | null;
+        count: number | null;
+      }>;
+      meta: { total: number; page: number; pageSize: number };
+    };
+    expect(body.meta).toEqual({ total: 5, page: 1, pageSize: 2 });
+    expect(body.data.map((d) => d.analysisId)).toEqual(['a5', 'a4']); // createdAt desc
+    expect(body.data[0]).toMatchObject({
+      analysisId: 'a5',
+      status: 'running',
+      seeds: ['seed-a5'],
+      params: { mode: 'expand', geo: 'TW', language: 'zh-TW' },
+      resultSnapshotId: null,
+      count: null,
+    });
+    // a4 有 snapshot → count 帶回
+    expect(body.data[1]).toMatchObject({
+      analysisId: 'a4',
+      resultSnapshotId: 'snap-a4',
+      count: 120,
+    });
+  });
+
+  it('status 過濾', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses?status=completed')
+      .set('x-api-key', API_KEY);
+    expect(res.status).toBe(200);
+    const body = res.body as { data: Array<{ analysisId: string }>; meta: { total: number } };
+    expect(body.meta.total).toBe(2);
+    expect(body.data.map((d) => d.analysisId)).toEqual(['a4', 'a2']);
+  });
+
+  it('未知 status → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses?status=bogus')
+      .set('x-api-key', API_KEY);
+    expect(res.status).toBe(400);
+  });
+
+  it('pageSize 超上限 → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses?pageSize=100000')
+      .set('x-api-key', API_KEY);
+    expect(res.status).toBe(400);
+  });
+});
