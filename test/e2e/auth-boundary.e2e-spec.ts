@@ -37,6 +37,16 @@ const PROTECTED: { method: Method; path: string; label: string; sse?: boolean }[
   },
   { method: 'get', path: `/api/v1/keyword-analyses/${ID}/keywords`, label: 'GET /:id/keywords' },
   { method: 'post', path: `/api/v1/keyword-analyses/${ID}/query`, label: 'POST /:id/query' },
+  { method: 'get', path: '/api/v1/keyword-analyses', label: 'GET /keyword-analyses (list)' },
+  // M8 topics 三路由（#312：guard 已覆蓋但先前未在此邊界測試枚舉 → 補齊，防誤加 @Public 的無聲回歸）。
+  { method: 'post', path: `/api/v1/keyword-analyses/${ID}/topics`, label: 'POST /:id/topics' },
+  { method: 'get', path: `/api/v1/keyword-analyses/${ID}/topics`, label: 'GET /:id/topics' },
+  {
+    method: 'get',
+    path: `/api/v1/keyword-analyses/${ID}/topics/stream`,
+    label: 'GET /:id/topics/stream (SSE)',
+    sse: true,
+  },
 ];
 
 /** 正向對照只跑非 SSE 端點（帶正確 key 的 SSE 會開串流、令 supertest 不 resolve）。 */
