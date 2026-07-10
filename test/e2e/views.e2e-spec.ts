@@ -6,17 +6,23 @@ import { createTestApp } from '../utils';
 
 /**
  * TC-55 部分（FR-22/NFR-10）：`GET /api/v1/views` 自省端點——回各 view 的
- * allowedSelect/Filters/Sort + kind（responseShape）+ requiresFeature，**與 `/query` 同一 ViewRegistry
- * 來源**（不另抄白名單）；未認證 → 401。閉環：新增 ViewDefinition 自動出現於 /views（NFR-10）。
+ * `{ name, grain, allowedSelect:[{key,type}], allowedFilters, allowedSort, responseShape }`（AC-22.2）
+ * ＋ as-built 的 `requiresFeature`（feature-gating，AC-14.7；spec-first 併入 AC-22.2）。**與 `/query` 同一
+ * ViewRegistry 來源**（不另抄白名單）；未認證 → 401。閉環：新增 ViewDefinition 自動出現於 /views（NFR-10）。
  */
 const API_KEY = 'test-api-key';
 
+interface SelectField {
+  key: string;
+  type: 'text' | 'number' | 'array';
+}
 interface ViewMeta {
   name: string;
-  kind: string;
-  allowedSelect: string[];
+  grain: string;
+  allowedSelect: SelectField[];
   allowedFilters: string[];
   allowedSort: string[];
+  responseShape: string;
   requiresFeature: string;
 }
 
@@ -36,7 +42,7 @@ describe('GET /api/v1/views 自省 (e2e · TC-55 部分 · FR-22/NFR-10)', () =>
     expect(res.status).toBe(401);
   });
 
-  it('回各 view metadata（allowedSelect/Filters/Sort + kind + requiresFeature），與 registry 同源', async () => {
+  it('回 AC-22.2 契約形狀（grain + allowedSelect:[{key,type}] + responseShape），與 registry 同源', async () => {
     const res = await request(app.getHttpServer()).get('/api/v1/views').set('x-api-key', API_KEY);
     expect(res.status).toBe(200);
     const body = res.body as { views: ViewMeta[] };
@@ -55,17 +61,28 @@ describe('GET /api/v1/views 自省 (e2e · TC-55 部分 · FR-22/NFR-10)', () =>
 
     const kw = body.views.find((v) => v.name === 'keywords');
     expect(kw).toBeDefined();
-    expect(kw?.kind).toBe('table');
-    // 同源：與 /query 用的同一 ViewDefinition 白名單（非另抄）。
+    expect(kw?.responseShape).toBe('table'); // AC-22.2：responseShape（非 kind）
+    expect(kw?.grain).toBe('keyword'); // AC-22.2 / Design §17.1 grain 表
+    // allowedSelect 為 [{key,type}]（AC-22.2），key 集合與 /query 白名單同源（非另抄）。
+    expect(kw?.allowedSelect.map((f) => f.key)).toEqual([...keywordsView.allowedSelect]);
+    expect(kw?.allowedSelect.find((f) => f.key === 'text')?.type).toBe('text');
+    expect(kw?.allowedSelect.find((f) => f.key === 'avgMonthlySearches')?.type).toBe('number');
+    expect(kw?.allowedSelect.find((f) => f.key === 'intent')?.type).toBe('array');
+    // allowedFilters/allowedSort 仍為 key 陣列，與 registry 同源。
     expect(kw?.allowedFilters).toEqual([...keywordsView.allowedFilters]);
     expect(kw?.allowedSort).toEqual([...keywordsView.allowedSort]);
-    expect(kw?.allowedSelect).toEqual([...keywordsView.allowedSelect]);
     expect(kw?.requiresFeature).toBe('keyword_metrics'); // 未指定 → 預設 feature
 
-    expect(body.views.find((v) => v.name === 'trend')?.kind).toBe('trend');
-    expect(body.views.find((v) => v.name === 'intent_distribution')?.kind).toBe('chart');
-    expect(body.views.find((v) => v.name === 'cpc_histogram')?.kind).toBe('chart');
-    expect(body.views.find((v) => v.name === 'serp_questions')?.requiresFeature).toBe('serp');
+    const trend = body.views.find((v) => v.name === 'trend');
+    expect(trend?.responseShape).toBe('trend');
+    expect(trend?.grain).toBe('month');
+    expect(trend?.allowedSelect).toEqual([]); // chart/trend view：無 select 欄位
+    expect(body.views.find((v) => v.name === 'intent_distribution')?.responseShape).toBe('chart');
+    expect(body.views.find((v) => v.name === 'cpc_histogram')?.responseShape).toBe('chart');
+    // placeholder（gated）view：帶 typed allowedSelect + grain。
+    const serp = body.views.find((v) => v.name === 'serp_questions');
+    expect(serp?.requiresFeature).toBe('serp');
+    expect(serp?.allowedSelect.find((f) => f.key === 'estimatedImpressions')?.type).toBe('number');
     expect(body.views.find((v) => v.name === 'intent_topics')?.requiresFeature).toBe('topics');
   });
 });

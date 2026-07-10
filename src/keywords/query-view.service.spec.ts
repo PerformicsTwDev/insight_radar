@@ -33,6 +33,7 @@ function srow(over: Partial<SnapshotRowData> = {}): SnapshotRowData {
 const restrictedView: ViewDefinition = {
   name: 'restricted',
   kind: 'table',
+  grain: 'keyword',
   allowedSelect: ['text'],
   allowedFilters: ['q'],
   allowedSort: ['text'],
@@ -177,6 +178,7 @@ describe('QueryViewService (T5.5 / FR-14 / TC-36)', () => {
     const explodingView: ViewDefinition = {
       name: 'explode',
       kind: 'table',
+      grain: 'keyword',
       allowedSelect: [],
       allowedFilters: [],
       allowedSort: [],

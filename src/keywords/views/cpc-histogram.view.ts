@@ -17,6 +17,7 @@ const CPC_BUCKET_WIDTH = 1;
 export const cpcHistogramView: ViewDefinition = {
   name: 'cpc_histogram',
   kind: 'chart',
+  grain: 'bucket', // Design §17.1
   allowedSelect: [],
   allowedFilters: FILTER_KEYS,
   allowedSort: [],

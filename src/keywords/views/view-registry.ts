@@ -36,10 +36,16 @@ export class ViewRegistry {
   metadata(): ViewMetadata[] {
     return [...this.views.values()].map((view) => ({
       name: view.name,
-      kind: view.kind,
-      allowedSelect: [...view.allowedSelect],
+      grain: view.grain,
+      // AC-22.2：allowedSelect 帶型別（[{key,type}]）；型別取自 selectColumns（與 build 的欄位同源），
+      // 缺對應欄位（理論不應發生）退回 'text'。
+      allowedSelect: view.allowedSelect.map((key) => ({
+        key,
+        type: view.selectColumns?.find((c) => c.key === key)?.type ?? 'text',
+      })),
       allowedFilters: [...view.allowedFilters],
       allowedSort: [...view.allowedSort],
+      responseShape: view.kind,
       requiresFeature: view.requiresFeature ?? DEFAULT_VIEW_FEATURE,
     }));
   }
