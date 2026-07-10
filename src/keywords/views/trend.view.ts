@@ -17,6 +17,7 @@ const TREND_TOP_N = 10;
 export const trendView: ViewDefinition = {
   name: 'trend',
   kind: 'trend',
+  grain: 'month', // Design §17.1
   allowedSelect: [],
   allowedFilters: FILTER_KEYS,
   allowedSort: [],

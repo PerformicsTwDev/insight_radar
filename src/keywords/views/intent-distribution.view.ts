@@ -14,6 +14,7 @@ import {
 export const intentDistributionView: ViewDefinition = {
   name: 'intent_distribution',
   kind: 'chart',
+  grain: 'intentLabel', // Design §17.1
   allowedSelect: [],
   allowedFilters: FILTER_KEYS,
   allowedSort: [],

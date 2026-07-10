@@ -74,33 +74,59 @@ export interface ChartViewResult {
 
 export type ViewResult = TableViewResult | TrendViewResult | ChartViewResult;
 
-/** view 回應形狀（前端據此挑渲染器：表格 / 趨勢折線 / 圖表分組）。對映 `ViewResult` 三型。 */
+/** view 內部結果判別（對映 `ViewResult` 三型）。metadata 對外以 `responseShape` 表述（AC-22.2）。 */
 export type ViewKind = 'table' | 'trend' | 'chart';
+
+/** 欄位型別（`ColumnDef.type`）。 */
+export type ColumnType = ColumnDef['type'];
+
+/**
+ * 對外回應形狀（AC-22.2）：`ViewKind` 三型 ＋ 保留 `summary`（KPI 卡片，M12+ 物化指標 view；
+ * 目前無 summary view，但契約先納入以利前端 codegen 前瞻）。
+ */
+export type ResponseShape = ViewKind | 'summary';
 
 /** view 未指定 `requiresFeature` 時的預設 feature（既有 snapshot pipeline，snapshot 就緒即 ready）。 */
 export const DEFAULT_VIEW_FEATURE: FeatureKey = 'keyword_metrics';
 
+/** metadata 的 `allowedSelect` 元素：欄位 key ＋ 型別（AC-22.2，供前端 codegen 型別化欄位）。 */
+export interface SelectField {
+  key: string;
+  type: ColumnType;
+}
+
 /**
  * `GET /views` 自省 metadata（FR-22/NFR-10）：由 `ViewDefinition` 直接導出（單一來源，與 `/query`
- * 白名單同源、不另抄），前端據此驅動 tab/欄位/篩選 config。
+ * 白名單同源、不另抄），前端據此驅動 tab/欄位/篩選 config。形狀對映 **AC-22.2**：
+ * `{ name, grain, allowedSelect:[{key,type}], allowedFilters, allowedSort, responseShape }`。
+ * `requiresFeature` 為 as-built 擴充（feature-gating，AC-14.7；spec-first 併入 AC-22.2）。
  */
 export interface ViewMetadata {
   name: string;
-  kind: ViewKind;
-  allowedSelect: string[];
+  grain: string;
+  allowedSelect: SelectField[];
   allowedFilters: string[];
   allowedSort: string[];
+  responseShape: ResponseShape;
   requiresFeature: FeatureKey;
 }
 
 /**
- * 具名視圖定義：固定其可選/可篩/可排欄位（白名單）、回應形狀 `kind` 與 `build`（filter → shape → format）。
- * `build` 假設 `ctx.request` **已驗證**（白名單/型別/上限由 QueryViewService 於呼叫前把關）。
+ * 具名視圖定義：固定其可選/可篩/可排欄位（白名單）、回應形狀 `kind`、資料 `grain` 與 `build`
+ * （filter → shape → format）。`build` 假設 `ctx.request` **已驗證**（白名單/型別/上限由 QueryViewService
+ * 於呼叫前把關）。
  */
 export interface ViewDefinition {
   name: string;
   kind: ViewKind;
+  /** 資料 grain（Design §17.1；如 keyword/month/intentLabel/bucket/topic）——metadata 對外導出。 */
+  grain: string;
   allowedSelect: readonly string[];
+  /**
+   * 各 `allowedSelect` 欄位的 `ColumnDef`（含型別），供 `/views` metadata 導出 `[{key,type}]`（AC-22.2）。
+   * 省略（如 trend/chart view 無 select 欄位）→ metadata `allowedSelect` 為空陣列。
+   */
+  selectColumns?: readonly ColumnDef[];
   allowedFilters: readonly string[];
   allowedSort: readonly string[];
   /**

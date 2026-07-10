@@ -36,7 +36,9 @@ function pick(row: SnapshotRowData, keys: string[]): Record<string, unknown> {
 export const keywordsView: ViewDefinition = {
   name: 'keywords',
   kind: 'table',
+  grain: 'keyword', // Design §17.1
   allowedSelect: ALLOWED_SELECT,
+  selectColumns: Object.values(COLUMNS), // ALLOWED_SELECT === Object.keys(COLUMNS)，key/型別同源
   allowedFilters: FILTER_KEYS,
   allowedSort: SORT_FIELDS,
   build(ctx: ViewContext): TableViewResult {
