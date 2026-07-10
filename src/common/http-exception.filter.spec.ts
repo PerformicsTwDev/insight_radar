@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { HttpExceptionFilter } from './http-exception.filter';
+import { REDACT_CENSOR } from '../logger/redaction';
 
 function mockHost(url = '/api/v1/x') {
   const json = jest.fn();
@@ -171,6 +172,23 @@ describe('HttpExceptionFilter', () => {
     expect(status).toHaveBeenCalledWith(500);
     const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
     expect(body.message).toBe('Internal server error');
+  });
+
+  // —— M9-R1（NFR-5）：http-errors 4xx 的 message 進 response 前也必須 scrub（不只 log）——
+  it('scrubs secrets from an http-errors 4xx message before it reaches the client (NFR-5, M9-R1)', () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { host, status, json } = mockHost();
+    // 4xx http-error（expose）其 message 內嵌連線字串密碼——不得原樣回給 client。
+    const err = Object.assign(
+      new Error('parse failed near postgres://admin:sup3rs3cr3t@db:5432/app'),
+      { status: 400, expose: true },
+    );
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(400);
+    const serialised = JSON.stringify((json.mock.calls as unknown[][])[0][0]);
+    expect(serialised).not.toContain('sup3rs3cr3t'); // 密碼不得外洩到 response body
+    expect(serialised).toContain(REDACT_CENSOR); // 連線字串密碼被遮成 [Redacted]
   });
 
   it('does NOT honour a non-exposed error status (axios-like upstream status stays 500)', () => {
