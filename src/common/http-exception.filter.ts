@@ -17,6 +17,25 @@ interface HttpRequestLike {
 }
 
 /**
+ * 判定是否為 **http-errors 形狀的 client 錯誤**（body-parser 等框架 middleware 拋出，如
+ * `PayloadTooLargeError` 413、JSON parse 失敗 400）。以 `expose === true` 為判別鍵——http-errors 對
+ * 4xx 設 `expose=true`（訊息為安全通用字串），藉此**排除** axios/上游錯誤等同樣帶 `status` 但不該把上游
+ * 狀態外洩給 client 的例外。回傳 4xx status（否則 undefined → 走通用 500）。
+ */
+function httpErrorsClientStatus(exception: unknown): number | undefined {
+  if (!exception || typeof exception !== 'object') return undefined;
+  const e = exception as { status?: unknown; statusCode?: unknown; expose?: unknown };
+  if (e.expose !== true) return undefined;
+  const raw =
+    typeof e.status === 'number'
+      ? e.status
+      : typeof e.statusCode === 'number'
+        ? e.statusCode
+        : undefined;
+  return raw !== undefined && raw >= 400 && raw < 500 ? raw : undefined;
+}
+
+/**
  * 全域例外過濾器（T0.6）：把所有例外序列化成統一的 {@link ErrorResponse}。
  *
  * - HttpException：用其 status/message；驗證例外另帶 `code` 與欄位級 `fields`。
@@ -33,7 +52,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<HttpRequestLike>();
 
     const isHttp = exception instanceof HttpException;
-    const status = isHttp ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    // 非 HttpException 時：先看是否為 http-errors 的 4xx（body-parser PayloadTooLargeError→413 等）——
+    // 尊重其 client 狀態、不遮成 500（NFR-14「body 逾限 → 413」、濫用面收斂）。其餘一律 500。
+    const clientStatus = isHttp ? undefined : httpErrorsClientStatus(exception);
+    const status = isHttp
+      ? exception.getStatus()
+      : (clientStatus ?? HttpStatus.INTERNAL_SERVER_ERROR);
 
     let code = HttpStatus[status] ?? 'ERROR';
     let message = 'Internal server error';
@@ -59,6 +83,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
           fields = r.fields as Record<string, string[]>;
         }
       }
+    } else if (clientStatus !== undefined) {
+      // http-errors 4xx（框架 middleware，如 body-parser）：其 `expose=true` 訊息為安全通用字串
+      // （如「request entity too large」）——可安全外露；仍記 server log（scrub）便於觀測。
+      code = HttpStatus[clientStatus] ?? code;
+      const safeMessage = (exception as { message?: unknown }).message;
+      if (typeof safeMessage === 'string') {
+        message = safeMessage;
+      }
+      this.logger.warn(scrubSecrets(`Client error ${clientStatus}: ${message}`));
     } else {
       // 不洩漏細節：完整錯誤只進 server log，回應給通用訊息。
       // stack 以 scrubSecrets 清洗內嵌的連線字串密碼／bearer token（M0-R3；此處走原始字串

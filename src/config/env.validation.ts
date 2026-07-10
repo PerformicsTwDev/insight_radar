@@ -23,6 +23,11 @@ export const validationSchema = Joi.object({
   ALLOWED_ORIGINS: Joi.string().allow('').default(''),
   // SSE heartbeat 事件週期（毫秒），防 LB/proxy idle 切斷（FR-9 AC-9.6/9.7）；named event，非 : comment。
   SSE_HEARTBEAT_MS: Joi.number().integer().min(0).default(15000),
+  // helmet 安全 header 開關（預設開；非 production 可關以便本機/特定測試），NFR-14。
+  HELMET_ENABLED: Joi.boolean().default(true),
+  // JSON body 上限（MB）；自 express 預設 100kb 提高（exact 模式大 seeds），逾此 → 413，NFR-14。
+  // 預設 5（Design §14 config SSOT）；.env.test 刻意收窄為 1 以廉價驗 TC-58 邊界（見該檔註）。
+  BODY_LIMIT_MB: Joi.number().positive().default(5),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),

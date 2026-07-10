@@ -9,6 +9,10 @@ export interface AppConfig {
   allowedOrigins: string[];
   /** SSE heartbeat 事件週期（毫秒），FR-9 AC-9.6/9.7。 */
   sseHeartbeatMs: number;
+  /** 是否啟用 helmet 安全 header（NFR-14；預設開）。 */
+  helmetEnabled: boolean;
+  /** JSON body 上限（MB），NFR-14；逾此 → 413。 */
+  bodyLimitMb: number;
 }
 
 /** 逗號分隔 origin 白名單 → 去空白、去空項的陣列。 */
@@ -27,4 +31,6 @@ export const appConfig = registerAs('app', (): AppConfig => ({
   apiKey: process.env.API_KEY as string,
   allowedOrigins: parseOrigins(process.env.ALLOWED_ORIGINS),
   sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS),
+  helmetEnabled: process.env.HELMET_ENABLED !== 'false',
+  bodyLimitMb: Number(process.env.BODY_LIMIT_MB),
 }));

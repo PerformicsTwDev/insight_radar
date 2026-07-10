@@ -101,6 +101,91 @@ describe('HttpExceptionFilter', () => {
     expect(serialised).toContain('b is required');
   });
 
+  // —— T9.8/NFR-14：http-errors 形狀的 4xx（body-parser 等框架 middleware）不遮成 500 ——
+  it('surfaces an http-errors 4xx (body-parser PayloadTooLargeError → 413, expose msg)', () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { host, status, json } = mockHost();
+    // 仿 body-parser 的 PayloadTooLargeError（http-errors：帶 numeric status/statusCode + expose=true）。
+    const err = Object.assign(new Error('request entity too large'), {
+      status: 413,
+      statusCode: 413,
+      expose: true,
+      type: 'entity.too.large',
+    });
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(413);
+    const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
+    expect(body.statusCode).toBe(413);
+    expect(body.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(body.message).toBe('request entity too large');
+  });
+
+  it('honours an exposed error carrying only statusCode (no status alias)', () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { host, status } = mockHost();
+    const err = Object.assign(new Error('unsupported charset'), {
+      statusCode: 415,
+      expose: true,
+    });
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(415);
+  });
+
+  it('surfaces an exposed 4xx status not in HttpStatus enum (code falls back to ERROR)', () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { host, status, json } = mockHost();
+    const err = Object.assign(new Error('nonstandard'), { status: 499, expose: true });
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(499);
+    const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
+    expect(body.code).toBe('ERROR'); // HttpStatus[499] undefined → 通用 code fallback
+  });
+
+  it('does NOT honour an exposed 5xx (only 4xx client errors are surfaced) → 500', () => {
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, status, json } = mockHost();
+    const err = Object.assign(new Error('boom'), { status: 503, expose: true });
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(500);
+    const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
+    expect(body.message).toBe('Internal server error');
+  });
+
+  it('does NOT honour an exposed error with no numeric status/statusCode → 500', () => {
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, status } = mockHost();
+    filter.catch(Object.assign(new Error('exposed but statusless'), { expose: true }), host);
+
+    expect(status).toHaveBeenCalledWith(500);
+  });
+
+  it('treats a non-object thrown value as a generic 500 (no crash)', () => {
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, status, json } = mockHost();
+    filter.catch('a bare string error', host);
+
+    expect(status).toHaveBeenCalledWith(500);
+    const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
+    expect(body.message).toBe('Internal server error');
+  });
+
+  it('does NOT honour a non-exposed error status (axios-like upstream status stays 500)', () => {
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, status, json } = mockHost();
+    // axios/上游錯誤：帶 status 但無 expose → 不得把上游狀態外洩；一律通用 500。
+    const err = Object.assign(new Error('upstream 404 from Google Ads'), { status: 404 });
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(500);
+    const body = (json.mock.calls as unknown[][])[0][0] as Record<string, unknown>;
+    expect(body.statusCode).toBe(500);
+    expect(body.message).toBe('Internal server error');
+  });
+
   it('does not leak internals for a non-HttpException (generic 500)', () => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const { host, status, json } = mockHost();
