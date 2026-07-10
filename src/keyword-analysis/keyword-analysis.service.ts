@@ -122,16 +122,20 @@ export class KeywordAnalysisService {
     }
 
     const where: Prisma.KeywordAnalysisWhereInput = query.status ? { status: query.status } : {};
-    const [rows, total] = await Promise.all([
-      this.prisma.keywordAnalysis.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        include: { resultSnapshot: true },
-      }),
-      this.prisma.keywordAnalysis.count({ where }),
-    ]);
+    const skip = (page - 1) * pageSize;
+    const total = await this.prisma.keywordAnalysis.count({ where });
+    // M9-R4：越界 page（`skip ≥ total`）→ 短路回空頁，**不**對 DB 下越界 OFFSET 的 findMany。
+    // 否則巨大 page 會讓 Postgres `OFFSET`（int8）溢位→500，或深 OFFSET 全掃→availability/DoS。
+    if (skip >= total) {
+      return { data: [], meta: { total, page, pageSize } };
+    }
+    const rows = await this.prisma.keywordAnalysis.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize,
+      include: { resultSnapshot: true },
+    });
 
     return { data: rows.map(toListRow), meta: { total, page, pageSize } };
   }
