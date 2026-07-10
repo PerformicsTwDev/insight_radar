@@ -356,18 +356,19 @@ function expiredIdempotencyKey(hash: string, id: string): string {
   return `${hash}#expired#${id}`;
 }
 
-/** 歷史清單列映射（FR-23，AC-23.1）：DB 列 → 對外形狀（params 取 mode/geo/language；count 取 snapshot）。 */
+/**
+ * 歷史清單列映射（FR-23，AC-23.1）：DB 列 → 對外形狀（params 取 mode/geo/language；count 取 snapshot）。
+ * `seeds`/`params` 為 **non-null `Json`**（schema 保證）、由 `create()` 寫入 `string[]` / `AnalysisParams`
+ * 物件，故此處直接收斂型別（不加 corrupt-DB 防禦分支）。
+ */
 function toListRow(
   row: Prisma.KeywordAnalysisGetPayload<{ include: { resultSnapshot: true } }>,
 ): AnalysisListRow {
-  const params =
-    row.params && typeof row.params === 'object' && !Array.isArray(row.params)
-      ? (row.params as { mode?: string; geo?: string; language?: string })
-      : {};
+  const params = row.params as { mode?: string; geo?: string; language?: string };
   return {
     analysisId: row.id,
     status: row.status,
-    seeds: Array.isArray(row.seeds) ? (row.seeds as string[]) : [],
+    seeds: row.seeds as string[],
     params: { mode: params.mode, geo: params.geo, language: params.language },
     createdAt: row.createdAt,
     finishedAt: row.finishedAt,
