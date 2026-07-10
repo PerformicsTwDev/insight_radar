@@ -58,27 +58,26 @@ const ROWS: Row[] = [
 
 describe('GET /api/v1/keyword-analyses 歷史清單 (e2e · TC-56 · FR-23)', () => {
   let app: INestApplication<App>;
+  let findMany: jest.Mock;
+  let count: jest.Mock;
 
   beforeAll(async () => {
     const select = (where?: { status?: string }): Row[] => {
       const filtered = where?.status ? ROWS.filter((r) => r.status === where.status) : ROWS;
       return [...filtered].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     };
-    const prisma = {
-      keywordAnalysis: {
-        findMany: jest.fn(
-          (args: { where?: { status?: string }; skip?: number; take?: number }): Promise<Row[]> => {
-            const sorted = select(args.where);
-            const skip = args.skip ?? 0;
-            const take = args.take ?? sorted.length;
-            return Promise.resolve(sorted.slice(skip, skip + take));
-          },
-        ),
-        count: jest.fn((args: { where?: { status?: string } }): Promise<number> =>
-          Promise.resolve(select(args.where).length),
-        ),
+    findMany = jest.fn(
+      (args: { where?: { status?: string }; skip?: number; take?: number }): Promise<Row[]> => {
+        const sorted = select(args.where);
+        const skip = args.skip ?? 0;
+        const take = args.take ?? sorted.length;
+        return Promise.resolve(sorted.slice(skip, skip + take));
       },
-    };
+    );
+    count = jest.fn((args: { where?: { status?: string } }): Promise<number> =>
+      Promise.resolve(select(args.where).length),
+    );
+    const prisma = { keywordAnalysis: { findMany, count } };
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
@@ -173,5 +172,20 @@ describe('GET /api/v1/keyword-analyses 歷史清單 (e2e · TC-56 · FR-23)', ()
       .get('/api/v1/keyword-analyses?pageSize=100000')
       .set('x-api-key', API_KEY);
     expect(res.status).toBe(400);
+  });
+
+  it('越界 page → 200 空頁，不對 DB 發出越界 OFFSET 查詢（M9-R4）', async () => {
+    // 真 Postgres 下 `skip=(page-1)*pageSize` 越界會 int8 溢位 → 500（且深 OFFSET 掃描＝DoS）。
+    // 修正＝skip ≥ total 時短路回空頁、**不**下 findMany（故越界 OFFSET 永不抵達 DB）。
+    findMany.mockClear();
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses?page=1000000000000000') // 1e15：遠超 total
+      .set('x-api-key', API_KEY);
+
+    expect(res.status).toBe(200); // 不是 500
+    const body = res.body as { data: unknown[]; meta: { total: number } };
+    expect(body.data).toEqual([]);
+    expect(body.meta.total).toBe(ROWS.length);
+    expect(findMany).not.toHaveBeenCalled(); // 短路：越界 OFFSET 不下 DB（防 int8 溢位 500 / 深掃 DoS）
   });
 });
