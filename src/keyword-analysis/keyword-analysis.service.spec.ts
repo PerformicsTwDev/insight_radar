@@ -232,6 +232,42 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
     expect(queueAdd).not.toHaveBeenCalled();
     expect(prisma.rows.find((r) => r.id === stale.id)?.idempotencyKey).not.toBe(hash); // 舊列仍讓了位
   });
+
+  it('過窗但仍在處理中（queued/running）的既有列 → coalesce 回其 id，不旋轉、不重複入列（M9-R2）', async () => {
+    const { service, prisma, queueAdd } = await buildHarness();
+    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params);
+    // worker 落後：舊列已逾 freshness 窗，但仍在處理中（status=queued）——不得旋轉讓位、不得重複入列
+    // （否則相同 seeds 會被重複打 Google Ads、雙倍用量）。
+    const inflight = seedExisting(prisma, {
+      id: 'inflight-analysis',
+      status: 'queued',
+      createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs - 60_000),
+    });
+
+    const { analysisId } = await service.create(baseInput);
+
+    expect(analysisId).toBe(inflight.id); // coalesce 到進行中的列
+    expect(queueAdd).not.toHaveBeenCalled(); // 不重複入列（不重打 Ads）
+    expect(prisma.rows).toHaveLength(1); // 沒有建新列
+    expect(prisma.rows[0].idempotencyKey).toBe(hash); // 舊列仍持有 hash（未被旋轉讓位）
+  });
+
+  it('窗內重送 re-cache 用「剩餘窗」而非從 now 起算全 TTL（不滑動 Redis 快路徑，M9-R3）', async () => {
+    const { service, prisma, cache } = await buildHarness();
+    // 既有列在窗內、但已用掉約半個窗（createdAt = now − idempTtlMs/2）。
+    seedExisting(prisma, {
+      id: 'within-window',
+      createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs / 2),
+    });
+
+    await service.create(baseInput);
+
+    const idempSet = cache.setCalls.find((c) => c.key.startsWith(`${CacheNamespace.IDEMP}:`));
+    expect(idempSet).toBeDefined();
+    // re-cache TTL 必 **嚴格小於**全 idempTtlMs（≈剩餘半窗）——否則快路徑延壽、逾 DB 窗後仍回 stale。
+    expect(idempSet?.ttlMs).toBeLessThan(QUEUE_CONFIG.idempTtlMs);
+    expect(idempSet?.ttlMs).toBeGreaterThan(0);
+  });
 });
 
 describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
