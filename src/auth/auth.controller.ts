@@ -20,8 +20,9 @@ interface CookieResponse {
 
 /**
  * 認證 HTTP 入口（T10.3，FR-24）。掛 `/api/v1/auth`（全域前綴）。
- * register/login `@Public`（免認證，AC-25.4）；logout/me 亦 `@Public`（於 T10.4 CompositeAuthGuard 之前），
- * 由 `SessionService.authenticate` 讀 session cookie 把關——無效/失效 → 401（真理在 Redis session，AC-24.6）。
+ * register/login `@Public`（免認證，AC-25.4）；`me` `@Public`（GET、唯讀，`SessionService.authenticate` 讀
+ * cookie 把關）；**`logout` 非 `@Public`**——是 session 狀態變更，由 `CompositeAuthGuard`+`CsrfGuard` 保護
+ * （AC-26.1，防跨站強制登出）。無效/失效 session → 401（真理在 Redis session，AC-24.6）。
  *
  * **純路由 shell**：所有 handler 皆直線委派（session 認證的唯一真實分支已下放至 `SessionService.authenticate`，
  * 於 gate 內單元測試）；本檔剩餘覆蓋率缺口全屬 `emitDecoratorMetadata` 對 class-typed 參數/回傳型別生成的
@@ -57,8 +58,12 @@ export class AuthController {
     return { user }; // body 只回 user；opaque sid 只在 Set-Cookie（不入 body）
   }
 
-  /** 登出（AC-24.4）：撤銷 Redis session + 清 cookie；無有效 session → 401。 */
-  @Public()
+  /**
+   * 登出（AC-24.4）：撤銷 Redis session + 清 cookie；無有效 session → 401。
+   * **非 `@Public`**（M9-R/T10.5）：logout 是 session-cookie 認證的狀態變更請求 → 由 `CompositeAuthGuard`
+   * 保護（session 必要）並經 `CsrfGuard` 檢查 Origin（AC-26.1）；否則 `@Public` 會令 `request.user` 未設、
+   * 讓 CsrfGuard 略過 → 可被跨站強制登出（CSRF）。
+   */
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(
