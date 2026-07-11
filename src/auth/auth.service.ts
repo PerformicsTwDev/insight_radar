@@ -64,13 +64,23 @@ export class AuthService implements OnModuleInit {
   /** 驗證憑證（AC-24.2/24.3）：成功回 `{id,email}`；不存在 email 或密碼錯 → 皆 401、同一訊息、耗時相近。 */
   async login(email: string, password: string): Promise<AuthUser> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    // 反枚舉：無論 user 是否存在，都對某個真實 argon2id hash 執行**一次** verify（不存在時用 dummyHash）。
-    const hash = user ? user.passwordHash : this.dummyHash;
-    const matched = await this.passwords.verify(hash, password);
+    const matched = await this.verifyPassword(user, password);
     if (!user || !matched) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     return { id: user.id, email: user.email };
+  }
+
+  /**
+   * 反枚舉 verify 助手（AC-24.3/S7）：無論帳號是否存在，都對**一個真實 argon2id hash** 執行**一次** verify——
+   * 帳號不存在時改用 boot 預算的 `dummyHash`，使「email 不存在」與「密碼錯」耗時相近、不由 timing 洩漏帳號存在與否。
+   * **不 log** 任何 hash/密碼素材。
+   */
+  private verifyPassword(
+    user: { passwordHash: string } | null,
+    password: string,
+  ): Promise<boolean> {
+    return this.passwords.verify(user?.passwordHash ?? this.dummyHash, password);
   }
 
   /** 依 session 解出的 userId 取使用者（AC-24.5/24.6）；User 不存在 → 401（真理在 session，不因 DB 放行）。 */
