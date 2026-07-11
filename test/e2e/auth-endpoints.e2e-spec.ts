@@ -42,6 +42,7 @@ interface UserRow {
 /** 忠實 `prisma.user` 替身：`email` 唯一（重複 create → P2002）；findUnique 支援 by email / by id + select 投影。 */
 function makeFakeUserDb() {
   const rows = new Map<string, UserRow>(); // by id
+  let nextCreateError: Error | null = null; // 一次性注入：模擬非 P2002 的 DB 錯誤
   const byEmail = (email: string): UserRow | undefined =>
     [...rows.values()].find((r) => r.email === email);
   const project = (row: UserRow, select?: Record<string, boolean>): Partial<UserRow> => {
@@ -61,12 +62,12 @@ function makeFakeUserDb() {
     return out;
   };
   return {
-    reset: (): void => rows.clear(),
-    removeByEmail: (email: string): void => {
-      const row = byEmail(email);
-      if (row) {
-        rows.delete(row.id);
-      }
+    reset: (): void => {
+      rows.clear();
+      nextCreateError = null;
+    },
+    failNextCreate: (error: Error): void => {
+      nextCreateError = error;
     },
     user: {
       create: ({
@@ -76,6 +77,11 @@ function makeFakeUserDb() {
         data: { email: string; passwordHash: string };
         select?: Record<string, boolean>;
       }): Promise<Partial<UserRow>> => {
+        if (nextCreateError) {
+          const err = nextCreateError;
+          nextCreateError = null;
+          return Promise.reject(err);
+        }
         if (byEmail(data.email)) {
           return Promise.reject(
             new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -238,6 +244,15 @@ describe('auth endpoints (e2e · TC-59 · FR-24)', () => {
         .post('/api/v1/auth/register')
         .send({ email: 'not-an-email', password: PASSWORD });
       expect(res.status).toBe(400);
+    });
+
+    it('非 P2002 的 DB 錯誤 → 不吞、原樣上拋（500，非 409）', async () => {
+      // 只有 unique 違反（P2002）才映射 409；其餘 DB 錯誤不得被誤判為「重複」——原樣上拋、由全域 filter 轉 500。
+      db.failNextCreate(new Error('connection reset'));
+      const res = await request(server())
+        .post('/api/v1/auth/register')
+        .send({ email: 'boom@example.com', password: PASSWORD });
+      expect(res.status).toBe(500);
     });
   });
 
