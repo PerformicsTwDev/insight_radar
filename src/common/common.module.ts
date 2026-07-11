@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ApiKeyAuthResolver } from './api-key-auth.resolver';
 import { AUTH_RESOLVERS } from './authenticated-user';
 import { CompositeAuthGuard } from './composite-auth.guard';
+import { CsrfGuard } from './csrf.guard';
 import { HttpExceptionFilter } from './http-exception.filter';
 import { SessionAuthResolver } from './session-auth.resolver';
 import { createValidationPipe } from './validation.pipe';
@@ -12,6 +13,8 @@ import { createValidationPipe } from './validation.pipe';
  * 跨模組共用的全域提供者：
  * - `APP_GUARD` → `CompositeAuthGuard`（FR-25；`@Public()` 放行；session 或 x-api-key 任一通過），依序委派
  *   `SessionAuthResolver`（→ `SessionService` + `PrismaService`）與 `ApiKeyAuthResolver`（→ `ConfigService`）。
+ * - `APP_GUARD` → `CsrfGuard`（FR-26；**登記於 `CompositeAuthGuard` 之後**，故 `request.user` 已填好）：僅對
+ *   cookie-borne（session）狀態變更請求檢查 `Origin`/`Referer` ∈ `ALLOWED_ORIGINS`，否則 403；x-api-key/GET 免檢查。
  * - `APP_FILTER` → `HttpExceptionFilter`（T0.6，統一錯誤格式、不洩漏細節）。
  * - `APP_PIPE` → 全域 `ValidationPipe`（whitelist/forbidNonWhitelisted/transform）。
  *
@@ -30,6 +33,8 @@ import { createValidationPipe } from './validation.pipe';
       inject: [SessionAuthResolver, ApiKeyAuthResolver],
     },
     { provide: APP_GUARD, useClass: CompositeAuthGuard },
+    // 登記於 CompositeAuthGuard 之後 → 全域守衛按登記序執行，CSRF 檢查時 `request.user` 已由前者填好（FR-26）。
+    { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_PIPE, useFactory: createValidationPipe },
   ],
