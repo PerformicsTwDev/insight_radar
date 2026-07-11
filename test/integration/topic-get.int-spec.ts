@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { Queue } from 'bullmq';
+import type { AuthenticatedUser } from 'src/common/authenticated-user';
 import type { embeddingsConfig } from 'src/config/embeddings.config';
 import type { queueConfig } from 'src/config/queue.config';
 import type { topicsConfig } from 'src/config/topics.config';
@@ -17,6 +18,8 @@ import { createPrismaTestApp } from '../utils/create-prisma-test-app';
  * （群繼承）、noise、meta，且**不覆寫 FR-4 keyword_intents**（群層 intent 與每字 multi-label 分表）。
  */
 const DUMMY = {} as ConfigType<typeof topicsConfig>;
+// getTopics 現閘父 KeywordAnalysis.ownerId（FR-27）：apiKey 為 no-op（見全部）；owner 隔離另於 owner-scope.int-spec。
+const ACTOR: AuthenticatedUser = { kind: 'apiKey' };
 
 function clusterRecord(): TopicClusterRecord {
   return {
@@ -80,11 +83,29 @@ describe('TopicsService.getTopics (integration · Testcontainers, TC-49)', () =>
     await prisma.$executeRawUnsafe('DELETE FROM topic_cluster_runs');
     await prisma.$executeRawUnsafe('DELETE FROM snapshot_rows');
     await prisma.$executeRawUnsafe('DELETE FROM result_snapshots');
+    await prisma.$executeRawUnsafe('DELETE FROM keyword_analyses');
     await prisma.$executeRawUnsafe('DELETE FROM keyword_intents');
   });
 
-  async function seedCompletedRun(): Promise<string> {
+  /** 建立父 KeywordAnalysis（owner gate 需其存在；ownerId=null＝共享，apiKey/session 皆通過），回 analysisId。 */
+  async function seedAnalysis(): Promise<string> {
     const analysisId = randomUUID();
+    await prisma.keywordAnalysis.create({
+      data: {
+        id: analysisId,
+        status: 'completed',
+        seeds: [],
+        params: {},
+        progress: {},
+        idempotencyKey: `idem-${analysisId}`,
+        ownerId: null,
+      },
+    });
+    return analysisId;
+  }
+
+  async function seedCompletedRun(): Promise<string> {
+    const analysisId = await seedAnalysis();
     const snapshotId = randomUUID();
     await prisma.resultSnapshot.create({
       data: { id: snapshotId, analysisId, keywordCount: 2, checksum: 'chk' },
@@ -121,13 +142,20 @@ describe('TopicsService.getTopics (integration · Testcontainers, TC-49)', () =>
   }
 
   it('404 when the analysis has no topic run', async () => {
-    await expect(service.getTopics(randomUUID())).rejects.toBeInstanceOf(NotFoundException);
+    // 父分析存在（通過 owner gate）但無 run → "no topic run" 分支 404（非 owner/未知 id）。
+    const analysisId = await seedAnalysis();
+    await expect(service.getTopics(analysisId, ACTOR)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('404 when the parent analysis does not exist (owner gate)', async () => {
+    // 未知 analysisId → owner gate 先擋（與越權同一 404，不洩漏存在性）。
+    await expect(service.getTopics(randomUUID(), ACTOR)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('returns clusters + per-keyword labels with group inheritance and original text', async () => {
     const analysisId = await seedCompletedRun();
 
-    const res = await service.getTopics(analysisId);
+    const res = await service.getTopics(analysisId, ACTOR);
 
     expect(res.status).toBe('completed');
     expect(res.meta).toMatchObject({ clusterCount: 1, noiseCount: 1 });
@@ -158,7 +186,7 @@ describe('TopicsService.getTopics (integration · Testcontainers, TC-49)', () =>
       data: { normalizedText: 'coffee maker', modelVersion: 'v1', labels: ['informational'] },
     });
 
-    const res = await service.getTopics(analysisId);
+    const res = await service.getTopics(analysisId, ACTOR);
 
     // 群層 intentLabel 來自 topic_clusters（commercial），與 keyword_intents（informational）分表互補。
     const kw = res.keywords.find((k) => k.normalizedText === 'coffee maker');

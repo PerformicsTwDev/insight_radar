@@ -17,6 +17,11 @@ import type { SnapshotRowData } from 'src/keyword-analysis/result-snapshot.check
 import { KeywordsModule } from 'src/keywords/keywords.module';
 import { SnapshotQueryService } from 'src/keywords/snapshot-query.service';
 import { PrismaService } from 'src/prisma';
+import type { embeddingsConfig } from 'src/config/embeddings.config';
+import type { topicsConfig } from 'src/config/topics.config';
+import type { KeywordAssignment, TopicClusterRecord } from 'src/topics/assemble-assignments';
+import { TopicRepository } from 'src/topics/topic.repository';
+import { TopicsService } from 'src/topics/topics.service';
 
 /**
  * TC-62（FR-27 / NFR-15 · Testcontainers 真 Postgres）：owner 隔離的 **DB 層強制**——
@@ -27,6 +32,7 @@ import { PrismaService } from 'src/prisma';
 const OWNER_A = randomUUID();
 const OWNER_B = randomUUID();
 const SESSION_A: AuthenticatedUser = { kind: 'session', id: OWNER_A, email: 'a@example.com' };
+const SESSION_B: AuthenticatedUser = { kind: 'session', id: OWNER_B, email: 'b@example.com' };
 const API_KEY: AuthenticatedUser = { kind: 'apiKey' };
 
 const LIMIT_ENV_KEYS = ['QUERY_MAX_PAGE_SIZE', 'AGG_MAX_BUCKETS', 'AGG_MAX_GROUPS'] as const;
@@ -51,6 +57,8 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
   let prisma: PrismaService;
   let snapshotQuery: SnapshotQueryService;
   let kaService: KeywordAnalysisService;
+  let topicRepo: TopicRepository;
+  let topicsService: TopicsService;
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeAll(async () => {
@@ -85,9 +93,33 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
     } as unknown as ConfigType<typeof queueConfig>;
     const queryCfg = { maxPageSize: 200 } as unknown as ConfigType<typeof queryConfig>;
     kaService = new KeywordAnalysisService(queueStub, cacheStub, prisma, queueCfg, queryCfg);
+
+    // TopicsService（topics 子資源）同樣直接構造（真 prisma/repo + 佇列/config 替身）——驗 owner gate 於
+    // create/getTopics/getRunRef 的 DB 語意（越權/未知 → 404 或 SSE EMPTY；apiKey 不過濾）。
+    topicRepo = new TopicRepository(prisma);
+    const topicsCfg = {
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
+    } as unknown as ConfigType<typeof topicsConfig>;
+    const embeddingsCfg = {
+      model: 'gemini-embedding-001',
+      schemaVersion: 'v1',
+    } as unknown as ConfigType<typeof embeddingsConfig>;
+    topicsService = new TopicsService(
+      queueStub,
+      prisma,
+      topicRepo,
+      topicsCfg,
+      embeddingsCfg,
+      queueCfg,
+    );
   });
 
   afterEach(async () => {
+    // topics 子資源（無 FK 至 analysis/snapshot 列，但 clusters→runs 有 FK：先 assignments/clusters 再 runs）。
+    await prisma.keywordClusterAssignment.deleteMany();
+    await prisma.topicCluster.deleteMany();
+    await prisma.topicRun.deleteMany();
     await prisma.snapshotRow.deleteMany();
     await prisma.keywordAnalysis.updateMany({ data: { resultSnapshotId: null } });
     await prisma.resultSnapshot.deleteMany();
@@ -153,6 +185,48 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
       },
     });
     return analysisId;
+  }
+
+  function clusterRecord(): TopicClusterRecord {
+    return {
+      clusterLabel: 0,
+      topicName: 'Coffee',
+      parentTopic: 'Beverages',
+      intentLabel: 'commercial',
+      topicType: 'head',
+      reason: 'buying signals',
+      clusterVolume: 100,
+      keywordCount: 1,
+      confidence: 0.9,
+      representativeKeywords: [],
+    };
+  }
+
+  function assignment(normalizedText: string, clusterLabel: number): KeywordAssignment {
+    return {
+      normalizedText,
+      clusterLabel,
+      topicName: null,
+      parentTopic: null,
+      intentLabel: null,
+      confidence: 0.9,
+      isNoise: false,
+    };
+  }
+
+  /** 為既有 completed analysis 建一筆 completed TopicRun（+ 1 群 + 1 指派），使 GET topics 有意義。 */
+  async function seedTopicRunFor(analysisId: string): Promise<string> {
+    const snap = await prisma.resultSnapshot.findFirstOrThrow({ where: { analysisId } });
+    const { runId } = await topicRepo.createRun({
+      keywordAnalysisId: analysisId,
+      snapshotId: snap.id,
+      idempotencyKey: `topic-idem-${analysisId}`,
+      params: {},
+    });
+    await topicRepo.markStatus(runId, 'completed', { clusterCount: 1, noiseCount: 0 });
+    // srow() 預設 normalizedText='kw'（loadKeywordTexts 對得上）→ 指派掛在 label 0 的群。
+    await topicRepo.persist(runId, [clusterRecord()], [assignment('kw', 0)]);
+    return runId;
   }
 
   describe('list (FR-23 / AC-27.3/27.5)', () => {
@@ -289,6 +363,50 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
         select: { ownerId: true },
       });
       expect(row?.ownerId).toBeNull();
+    });
+  });
+
+  describe('topics sub-resource (FR-15/18 / AC-27.3 — cross-owner → 404 / EMPTY)', () => {
+    it("returns 404 when a session actor GETs another owner's topics (no existence leak)", async () => {
+      const aId = await seedCompleted(OWNER_A);
+      await seedTopicRunFor(aId);
+      await expect(topicsService.getTopics(aId, SESSION_B)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('allows the owner (session) to GET its own topics', async () => {
+      const aId = await seedCompleted(OWNER_A);
+      await seedTopicRunFor(aId);
+      const res = await topicsService.getTopics(aId, SESSION_A);
+      expect(res.status).toBe('completed');
+      expect(res.clusters).toHaveLength(1);
+      expect(res.clusters[0]).toMatchObject({ topicName: 'Coffee', intentLabel: 'commercial' });
+    });
+
+    it('apiKey (machine) actor GETs topics of any owner (not owner-filtered)', async () => {
+      const aId = await seedCompleted(OWNER_A);
+      await seedTopicRunFor(aId);
+      const res = await topicsService.getTopics(aId, API_KEY);
+      expect(res.clusters).toHaveLength(1);
+    });
+
+    it("returns 404 and creates NO TopicRun when a session actor POSTs on another owner's analysis", async () => {
+      const aId = await seedCompleted(OWNER_A);
+      await expect(topicsService.create(aId, {}, SESSION_B)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      // 越權 → 不對別人 snapshot 建 TopicRun（避免觸發昂貴分群 job）。
+      const count = await prisma.topicRun.count({ where: { keywordAnalysisId: aId } });
+      expect(count).toBe(0);
+    });
+
+    it('allows the owner (session) to POST (enqueue) a topic run on its own analysis', async () => {
+      const aId = await seedCompleted(OWNER_A);
+      const res = await topicsService.create(aId, {}, SESSION_A);
+      expect(res.topicJobId).toBeDefined();
+      const count = await prisma.topicRun.count({ where: { keywordAnalysisId: aId } });
+      expect(count).toBe(1);
     });
   });
 });
