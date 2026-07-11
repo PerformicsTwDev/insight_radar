@@ -28,6 +28,10 @@ const SECRET_FIELDS = [
   'clientSecret',
   'client_secret',
   'GOOGLE_ADS_CLIENT_SECRET',
+  // 密碼（M10，FR-24/S7）：明文與 argon2id hash 皆不入 log（req body `password`、User `passwordHash`）。
+  'password',
+  'passwordHash',
+  'password_hash',
   // 通用
   'authorization',
 ];

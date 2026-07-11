@@ -1,4 +1,5 @@
 import { appConfig } from './app.config';
+import { authConfig } from './auth.config';
 import { azureConfig } from './azure.config';
 import { cacheConfig } from './cache.config';
 import { clusteringConfig } from './clustering.config';
@@ -20,6 +21,10 @@ const ENV: Record<string, string> = {
   SSE_HEARTBEAT_MS: '15000',
   HELMET_ENABLED: 'true',
   BODY_LIMIT_MB: '1',
+  ARGON2_MEMORY_KIB: '19456',
+  ARGON2_TIME_COST: '2',
+  ARGON2_PARALLELISM: '1',
+  AUTH_MIN_PASSWORD_LEN: '8',
 
   GOOGLE_ADS_CLIENT_ID: 'cid',
   GOOGLE_ADS_CLIENT_SECRET: 'sec',
@@ -110,6 +115,15 @@ describe('config namespaces (registerAs, typed)', () => {
     expect(appConfig().allowedOrigins).toEqual([]);
     process.env.ALLOWED_ORIGINS = '   ,  ,'; // 全空白/逗號 → filter(Boolean) 去盡
     expect(appConfig().allowedOrigins).toEqual([]);
+  });
+
+  it('authConfig maps argon2 + password policy env (coerced to number; M10)', () => {
+    expect(authConfig()).toEqual({
+      argon2MemoryKib: 19456,
+      argon2TimeCost: 2,
+      argon2Parallelism: 1,
+      minPasswordLen: 8,
+    });
   });
 
   it('googleAdsConfig maps the six credentials + batch sizes + Ads throttle/backoff (coerced to number)', () => {

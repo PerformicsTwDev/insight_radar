@@ -39,7 +39,9 @@ describe('PasswordService (TC-59 部分, FR-24/NFR-15)', () => {
   it('does not expose the plaintext or the hash in any log (NFR-5/S7)', async () => {
     const logs: string[] = [];
     for (const level of ['log', 'debug', 'error', 'warn', 'verbose'] as const) {
-      jest.spyOn(Logger.prototype, level).mockImplementation((m: unknown) => logs.push(String(m)));
+      jest
+        .spyOn(Logger.prototype, level)
+        .mockImplementation((...args: unknown[]) => logs.push(args.map(String).join(' ')));
     }
     const service = build();
     const hash = await service.hash(PW);

@@ -2,6 +2,7 @@
 export * from './env.validation';
 export * from './azure-api-version.allowlist';
 export * from './app.config';
+export * from './auth.config';
 export * from './google-ads.config';
 export * from './azure.config';
 export * from './redis.config';
@@ -15,6 +16,7 @@ export * from './clustering.config';
 export * from './topics.config';
 
 import { appConfig } from './app.config';
+import { authConfig } from './auth.config';
 import { googleAdsConfig } from './google-ads.config';
 import { azureConfig } from './azure.config';
 import { redisConfig } from './redis.config';
@@ -30,6 +32,7 @@ import { topicsConfig } from './topics.config';
 /** 供 `ConfigModule.forRoot({ load: configNamespaces })` 一次掛載所有 namespace。 */
 export const configNamespaces = [
   appConfig,
+  authConfig,
   googleAdsConfig,
   azureConfig,
   redisConfig,
