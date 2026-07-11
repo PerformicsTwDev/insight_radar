@@ -1,12 +1,31 @@
 # insight_radar — API 契約
 
-後端對外 HTTP API。除 `GET /health` 外，所有端點掛在 **`/api/v1`** 前綴下，且需認證。此文件以 controller/DTO 為事實來源（API e2e 測試守契約）。
+後端對外 HTTP API。除 `GET /health` 外，所有端點掛在 **`/api/v1`** 前綴下；除 `@Public` 標記者（見下）外皆需認證（session cookie 或 `x-api-key`）。此文件以 controller/DTO 為事實來源（API e2e 測試守契約）。
 
-## 認證
+## 認證（M10：session cookie 或 `x-api-key` 二擇一）
 
-- 全域 `ApiKeyGuard`：每個請求（`@Public` 標記者除外）須帶 `x-api-key: <API_KEY>` header。
-- 缺 key / key 不符 → **401 Unauthorized**（常數時間比對，避免 timing side-channel）。
-- `GET /health` 為 `@Public`，免認證。
+全域 `CompositeAuthGuard`（`@Public` 標記者除外）依序試兩種身分，任一通過即放行；皆不符 → **401 `Authentication required`**（單一通用訊息，不區分細節）：
+
+1. **Session cookie（瀏覽器，FR-24/25）**：`POST /api/v1/auth/login` 驗證成功後，伺服器建立 Redis session 並回 `Set-Cookie: <SESSION_COOKIE_NAME>=<opaque sid>`，帶 `HttpOnly` + `SameSite=Lax` + `Secure`（非 test）+ `Path=/`。後續請求瀏覽器自動附 cookie；伺服器以 sid 查 Redis session（**真理在 Redis**，登出/過期即失效）。cookie 內只有 opaque sid，**不含** JWT 或使用者資料。
+2. **`x-api-key`（機器對機器，FR-11）**：帶 `x-api-key: <API_KEY>` header（常數時間比對，避免 timing side-channel）。與 session 完全相容共存。
+
+- **`@Public`（免認證）**：`GET /health`、`POST /api/v1/auth/register`、`POST /api/v1/auth/login`、`GET /api/v1/auth/me`（自身讀 cookie 把關）。
+- **CSRF（FR-26）**：對 **session cookie** 發動的狀態變更請求（`POST/PUT/PATCH/DELETE`）額外檢查 `Origin`（缺則退 `Referer`；`Origin` 存在即權威）須 ∈ `ALLOWED_ORIGINS`，否則 **403 `Origin not allowed`**。`x-api-key`（瀏覽器不會自動附）與 `GET/HEAD` 免檢查。
+- **owner scope（FR-27）**：session 使用者只能存取自己（`ownerId` = 自身或共享 `null`）的資源；越權 id 一律回 **404**（反枚舉，不洩漏存在性）。`x-api-key` 機器身分不套 owner 過濾。
+
+### 認證端點（4，掛 `/api/v1/auth`）
+
+| Method | Path                    | 說明                             | 成功碼  | `@Public`         |
+| ------ | ----------------------- | -------------------------------- | ------- | ----------------- |
+| POST   | `/api/v1/auth/register` | 建帳號 `{email,password}`        | **201** | ✔                 |
+| POST   | `/api/v1/auth/login`    | 登入（設 session cookie）        | 200     | ✔                 |
+| POST   | `/api/v1/auth/logout`   | 登出（撤銷 session + 清 cookie） | 200     | —（受 CsrfGuard） |
+| GET    | `/api/v1/auth/me`       | 取當前使用者                     | 200     | ✔                 |
+
+- **register**：`{email,password}`（`password` 長度 ≥ `AUTH_MIN_PASSWORD_LEN`）→ `201 { user:{id,email} }`；email 重複 → **409**；格式錯 → 400。**密碼/hash 絕不回應/入 log**（argon2id，NFR-5）。
+- **login**：`{email,password}` → `200 { user:{id,email} }` + `Set-Cookie`（opaque sid，不入 body）。憑證錯（含 email 不存在）一律 **401**（不枚舉；對不存在 email 亦執行 dummy verify，使 timing 相近）。
+- **logout**：撤銷 Redis session + `clearCookie`；無有效 session → 401。**非 `@Public`**——是 session 狀態變更，受 `CompositeAuthGuard` + `CsrfGuard` 保護（防跨站強制登出）。
+- **me**：有效 session → `{id,email}`；無/失效 session → 401。
 
 ## 端點總覽（7）
 
@@ -156,12 +175,14 @@ Enqueue-only：驗證入參 → 算 idempotency key → 建 `KeywordAnalysis`（
 
 ## 常見狀態碼
 
-| 碼  | 情境                                                  |
-| --- | ----------------------------------------------------- |
-| 202 | 建立分析已入列（端點 2）                              |
-| 400 | 入參/query 驗證失敗、非 UUID id、`min>max`、未知 view |
-| 401 | 缺/錯 `x-api-key`                                     |
-| 404 | analysisId 不存在                                     |
-| 409 | view 依賴的 feature 未 ready（`FEATURE_NOT_READY`）   |
-| 500 | 未預期伺服器錯誤（不洩漏細節）                        |
-| 503 | `/health` DB 或 cache down                            |
+| 碼  | 情境                                                     |
+| --- | -------------------------------------------------------- |
+| 201 | 建帳號成功（`auth/register`）                            |
+| 202 | 建立分析已入列（端點 2）                                 |
+| 400 | 入參/query 驗證失敗、非 UUID id、`min>max`、未知 view    |
+| 401 | 缺/錯 `x-api-key`、缺/失效 session、登入憑證錯           |
+| 403 | CSRF：session 狀態變更 `Origin` ∉ `ALLOWED_ORIGINS`      |
+| 404 | analysisId 不存在、或越權存取他人資源（反枚舉）          |
+| 409 | view feature 未 ready（`FEATURE_NOT_READY`）、email 重複 |
+| 500 | 未預期伺服器錯誤（不洩漏細節）                           |
+| 503 | `/health` DB 或 cache down                               |
