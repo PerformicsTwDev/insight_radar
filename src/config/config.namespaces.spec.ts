@@ -24,7 +24,7 @@ const ENV: Record<string, string> = {
   ARGON2_MEMORY_KIB: '19456',
   ARGON2_TIME_COST: '2',
   ARGON2_PARALLELISM: '1',
-  AUTH_MIN_PASSWORD_LEN: '8',
+  AUTH_MIN_PASSWORD_LEN: '10',
 
   GOOGLE_ADS_CLIENT_ID: 'cid',
   GOOGLE_ADS_CLIENT_SECRET: 'sec',
@@ -122,7 +122,7 @@ describe('config namespaces (registerAs, typed)', () => {
       argon2MemoryKib: 19456,
       argon2TimeCost: 2,
       argon2Parallelism: 1,
-      minPasswordLen: 8,
+      minPasswordLen: 10,
     });
   });
 

@@ -1,13 +1,13 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { authConfig } from '../config/auth.config';
-import { PasswordService } from './password.service';
+import { PasswordService } from '.'; // 經 barrel 匯入（測公開入口，亦覆蓋 index re-export）
 
 const CFG = {
   argon2MemoryKib: 19456,
   argon2TimeCost: 2,
   argon2Parallelism: 1,
-  minPasswordLen: 8,
+  minPasswordLen: 10,
 } satisfies ConfigType<typeof authConfig>;
 
 const build = (): PasswordService => new PasswordService(CFG);

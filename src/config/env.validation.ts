@@ -33,7 +33,7 @@ export const validationSchema = Joi.object({
   ARGON2_MEMORY_KIB: Joi.number().integer().min(19456).default(19456), // OWASP 下限 19 MiB
   ARGON2_TIME_COST: Joi.number().integer().min(2).default(2),
   ARGON2_PARALLELISM: Joi.number().integer().min(1).default(1),
-  AUTH_MIN_PASSWORD_LEN: Joi.number().integer().min(8).default(8),
+  AUTH_MIN_PASSWORD_LEN: Joi.number().integer().min(10).default(10), // Design §14 / AC-24.1
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),
