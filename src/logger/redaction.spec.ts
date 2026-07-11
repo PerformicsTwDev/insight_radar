@@ -43,17 +43,25 @@ describe('log redaction (TC-29)', () => {
     expect(output).toContain(REDACT_CENSOR);
   });
 
-  it('redacts password (req body) + passwordHash (User) — plaintext & argon2id hash never logged (M10/S7)', () => {
+  it('redacts password / passwordHash / sessionSecret — plaintext, argon2id hash, session secret never logged (M10/S6/S7)', () => {
     const output = captureLog(
       {
         email: 'user@example.com', // 非祕密：不遮
         password: 'PLAINTEXT_PW_SECRET', // req body 明文
         user: { passwordHash: '$argon2id$v=19$HASH_MATERIAL_SECRET' }, // User 物件（巢狀 1 層）
         row: { password_hash: 'SNAKE_HASH_SECRET' }, // DB 欄位命名
+        sessionSecret: 'SESSION_SIGNING_SECRET', // top-level（NFR-15）
+        auth: { sessionSecret: 'NESTED_SESSION_SECRET' }, // config namespace（巢狀 1 層）
       },
       'auth',
     );
-    for (const secret of ['PLAINTEXT_PW_SECRET', 'HASH_MATERIAL_SECRET', 'SNAKE_HASH_SECRET']) {
+    for (const secret of [
+      'PLAINTEXT_PW_SECRET',
+      'HASH_MATERIAL_SECRET',
+      'SNAKE_HASH_SECRET',
+      'SESSION_SIGNING_SECRET',
+      'NESTED_SESSION_SECRET',
+    ]) {
       expect(output).not.toContain(secret);
     }
     expect(output).toContain('user@example.com'); // 非祕密欄位不受影響
