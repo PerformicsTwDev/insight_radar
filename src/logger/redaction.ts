@@ -32,6 +32,9 @@ const SECRET_FIELDS = [
   'password',
   'passwordHash',
   'password_hash',
+  // session 簽章祕密（M10，NFR-15）。
+  'sessionSecret',
+  'SESSION_SECRET',
   // 通用
   'authorization',
 ];

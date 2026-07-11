@@ -56,5 +56,6 @@ export function configureApp(app: INestApplication): void {
     config.get<string>('azure.apiKey'),
     config.get<string>('embeddings.apiKey'),
     config.get<string>('serp.apiKey'),
+    config.get<string>('auth.sessionSecret'),
   ]);
 }
