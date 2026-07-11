@@ -68,6 +68,17 @@ describe('CsrfGuard (TC-61)', () => {
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
+  // 關鍵不變式（reviewer major）：Origin 存在即權威——foreign Origin **不得** silently fallback 到白名單 Referer。
+  it('AC-26.1: session + foreign Origin + whitelisted Referer → 403 (Origin authoritative, no fallback)', () => {
+    const ctx = makeContext({
+      method: 'POST',
+      user: SESSION_ACTOR,
+      origin: FOREIGN,
+      referer: `${ALLOWED}/legit/path`,
+    });
+    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
+  });
+
   it('AC-26.1: session + state-change + no Origin but whitelisted Referer → allow (referer fallback)', () => {
     const ctx = makeContext({
       method: 'PATCH',

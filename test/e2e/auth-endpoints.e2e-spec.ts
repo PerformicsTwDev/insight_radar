@@ -328,7 +328,11 @@ describe('auth endpoints (e2e · TC-59 · FR-24)', () => {
     it('撤銷 session + 清 cookie；後續同 cookie 的 /me → 401', async () => {
       const { cookie } = await registerAndLogin('frank@example.com');
 
-      const out = await request(server()).post('/api/v1/auth/logout').set('Cookie', cookie);
+      // logout 現由 CsrfGuard 保護（session 狀態變更）→ 需同源 Origin（瀏覽器登出必帶）；白名單＝.env.test。
+      const out = await request(server())
+        .post('/api/v1/auth/logout')
+        .set('Cookie', cookie)
+        .set('Origin', 'http://localhost:5173');
       expect(out.status).toBe(200);
       const cleared = setCookieValue(out);
       expect(cleared).toContain('sid=;'); // 值清空
@@ -341,6 +345,15 @@ describe('auth endpoints (e2e · TC-59 · FR-24)', () => {
     it('無有效 session 的 logout → 401', async () => {
       const res = await request(server()).post('/api/v1/auth/logout');
       expect(res.status).toBe(401);
+    });
+
+    it('跨站 Origin 的 session logout → 403（防跨站強制登出 CSRF，AC-26.1）', async () => {
+      const { cookie } = await registerAndLogin('grace@example.com');
+      const res = await request(server())
+        .post('/api/v1/auth/logout')
+        .set('Cookie', cookie)
+        .set('Origin', 'http://evil.example');
+      expect(res.status).toBe(403); // CsrfGuard 擋下；logout 非 @Public，session 狀態變更受 CSRF 保護
     });
   });
 });
