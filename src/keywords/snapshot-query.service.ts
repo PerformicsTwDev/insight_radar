@@ -1,7 +1,7 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { AuthenticatedUser } from '../common/authenticated-user';
-import { assertOwnerAccess } from '../common/owner-scope';
+import { assertOwnedRow } from '../common/owner-scope';
 import { queryConfig } from '../config/query.config';
 import { type AnalysisFeatureInput, computeFeatures } from '../keyword-analysis/features';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
@@ -56,7 +56,7 @@ export class SnapshotQueryService {
 
   /**
    * 讀分析的**不可變** snapshot 列（依 `rowIndex` 序），並在載入前分類 readiness（T6.3，AC-6.4/6.5）：
-   * - 未知 `analysisId`（查無列）→ `404`（{@link NotFoundException}）。
+   * - 未知 `analysisId`（查無列）→ `404`（owner 過濾單點 `assertOwnedRow`，越權亦同回 404）。
    * - 存在但**尚無 snapshot**（`queued`/`running`，或尚未持久化的 `partial`/`failed`，`resultSnapshotId==null`）→
    *   `409 NOT_READY`（{@link NotReadyException}），**不回不完整誤導資料**（AC-6.4）。
    * - `resultSnapshotId` 存在（`completed` 或已持久化的 `partial`）→ 讀該不可變 snapshot（翻頁穩定）。
@@ -82,10 +82,8 @@ export class SnapshotQueryService {
       where: { id: analysisId },
       select: { status: true, resultSnapshotId: true, ownerId: true },
     });
-    if (!analysis) {
-      throw new NotFoundException(`Analysis ${analysisId} not found`);
-    }
-    assertOwnerAccess(analysis, actor, `Analysis ${analysisId} not found`);
+    // 未知 id 與越權同回 404（不洩漏存在性）；通過後 analysis 收斂為非 null。
+    assertOwnedRow(analysis, actor, `Analysis ${analysisId} not found`);
     return analysis;
   }
 

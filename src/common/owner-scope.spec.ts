@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from './authenticated-user';
-import { assertOwnerAccess, canAccess, ownerIdOf, ownerWhere } from './owner-scope';
+import { assertOwnedRow, assertOwnerAccess, canAccess, ownerIdOf, ownerWhere } from './owner-scope';
 
 /**
  * TC-62（FR-27 / NFR-15）：owner 過濾**唯一單點**的純函式契約——session 只見自己 + 共享（null）列、
@@ -55,6 +55,26 @@ describe('owner-scope assertOwnerAccess (TC-62 / AC-27.3/27.4 — cross-owner �
 
   it('does NOT throw for an apiKey actor accessing any row', () => {
     expect(() => assertOwnerAccess({ ownerId: 'user-b' }, API_KEY, 'nope')).not.toThrow();
+  });
+});
+
+describe('owner-scope assertOwnedRow (TC-62 — unknown id & cross-owner → identical 404)', () => {
+  it('throws 404 for a null row (unknown id)', () => {
+    expect(() => assertOwnedRow(null, SESSION_A, 'Analysis X not found')).toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('throws 404 for a cross-owner row — same message as unknown id (no existence leak)', () => {
+    expect(() => assertOwnedRow({ ownerId: 'user-b' }, SESSION_A, 'Analysis X not found')).toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('does NOT throw for the owner, a shared null-owner row, or an apiKey actor', () => {
+    expect(() => assertOwnedRow({ ownerId: 'user-a' }, SESSION_A, 'nope')).not.toThrow();
+    expect(() => assertOwnedRow({ ownerId: null }, SESSION_A, 'nope')).not.toThrow();
+    expect(() => assertOwnedRow({ ownerId: 'user-b' }, API_KEY, 'nope')).not.toThrow();
   });
 });
 

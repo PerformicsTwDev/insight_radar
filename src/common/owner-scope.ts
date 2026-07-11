@@ -51,6 +51,22 @@ export function assertOwnerAccess(
 }
 
 /**
+ * 單列讀取的 **not-found + owner** 複合單點（getStatus/keywords/query/cancel 共用）：`row` 為 `null`（未知 id）
+ * **或** actor 越權，皆丟**同一** 404（相同訊息，不洩漏存在性，AC-27.3/27.4）。通過後（TS assertion）將 `row`
+ * 收斂為非 null，呼叫端免再自行 null-check——把「未知 id 與越權不可區分」的反枚舉不變式鎖在一處。
+ */
+export function assertOwnedRow<T extends OwnedResource>(
+  row: T | null,
+  actor: AuthenticatedUser,
+  notFoundMessage: string,
+): asserts row is T {
+  if (!row) {
+    throw new NotFoundException(notFoundMessage);
+  }
+  assertOwnerAccess(row, actor, notFoundMessage);
+}
+
+/**
  * list/count 的 owner scope `where` 片段（AC-27.5）：apiKey → `{}`；session → 自己 + 共享（null）。
  * owner 僅源自 `actor`——`?ownerId=` 之類請求參數無法拓寬此 scope（AC-27.4）。
  */

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { JobStatus } from '@prisma/client';
@@ -8,7 +8,7 @@ import type { Queue } from 'bullmq';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import type { AuthenticatedUser } from '../common/authenticated-user';
-import { assertOwnerAccess, ownerIdOf, ownerWhere } from '../common/owner-scope';
+import { assertOwnedRow, ownerIdOf, ownerWhere } from '../common/owner-scope';
 import { scrubSecrets } from '../logger/redaction';
 import { queryConfig } from '../config/query.config';
 import { queueConfig } from '../config/queue.config';
@@ -334,11 +334,8 @@ export class KeywordAnalysisService {
       where: { id: analysisId },
       include: { resultSnapshot: true },
     });
-    if (!row) {
-      throw new NotFoundException(`Analysis ${analysisId} not found`);
-    }
-    // owner 過濾唯一單點（AC-27.3/27.4）：越權（他人 owner）與未知 id 同回 404，不洩漏存在性。
-    assertOwnerAccess(row, actor, `Analysis ${analysisId} not found`);
+    // owner 過濾唯一單點（AC-27.3/27.4）：未知 id 與越權同回 404、不洩漏存在性；通過後 row 收斂為非 null。
+    assertOwnedRow(row, actor, `Analysis ${analysisId} not found`);
 
     const progress = isProgress(row.progress) ? row.progress : DEFAULT_PROGRESS;
     const result = row.resultSnapshot
@@ -362,11 +359,8 @@ export class KeywordAnalysisService {
       where: { id: analysisId },
       select: { status: true, ownerId: true },
     });
-    if (!row) {
-      throw new NotFoundException(`Analysis ${analysisId} not found`);
-    }
-    // owner 過濾唯一單點（AC-27.3/27.4）：越權 → 404（先於狀態機/更新，不對他人資源做任何寫入）。
-    assertOwnerAccess(row, actor, `Analysis ${analysisId} not found`);
+    // owner 過濾唯一單點（AC-27.3/27.4）：未知 id / 越權同回 404，先於狀態機/更新——不對他人資源做任何寫入。
+    assertOwnedRow(row, actor, `Analysis ${analysisId} not found`);
     if (TERMINAL_STATUSES.has(row.status)) {
       return { status: row.status };
     }
