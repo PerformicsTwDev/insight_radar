@@ -22,7 +22,8 @@ const ID = '55555555-5555-5555-5555-555555555555';
 type Method = 'get' | 'post' | 'delete';
 
 /**
- * 每個受保護端點（method + path）——全域 `ApiKeyGuard` 應在無/錯 `x-api-key` 時一律 401（TC-25）。
+ * 每個受保護端點（method + path）——全域 `CompositeAuthGuard`（api-key 路徑，M10 起）應在無/錯 `x-api-key`
+ * 且無 session 時一律 401（TC-25；機器 x-api-key 行為與 M9 前相容）。
  * `sse` 標記串流端點：正向對照（帶正確 key）會開啟長連線，故正向對照只跑非 SSE 端點以免 supertest 掛住。
  */
 const PROTECTED: { method: Method; path: string; label: string; sse?: boolean }[] = [
@@ -53,7 +54,7 @@ const PROTECTED: { method: Method; path: string; label: string; sse?: boolean }[
 const NON_SSE = PROTECTED.filter((r) => !r.sse);
 
 /**
- * TC-25（FR-11 · NFR-5）：認證邊界。所有受保護端點無 `x-api-key` → **401**（守衛先於 pipe/handler，不洩漏
+ * TC-25（FR-11 · NFR-5）：認證邊界。所有受保護端點無 `x-api-key`（且無 session）→ **401**（守衛先於 pipe/handler，不洩漏
  * 存在性/驗證細節）；`GET /health` 為 `@Public`，免認證可存取。含正向對照：帶正確 key 時不再是 401。
  */
 describe('auth boundary (e2e, TC-25)', () => {
@@ -145,7 +146,7 @@ describe('auth boundary (e2e, TC-25)', () => {
     const wrong = (
       await call('get', `/api/v1/keyword-analyses/${ID}/keywords`).set('x-api-key', 'not-the-key')
     ).body as { message?: string };
-    expect(missing.message).toBe('Invalid or missing API key');
+    expect(missing.message).toBe('Authentication required');
     expect(wrong.message).toBe(missing.message);
   });
 

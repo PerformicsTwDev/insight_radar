@@ -45,7 +45,7 @@ function terminalSnapshot(ref: { runId: string; status: string }): MessageEvent 
 
 /**
  * Topics HTTP 入口（T8.10，FR-15/18）。掛 `/api/v1/keyword-analyses/:id/topics`（巢狀於既有分析）。
- * 全域 `ApiKeyGuard`（缺/錯 key → 401）與 `ValidationPipe`（未宣告欄位 → 400）已套用。`create` 為
+ * 全域 `CompositeAuthGuard`（缺/錯 key → 401）與 `ValidationPipe`（未宣告欄位 → 400）已套用。`create` 為
  * **enqueue-only**：委派 service 入列即回 202，路徑不呼叫任何外部 API（NFR-1）。
  */
 @ApiTags('topics')
