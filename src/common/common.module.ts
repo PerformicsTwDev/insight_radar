@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { AuthModule } from '../auth/auth.module';
 import { ApiKeyAuthResolver } from './api-key-auth.resolver';
+import { AUTH_RESOLVERS } from './authenticated-user';
 import { CompositeAuthGuard } from './composite-auth.guard';
 import { HttpExceptionFilter } from './http-exception.filter';
 import { SessionAuthResolver } from './session-auth.resolver';
@@ -22,6 +23,12 @@ import { createValidationPipe } from './validation.pipe';
   providers: [
     SessionAuthResolver,
     ApiKeyAuthResolver,
+    // 有序策略清單（session 先、x-api-key 後）——守衛依 `AUTH_RESOLVERS` token 注入此陣列，不 import 具體 class。
+    {
+      provide: AUTH_RESOLVERS,
+      useFactory: (session: SessionAuthResolver, apiKey: ApiKeyAuthResolver) => [session, apiKey],
+      inject: [SessionAuthResolver, ApiKeyAuthResolver],
+    },
     { provide: APP_GUARD, useClass: CompositeAuthGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_PIPE, useFactory: createValidationPipe },

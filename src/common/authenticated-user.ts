@@ -35,3 +35,9 @@ export interface AuthResolver {
     request: AuthenticatedRequest,
   ): Promise<AuthenticatedUser | null> | AuthenticatedUser | null;
 }
+
+/**
+ * DI token：`CompositeAuthGuard` 依此注入**有序的** `AuthResolver[]`（session 先、x-api-key 後）。守衛僅相依
+ * `AuthResolver` 抽象、不 import 任何具體 resolver class（新增策略＝只改 module 的 factory；守衛不動）。
+ */
+export const AUTH_RESOLVERS = Symbol('AUTH_RESOLVERS');

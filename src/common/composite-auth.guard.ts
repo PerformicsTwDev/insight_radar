@@ -1,16 +1,15 @@
 import {
   type CanActivate,
   type ExecutionContext,
+  Inject,
   Injectable,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ApiKeyAuthResolver } from './api-key-auth.resolver';
-import type { AuthResolver, AuthenticatedRequest } from './authenticated-user';
+import { AUTH_RESOLVERS, type AuthResolver, type AuthenticatedRequest } from './authenticated-user';
 import { scrubSecrets } from '../logger/redaction';
 import { IS_PUBLIC_KEY } from './public.decorator';
-import { SessionAuthResolver } from './session-auth.resolver';
 
 /** 認證失敗的**單一通用訊息**（NFR-5 反枚舉：不區分「缺 session」「缺 key」「key 錯」）。 */
 export const AUTHENTICATION_REQUIRED = 'Authentication required';
@@ -30,16 +29,12 @@ export const AUTHENTICATION_REQUIRED = 'Authentication required';
 @Injectable()
 export class CompositeAuthGuard implements CanActivate {
   private readonly logger = new Logger(CompositeAuthGuard.name);
-  /** 認證策略的**嘗試順序**（session 先、x-api-key 後）。 */
-  private readonly resolvers: readonly AuthResolver[];
 
   constructor(
     private readonly reflector: Reflector,
-    sessionResolver: SessionAuthResolver,
-    apiKeyResolver: ApiKeyAuthResolver,
-  ) {
-    this.resolvers = [sessionResolver, apiKeyResolver];
-  }
+    /** 有序認證策略（module factory 注入：session 先、x-api-key 後）；守衛只相依 `AuthResolver` 抽象。 */
+    @Inject(AUTH_RESOLVERS) private readonly resolvers: readonly AuthResolver[],
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [

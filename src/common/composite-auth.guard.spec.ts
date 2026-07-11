@@ -1,9 +1,7 @@
 import { type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
-import type { ApiKeyAuthResolver } from './api-key-auth.resolver';
 import type { ApiKeyActor, AuthenticatedRequest, SessionActor } from './authenticated-user';
 import { CompositeAuthGuard } from './composite-auth.guard';
-import type { SessionAuthResolver } from './session-auth.resolver';
 
 const SESSION_ACTOR: SessionActor = {
   kind: 'session',
@@ -38,11 +36,10 @@ describe('CompositeAuthGuard (TC-60)', () => {
     reflector = { getAllAndOverride: jest.fn().mockReturnValue(false) };
     sessionResolver = { resolve: jest.fn().mockResolvedValue(null) };
     apiKeyResolver = { resolve: jest.fn().mockReturnValue(null) };
-    guard = new CompositeAuthGuard(
-      reflector as unknown as Reflector,
-      sessionResolver as unknown as SessionAuthResolver,
-      apiKeyResolver as unknown as ApiKeyAuthResolver,
-    );
+    guard = new CompositeAuthGuard(reflector as unknown as Reflector, [
+      sessionResolver,
+      apiKeyResolver,
+    ]);
   });
 
   it('bypasses @Public routes without consulting any resolver (AC-25.4)', async () => {
