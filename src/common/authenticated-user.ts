@@ -25,3 +25,13 @@ export interface AuthenticatedRequest {
   headers: Record<string, string | undefined>;
   user?: AuthenticatedUser;
 }
+
+/**
+ * 可組合的認證策略（session / x-api-key…）。`CompositeAuthGuard` 依序試各 resolver：命中回 actor、
+ * **未命中回 `null`（不拋）**——讓守衛續試下一策略，僅在全部落空時才 401（Task §T10.4 重構重點）。
+ */
+export interface AuthResolver {
+  resolve(
+    request: AuthenticatedRequest,
+  ): Promise<AuthenticatedUser | null> | AuthenticatedUser | null;
+}
