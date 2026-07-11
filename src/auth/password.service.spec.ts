@@ -8,6 +8,11 @@ const CFG = {
   argon2TimeCost: 2,
   argon2Parallelism: 1,
   minPasswordLen: 10,
+  sessionSecret: 'x'.repeat(32),
+  sessionTtlMs: 604800000,
+  cookieName: 'sid',
+  cookieSecure: true,
+  cookieSameSite: 'lax',
 } satisfies ConfigType<typeof authConfig>;
 
 const build = (): PasswordService => new PasswordService(CFG);

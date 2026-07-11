@@ -29,35 +29,44 @@ export class SessionService {
   constructor(
     private readonly cache: CacheService,
     @Inject(authConfig.KEY) private readonly config: ConfigType<typeof authConfig>,
-  ) {
-    void this.cache;
-    void this.config;
-    void randomBytes;
-    void CacheNamespace;
+  ) {}
+
+  /** 建立 session：mint opaque sid（256-bit，base64url、不可猜）→ 存 Redis（TTL `sessionTtlMs`）→ 回 sid。 */
+  async create(userId: string): Promise<string> {
+    const sid = randomBytes(32).toString('base64url');
+    const data: SessionData = { userId, createdAt: new Date().toISOString() };
+    await this.cache.set(this.key(sid), data, this.config.sessionTtlMs);
+    return sid;
   }
 
-  /** 建立 session：mint opaque sid → 存 Redis（TTL `sessionTtlMs`）→ 回 sid。 */
-  create(_userId: string): Promise<string> {
-    throw new Error('SessionService.create not implemented');
+  /** 驗證 sid：命中回 userId，未命中/過期（Redis TTL 到期）回 null。 */
+  async verify(sid: string): Promise<string | null> {
+    const data = await this.cache.get<SessionData>(this.key(sid));
+    return data ? data.userId : null;
   }
 
-  /** 驗證 sid：命中回 userId，未命中/過期回 null。 */
-  verify(_sid: string): Promise<string | null> {
-    throw new Error('SessionService.verify not implemented');
-  }
-
-  /** 撤銷 session（登出）：刪 key，即時失效。 */
-  revoke(_sid: string): Promise<void> {
-    throw new Error('SessionService.revoke not implemented');
+  /** 撤銷 session（登出）：刪 key，即時失效（撤銷是刪 key，Design §17.2）。 */
+  async revoke(sid: string): Promise<void> {
+    await this.cache.del(this.key(sid));
   }
 
   /** session cookie 名稱。 */
   get cookieName(): string {
-    throw new Error('SessionService.cookieName not implemented');
+    return this.config.cookieName;
   }
 
   /** Set-Cookie 選項（httpOnly + SameSite + Secure + maxAge），S6/NFR-15。 */
   cookieOptions(): SessionCookieOptions {
-    throw new Error('SessionService.cookieOptions not implemented');
+    return {
+      httpOnly: true,
+      sameSite: this.config.cookieSameSite,
+      secure: this.config.cookieSecure,
+      maxAge: this.config.sessionTtlMs,
+      path: '/',
+    };
+  }
+
+  private key(sid: string): string {
+    return this.cache.buildKey(CacheNamespace.SESSION, sid);
   }
 }

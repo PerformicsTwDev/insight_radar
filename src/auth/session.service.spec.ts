@@ -1,7 +1,7 @@
 import type { ConfigType } from '@nestjs/config';
 import { CacheNamespace } from '../cache/cache-namespace';
 import type { authConfig } from '../config/auth.config';
-import { SessionService } from './session.service';
+import { SessionService } from '.'; // 經 barrel 匯入（測公開入口，亦覆蓋 index re-export）
 
 /** in-memory CacheService 替身（保留 buildKey/get/set/del + 記 set 呼叫以驗 TTL）。 */
 class FakeCache {
@@ -24,7 +24,7 @@ class FakeCache {
   }
 }
 
-const CFG = {
+const CFG: ConfigType<typeof authConfig> = {
   argon2MemoryKib: 19456,
   argon2TimeCost: 2,
   argon2Parallelism: 1,
@@ -34,7 +34,7 @@ const CFG = {
   cookieName: 'sid',
   cookieSecure: true,
   cookieSameSite: 'lax',
-} satisfies ConfigType<typeof authConfig>;
+};
 
 const build = (over: Partial<typeof CFG> = {}) => {
   const cache = new FakeCache();
