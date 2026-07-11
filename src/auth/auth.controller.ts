@@ -1,24 +1,10 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Req,
-  Res,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/public.decorator';
 import { AuthService, type AuthUser } from './auth.service';
-import { parseCookies } from './cookie.util';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SessionService, type SessionCookieOptions } from './session.service';
-
-/** logout/me 缺/失效 session cookie 時的通用未認證訊息。 */
-const NOT_AUTHENTICATED = 'Authentication required';
 
 /**
  * 最小結構型別（避免直接相依 express 型別，與 `HttpExceptionFilter` 的 `*Like` 同慣例）：
@@ -35,7 +21,11 @@ interface CookieResponse {
 /**
  * 認證 HTTP 入口（T10.3，FR-24）。掛 `/api/v1/auth`（全域前綴）。
  * register/login `@Public`（免認證，AC-25.4）；logout/me 亦 `@Public`（於 T10.4 CompositeAuthGuard 之前），
- * 由 controller 讀 session cookie 自行把關——無效/失效 → 401（真理在 Redis session，AC-24.6）。
+ * 由 `SessionService.authenticate` 讀 session cookie 把關——無效/失效 → 401（真理在 Redis session，AC-24.6）。
+ *
+ * **純路由 shell**：所有 handler 皆直線委派（session 認證的唯一真實分支已下放至 `SessionService.authenticate`，
+ * 於 gate 內單元測試）；本檔剩餘覆蓋率缺口全屬 `emitDecoratorMetadata` 對 class-typed 參數/回傳型別生成的
+ * 不可測 phantom branch，故 `jest.config.ts` 將本檔比照 `*.module.ts` 排除於覆蓋率（見該檔註記）。
  */
 @ApiTags('auth')
 @Controller('auth')
@@ -75,7 +65,7 @@ export class AuthController {
     @Req() req: CookieRequest,
     @Res({ passthrough: true }) res: CookieResponse,
   ): Promise<void> {
-    const { sid } = await this.requireSession(req);
+    const { sid } = await this.sessions.authenticate(req.headers.cookie);
     await this.sessions.revoke(sid);
     const { httpOnly, sameSite, secure, path } = this.sessions.cookieOptions();
     res.clearCookie(this.sessions.cookieName, { httpOnly, sameSite, secure, path });
@@ -85,20 +75,7 @@ export class AuthController {
   @Public()
   @Get('me')
   async me(@Req() req: CookieRequest): Promise<AuthUser> {
-    const { userId } = await this.requireSession(req);
+    const { userId } = await this.sessions.authenticate(req.headers.cookie);
     return this.auth.me(userId);
-  }
-
-  /**
-   * 讀 session cookie → 驗 Redis session。缺 cookie 或 session 失效（Redis TTL 到期/已撤銷）→ 401。
-   * **真理在 Redis session**（AC-24.6）：cookie 僅載 opaque sid，session 不在即未認證，與 DB 是否有 User 無關。
-   */
-  private async requireSession(req: CookieRequest): Promise<{ sid: string; userId: string }> {
-    const sid = parseCookies(req.headers.cookie)[this.sessions.cookieName];
-    const userId = sid ? await this.sessions.verify(sid) : null;
-    if (!sid || !userId) {
-      throw new UnauthorizedException(NOT_AUTHENTICATED);
-    }
-    return { sid, userId };
   }
 }
