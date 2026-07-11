@@ -2,11 +2,13 @@ import {
   type CanActivate,
   type ExecutionContext,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ApiKeyAuthResolver } from './api-key-auth.resolver';
 import type { AuthResolver, AuthenticatedRequest } from './authenticated-user';
+import { scrubSecrets } from '../logger/redaction';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { SessionAuthResolver } from './session-auth.resolver';
 
@@ -27,6 +29,7 @@ export const AUTHENTICATION_REQUIRED = 'Authentication required';
  */
 @Injectable()
 export class CompositeAuthGuard implements CanActivate {
+  private readonly logger = new Logger(CompositeAuthGuard.name);
   /** 認證策略的**嘗試順序**（session 先、x-api-key 後）。 */
   private readonly resolvers: readonly AuthResolver[];
 
@@ -49,7 +52,15 @@ export class CompositeAuthGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     for (const resolver of this.resolvers) {
-      const user = await resolver.resolve(request);
+      let user: Awaited<ReturnType<AuthResolver['resolve']>>;
+      try {
+        user = await resolver.resolve(request);
+      } catch (error) {
+        // 某策略內部依賴（Redis/DB）短暫故障**不得**擊穿「任一策略通過即放行」語意：記錄後視為 miss、
+        // 續試下一策略——保住 AC-25.2（x-api-key 不依賴 Redis/DB，Redis 抖動時機器 actor 仍應通過，與 M9 前相容）。
+        this.logger.warn(scrubSecrets(`auth resolver failed, treating as miss: ${String(error)}`));
+        user = null;
+      }
       if (user) {
         request.user = user;
         return true;

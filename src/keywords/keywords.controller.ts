@@ -20,7 +20,7 @@ import type { ViewResult } from './views';
 
 /**
  * 讀取層 HTTP 入口（T6.1，FR-3/4/6/7）。掛 `/api/v1/keyword-analyses/:id/keywords`（全域前綴）。
- * 全域 `ApiKeyGuard`（缺/錯 key → 401）+ `ValidationPipe`（非法 query / `min>max` → 400）已套用；
+ * 全域 `CompositeAuthGuard`（缺/錯 key → 401）+ `ValidationPipe`（非法 query / `min>max` → 400）已套用；
  * `id` 經 `ParseUUIDPipe`（非 UUID → 400，避免 Prisma UUID 欄位 P2023 → 500）。回 §6.4 `{ data, meta }`
  * 五欄列（`intent` 對外 `intentLabels`，AC-6.1）。
  */

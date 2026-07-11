@@ -78,4 +78,21 @@ describe('CompositeAuthGuard (TC-60)', () => {
     expect(sessionResolver.resolve).toHaveBeenCalledTimes(1);
     expect(apiKeyResolver.resolve).toHaveBeenCalledTimes(1);
   });
+
+  // —— 韌性（AC-25.2 相容性）：某策略內部依賴（Redis/DB）故障不得擊穿「任一通過即放行」——
+  it('treats a throwing resolver as a miss and still passes via a later strategy', async () => {
+    // session resolver 因 Redis 短暫故障拋錯；x-api-key 不依賴 Redis/DB，仍應通過（不 500）。
+    sessionResolver.resolve.mockRejectedValue(new Error('redis down'));
+    apiKeyResolver.resolve.mockReturnValue(API_KEY_ACTOR);
+    const { context, request } = makeContext();
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toEqual(API_KEY_ACTOR);
+  });
+
+  it('rejects with 401 (not a 500) when a resolver throws and no other strategy matches', async () => {
+    sessionResolver.resolve.mockRejectedValue(new Error('redis down'));
+    apiKeyResolver.resolve.mockReturnValue(null);
+    const { context } = makeContext();
+    await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+  });
 });

@@ -50,7 +50,7 @@ function isTerminalEvent(event: JobEvent): boolean {
 
 /**
  * KeywordAnalysis HTTP 入口（T3.3/T3.4/T3.9，FR-1/8/9）。掛 `/api/v1/keyword-analyses`（全域前綴）。
- * 全域 `ApiKeyGuard`（缺/錯 key → 401）與 `ValidationPipe`（空 seeds/缺 geo·language/非法 mode → 400）
+ * 全域 `CompositeAuthGuard`（缺/錯 key → 401）與 `ValidationPipe`（空 seeds/缺 geo·language/非法 mode → 400）
  * 已套用。`create` 為 **enqueue-only**：委派 service 入列即回 202，路徑不呼叫任何外部 API（NFR-1）。
  */
 @ApiTags('keyword-analyses')
