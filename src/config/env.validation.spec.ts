@@ -83,6 +83,26 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       // NFR-14 hardening 預設（Design §14 config SSOT）。
       expect(value.HELMET_ENABLED).toBe(true);
       expect(value.BODY_LIMIT_MB).toBe(5);
+      // M10 auth 預設（Design §14；OWASP argon2id + 密碼最短 10，AC-24.1）。
+      expect(value.ARGON2_MEMORY_KIB).toBe(19456);
+      expect(value.ARGON2_TIME_COST).toBe(2);
+      expect(value.ARGON2_PARALLELISM).toBe(1);
+      expect(value.AUTH_MIN_PASSWORD_LEN).toBe(10);
+    });
+
+    it('enforces the argon2 / password-length floors (S7: params too low = weak hashing)', () => {
+      // 低於 OWASP/spec 下限 → fail-fast，避免弱雜湊/弱密碼策略（Design §14 / AC-24.1）。
+      for (const [key, below] of [
+        ['ARGON2_MEMORY_KIB', '8192'],
+        ['ARGON2_TIME_COST', '1'],
+        ['AUTH_MIN_PASSWORD_LEN', '8'],
+      ] as const) {
+        const { error } = validationSchema.validate(
+          { ...validEnv, [key]: below },
+          { abortEarly: false },
+        );
+        expect(error?.message).toContain(key);
+      }
     });
 
     it('pins GEMINI_EMBEDDING_DIM to 3072 (rejects 768/1536 until a vector-type migration exists, M8-R1)', () => {

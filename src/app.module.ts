@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AuthModule } from './auth';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
@@ -33,6 +34,7 @@ import { configNamespaces, validationSchema } from './config';
     CacheModule,
     PrismaModule,
     HealthModule,
+    AuthModule,
     KeywordAnalysisModule,
     KeywordsModule,
     TopicsModule,

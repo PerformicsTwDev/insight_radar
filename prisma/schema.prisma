@@ -205,3 +205,14 @@ model TopicAuditLog {
 
   @@map("topic_audit_logs")
 }
+
+// users：帳號（M10，FR-24）。密碼僅存 argon2id `password_hash`（明文絕不落 DB，S7）。
+// session 本體存 Redis（`sess:{sid}`，撤銷=刪 key），不落 DB（Design §17.2）。
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash") // argon2id
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("users")
+}

@@ -28,6 +28,12 @@ export const validationSchema = Joi.object({
   // JSON body 上限（MB）；自 express 預設 100kb 提高（exact 模式大 seeds），逾此 → 413，NFR-14。
   // 預設 5（Design §14 config SSOT）；.env.test 刻意收窄為 1 以廉價驗 TC-58 邊界（見該檔註）。
   BODY_LIMIT_MB: Joi.number().positive().default(5),
+
+  // —— Auth（M10，FR-24/NFR-15；密碼 argon2id 參數＝OWASP 下限，S7：參數過低＝弱雜湊 → 以 min 守底）——
+  ARGON2_MEMORY_KIB: Joi.number().integer().min(19456).default(19456), // OWASP 下限 19 MiB
+  ARGON2_TIME_COST: Joi.number().integer().min(2).default(2),
+  ARGON2_PARALLELISM: Joi.number().integer().min(1).default(1),
+  AUTH_MIN_PASSWORD_LEN: Joi.number().integer().min(10).default(10), // Design §14 / AC-24.1
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),
