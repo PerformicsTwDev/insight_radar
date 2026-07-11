@@ -10,6 +10,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import type { AuthenticatedUser } from '../common/authenticated-user';
+import { CurrentActor } from '../common/current-actor.decorator';
 // 值匯入（非 `import type`）：DTO 為 @Query()/@Body() 的執行期 metatype，ValidationPipe 需真實 class 才會驗證/轉換。
 import { FilterKeywordsQueryDto } from './dto/filter-keywords-query.dto';
 import { QueryDto } from './dto/query.dto';
@@ -33,12 +35,14 @@ export class KeywordsController {
   getKeywords(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: FilterKeywordsQueryDto,
+    @CurrentActor() actor: AuthenticatedUser,
   ): Promise<KeywordsListResponse> {
     return this.snapshotQuery.listKeywords(
       id,
       toFilterSpec(query),
       toSortSpec(query),
       toPageSpec(query),
+      actor,
     );
   }
 
@@ -49,14 +53,22 @@ export class KeywordsController {
    */
   @Post(':id/query')
   @HttpCode(HttpStatus.OK)
-  postQuery(@Param('id', ParseUUIDPipe) id: string, @Body() dto: QueryDto): Promise<ViewResult> {
-    return this.snapshotQuery.query(id, {
-      view: dto.view,
-      select: dto.select,
-      filters: dto.filters,
-      sort: dto.sort,
-      pagination: dto.pagination,
-    });
+  postQuery(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: QueryDto,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<ViewResult> {
+    return this.snapshotQuery.query(
+      id,
+      {
+        view: dto.view,
+        select: dto.select,
+        filters: dto.filters,
+        sort: dto.sort,
+        pagination: dto.pagination,
+      },
+      actor,
+    );
   }
 }
 

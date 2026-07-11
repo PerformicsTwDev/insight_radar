@@ -29,12 +29,14 @@ model KeywordAnalysis {
   idempotencyKey   String          @unique @map("idempotency_key")
   resultSnapshot   ResultSnapshot? @relation(fields: [resultSnapshotId], references: [id])
   resultSnapshotId String?         @map("result_snapshot_id") @db.Uuid
+  ownerId          String?         @map("owner_id") @db.Uuid // FR-27：資源歸屬（session→user.id、apiKey→null）；nullable、不回填
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz
   startedAt        DateTime?       @map("started_at") @db.Timestamptz
   finishedAt       DateTime?       @map("finished_at") @db.Timestamptz
   error            String?
 
   @@index([status])
+  @@index([ownerId]) // owner 過濾（歷史清單 where ownerId，FR-27）
   @@map("keyword_analyses")
 }
 

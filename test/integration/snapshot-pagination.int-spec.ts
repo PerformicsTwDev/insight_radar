@@ -107,7 +107,15 @@ describe('snapshot pagination stability (integration · Testcontainers, TC-17 / 
     const texts: string[] = [];
     let cursor: string | undefined;
     for (let guard = 0; guard < 1000; guard++) {
-      const res = await service.listKeywords(analysisId, {}, {}, { pageSize, cursor });
+      const res = await service.listKeywords(
+        analysisId,
+        {},
+        {},
+        { pageSize, cursor },
+        {
+          kind: 'apiKey',
+        },
+      );
       texts.push(...res.data.map((r) => r.text));
       if (!res.meta.cursor) {
         return texts;

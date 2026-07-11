@@ -1,5 +1,6 @@
 import { Logger, NotFoundException, type MessageEvent } from '@nestjs/common';
 import { isObservable, Subject } from 'rxjs';
+import type { AuthenticatedUser } from '../common/authenticated-user';
 import { KeywordAnalysisController } from './keyword-analysis.controller';
 import type { JobEvent, JobEventsService } from '../queue/job-events.service';
 import type {
@@ -7,6 +8,9 @@ import type {
   AnalysisStatusResponse,
   KeywordAnalysisService,
 } from './keyword-analysis.service';
+
+/** 機器 actor（x-api-key）：SSE 只透傳給 getStatus，用機器身分即可（owner 過濾由 service 層測）。 */
+const ACTOR: AuthenticatedUser = { kind: 'apiKey' };
 
 function statusResponse(status: AnalysisStatus): AnalysisStatusResponse {
   return {
@@ -54,7 +58,7 @@ function collect(obs: import('rxjs').Observable<MessageEvent>) {
 describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
   it('maps forJob events to MessageEvents (event=type, data=payload, §6.3) and completes on completed', async () => {
     const { controller, subjects } = buildController(statusResponse('running'));
-    const obs = await controller.stream('a-1');
+    const obs = await controller.stream('a-1', ACTOR);
     expect(isObservable(obs)).toBe(true);
 
     const { events, isDone } = collect(obs);
@@ -72,7 +76,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
 
   it('wraps a failed reason as {error} and completes (takeWhile inclusive)', async () => {
     const { controller, subjects } = buildController(statusResponse('running'));
-    const obs = await controller.stream('a-1');
+    const obs = await controller.stream('a-1', ACTOR);
     const { events, isDone } = collect(obs);
     subjects.get('a-1')!.next({ type: 'failed', data: 'boom' });
     expect(events).toEqual([{ type: 'failed', data: { error: 'boom' } }]);
@@ -81,9 +85,9 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
 
   it('isolates jobs: two clients on the same job both receive; a different job receives nothing', async () => {
     const { controller, subjects } = buildController(statusResponse('running'));
-    const a1 = collect(await controller.stream('a-1'));
-    const a2 = collect(await controller.stream('a-1')); // 同 job 第二個 client
-    const b1 = collect(await controller.stream('b-2')); // 不同 job
+    const a1 = collect(await controller.stream('a-1', ACTOR));
+    const a2 = collect(await controller.stream('a-1', ACTOR)); // 同 job 第二個 client
+    const b1 = collect(await controller.stream('b-2', ACTOR)); // 不同 job
 
     subjects.get('a-1')!.next({ type: 'progress', data: { percent: 10 } });
 
@@ -94,7 +98,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
 
   it('short-circuits an already-completed job to a §6.3 completed snapshot + complete', async () => {
     const { controller, subjects, forJob } = buildController(statusResponse('completed'));
-    const obs = await controller.stream('done-1');
+    const obs = await controller.stream('done-1', ACTOR);
     const { events, isDone } = collect(obs);
 
     expect(events).toEqual([{ type: 'completed', data: { resultSnapshotId: null, count: null } }]);
@@ -109,7 +113,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
     const partial = statusResponse('partial');
     partial.result = { resultSnapshotId: 'snap-1', count: 3 };
     const { controller, subjects, forJob } = buildController(partial);
-    const obs = await controller.stream('p-1');
+    const obs = await controller.stream('p-1', ACTOR);
     const { events, isDone } = collect(obs);
 
     expect(events).toEqual([{ type: 'completed', data: { resultSnapshotId: 'snap-1', count: 3 } }]);
@@ -120,7 +124,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
 
   it('short-circuits a failed/canceled job to a §6.3 failed snapshot', async () => {
     const { controller } = buildController(statusResponse('canceled'));
-    const obs = await controller.stream('cx');
+    const obs = await controller.stream('cx', ACTOR);
     const { events, isDone } = collect(obs);
     expect(events).toEqual([{ type: 'failed', data: { error: 'canceled' } }]);
     expect(isDone()).toBe(true);
@@ -128,7 +132,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
 
   it('returns an empty completing stream for an unknown id (GET owns the 404)', async () => {
     const { controller, forJob } = buildController('notfound');
-    const obs = await controller.stream('ghost');
+    const obs = await controller.stream('ghost', ACTOR);
     const { events, isDone } = collect(obs);
     expect(events).toEqual([]);
     expect(isDone()).toBe(true);
@@ -138,7 +142,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
   it('degrades an unexpected (non-NotFound) status error to an empty stream + logs it (no hang/crash)', async () => {
     const logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const { controller, forJob } = buildController('error');
-    const obs = await controller.stream('x'); // resolves（不 reject → 不 hang/不殺 process）
+    const obs = await controller.stream('x', ACTOR); // resolves（不 reject → 不 hang/不殺 process）
     const { events, isDone } = collect(obs);
     expect(events).toEqual([]);
     expect(isDone()).toBe(true);
@@ -159,7 +163,7 @@ describe('KeywordAnalysisController @Sse stream (T3.9 / TC-18)', () => {
       sseHeartbeatMs: 15000,
     } as unknown as ConstructorParameters<typeof KeywordAnalysisController>[2]);
 
-    await controller.stream('x');
+    await controller.stream('x', ACTOR);
 
     const logged = logSpy.mock.calls[0]?.map((a) => String(a)).join('\n') ?? '';
     expect(logged).not.toContain('s3cr3t');
