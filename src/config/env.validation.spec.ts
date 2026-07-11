@@ -19,6 +19,7 @@ const validEnv: Record<string, string> = {
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
   CLUSTER_SERVICE_URL: 'http://localhost:8000',
+  SESSION_SECRET: 'test-session-secret-0123456789', // M10：required（TC-63 fail-fast）
 };
 
 describe('env validation schema (TC-19 fail-fast)', () => {
@@ -88,6 +89,18 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.ARGON2_TIME_COST).toBe(2);
       expect(value.ARGON2_PARALLELISM).toBe(1);
       expect(value.AUTH_MIN_PASSWORD_LEN).toBe(10);
+      // M10 session 預設（Design §14）。
+      expect(value.SESSION_TTL_MS).toBe(604800000);
+      expect(value.SESSION_COOKIE_NAME).toBe('sid');
+      expect(value.SESSION_COOKIE_SECURE).toBe(true);
+      expect(value.SESSION_COOKIE_SAMESITE).toBe('lax');
+    });
+
+    it('fail-fasts when SESSION_SECRET is missing (M10 required secret, TC-63)', () => {
+      const noSecret: Record<string, string> = { ...validEnv };
+      delete noSecret.SESSION_SECRET;
+      const { error } = validationSchema.validate(noSecret, { abortEarly: false });
+      expect(error?.message).toContain('SESSION_SECRET');
     });
 
     it('enforces the argon2 / password-length floors (S7: params too low = weak hashing)', () => {

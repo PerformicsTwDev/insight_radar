@@ -34,6 +34,11 @@ export const validationSchema = Joi.object({
   ARGON2_TIME_COST: Joi.number().integer().min(2).default(2),
   ARGON2_PARALLELISM: Joi.number().integer().min(1).default(1),
   AUTH_MIN_PASSWORD_LEN: Joi.number().integer().min(10).default(10), // Design §14 / AC-24.1
+  SESSION_SECRET: Joi.string().min(16).required(), // ★ redact；fail-fast（TC-63）
+  SESSION_TTL_MS: Joi.number().integer().min(0).default(604800000), // 7 天（ms）
+  SESSION_COOKIE_NAME: Joi.string().default('sid'),
+  SESSION_COOKIE_SECURE: Joi.boolean().default(true), // 非 test 預設 true（S6；漏設即降級）
+  SESSION_COOKIE_SAMESITE: Joi.string().valid('lax', 'strict', 'none').default('lax'),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
     .default('info'),

@@ -25,6 +25,11 @@ const ENV: Record<string, string> = {
   ARGON2_TIME_COST: '2',
   ARGON2_PARALLELISM: '1',
   AUTH_MIN_PASSWORD_LEN: '10',
+  SESSION_SECRET: 'test-session-secret-0123456789',
+  SESSION_TTL_MS: '604800000',
+  SESSION_COOKIE_NAME: 'sid',
+  SESSION_COOKIE_SECURE: 'false',
+  SESSION_COOKIE_SAMESITE: 'lax',
 
   GOOGLE_ADS_CLIENT_ID: 'cid',
   GOOGLE_ADS_CLIENT_SECRET: 'sec',
@@ -123,6 +128,11 @@ describe('config namespaces (registerAs, typed)', () => {
       argon2TimeCost: 2,
       argon2Parallelism: 1,
       minPasswordLen: 10,
+      sessionSecret: 'test-session-secret-0123456789',
+      sessionTtlMs: 604800000,
+      cookieName: 'sid',
+      cookieSecure: false, // SESSION_COOKIE_SECURE='false' → false
+      cookieSameSite: 'lax',
     });
   });
 
