@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
 import { authConfig } from '../config/auth.config';
+import { parseCookies } from './cookie.util';
 
 /** Redis session 內容（`session:{sid}` → 此，TTL `SESSION_TTL_MS`；不落 DB，撤銷＝刪 key，Design §17.2）。 */
 export interface SessionData {
@@ -48,6 +49,23 @@ export class SessionService {
   /** 撤銷 session（登出）：刪 key，即時失效（撤銷是刪 key，Design §17.2）。 */
   async revoke(sid: string): Promise<void> {
     await this.cache.del(this.key(sid));
+  }
+
+  /**
+   * 由 Cookie header 解出並驗證 session（AC-24.6，供 controller 的 logout/me 使用）：讀 session cookie →
+   * `verify`（**真理在 Redis session**：cookie 僅載 opaque sid，session 不在即未認證，與 DB 是否有 User 無關）。
+   * 缺 cookie 或 session 失效（Redis TTL 到期/已撤銷）→ 拋 `UnauthorizedException`。
+   *
+   * 憑證判定**集中於 service 層**（與 `AuthService.login/me` 同慣例），讓 `AuthController` 維持純路由——
+   * 其唯一真實分支邏輯即在此，且由本檔單元測試（gate 內）直接覆蓋，不必倚賴 controller 覆蓋率。
+   */
+  async authenticate(cookieHeader: string | undefined): Promise<{ sid: string; userId: string }> {
+    const sid = parseCookies(cookieHeader)[this.cookieName];
+    const userId = sid ? await this.verify(sid) : null;
+    if (!sid || !userId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+    return { sid, userId };
   }
 
   /** session cookie 名稱。 */

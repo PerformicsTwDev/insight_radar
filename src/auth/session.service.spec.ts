@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { CacheNamespace } from '../cache/cache-namespace';
 import type { authConfig } from '../config/auth.config';
@@ -91,5 +92,38 @@ describe('SessionService (TC-63, FR-24/NFR-15)', () => {
   it('cookieOptions honours SESSION_COOKIE_SECURE=false (test/local http)', () => {
     const { service } = build({ cookieSecure: false });
     expect(service.cookieOptions().secure).toBe(false);
+  });
+
+  /**
+   * authenticate（AC-24.6）：由 Cookie header 解出 sid → verify Redis session。憑證判定集中於 service 層
+   * （與 `AuthService` 同慣例），使 controller 維持純路由。真理在 Redis：cookie 有值但 session 失效仍 → 401。
+   */
+  describe('authenticate(cookieHeader)', () => {
+    it('有效 session cookie → { sid, userId }', async () => {
+      const { service } = build();
+      const sid = await service.create('user-42');
+      await expect(service.authenticate(`sid=${sid}`)).resolves.toEqual({ sid, userId: 'user-42' });
+    });
+
+    it('缺 Cookie header → 401（UnauthorizedException）', async () => {
+      const { service } = build();
+      await expect(service.authenticate(undefined)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('header 無 sid cookie → 401', async () => {
+      const { service } = build();
+      await expect(service.authenticate('other=1; foo=bar')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('sid 有值但 session 已失效（撤銷/TTL 到期）→ 401（真理在 Redis，AC-24.6）', async () => {
+      const { service } = build();
+      const sid = await service.create('user-7');
+      await service.revoke(sid);
+      await expect(service.authenticate(`sid=${sid}`)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
   });
 });
