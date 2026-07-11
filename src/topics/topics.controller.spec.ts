@@ -1,10 +1,14 @@
 import { lastValueFrom, of } from 'rxjs';
 import { toArray } from 'rxjs/operators';
+import type { AuthenticatedUser } from '../common/authenticated-user';
 import { type JobEvent, type JobEventsService } from '../queue/job-events.service';
 import type { TopicsResponse } from './build-topics-response';
 import type { CreateTopicRunDto } from './dto/create-topic-run.dto';
 import { TopicsController } from './topics.controller';
 import type { TopicsService } from './topics.service';
+
+// existing tests exercise topics wiring (not owner scope) → apiKey actor（gate 為 no-op、見全部，行為同 M9 前）。
+const ACTOR: AuthenticatedUser = { kind: 'apiKey' };
 
 function makeController(
   serviceOverrides: Partial<TopicsService>,
@@ -17,24 +21,30 @@ function makeController(
 }
 
 describe('TopicsController (T8.10)', () => {
-  it('delegates create to the service and returns the topicJobId', async () => {
-    const create = jest.fn<Promise<{ topicJobId: string }>, [string, CreateTopicRunDto]>();
+  it('delegates create to the service (with the current actor) and returns the topicJobId', async () => {
+    const create = jest.fn<
+      Promise<{ topicJobId: string }>,
+      [string, CreateTopicRunDto, AuthenticatedUser]
+    >();
     create.mockResolvedValue({ topicJobId: 'run-1' });
     const controller = makeController({ create });
 
     const dto: CreateTopicRunDto = { serpEnabled: true };
-    const result = await controller.create('analysis-1', dto);
+    const result = await controller.create('analysis-1', dto, ACTOR);
 
-    expect(create).toHaveBeenCalledWith('analysis-1', dto);
+    expect(create).toHaveBeenCalledWith('analysis-1', dto, ACTOR);
     expect(result).toEqual({ topicJobId: 'run-1' });
   });
 
-  it('delegates getTopics to the service', async () => {
+  it('delegates getTopics to the service (with the current actor)', async () => {
     const response = { status: 'completed' } as TopicsResponse;
-    const getTopics = jest.fn<Promise<TopicsResponse>, [string]>().mockResolvedValue(response);
+    const getTopics = jest
+      .fn<Promise<TopicsResponse>, [string, AuthenticatedUser]>()
+      .mockResolvedValue(response);
     const controller = makeController({ getTopics });
 
-    expect(await controller.getTopics('analysis-1')).toBe(response);
+    expect(await controller.getTopics('analysis-1', ACTOR)).toBe(response);
+    expect(getTopics).toHaveBeenCalledWith('analysis-1', ACTOR);
   });
 
   describe('SSE stream', () => {
@@ -42,7 +52,7 @@ describe('TopicsController (T8.10)', () => {
       const getRunRef = jest.fn().mockResolvedValue(null);
       const controller = makeController({ getRunRef });
 
-      const events = await lastValueFrom((await controller.stream('x')).pipe(toArray()));
+      const events = await lastValueFrom((await controller.stream('x', ACTOR)).pipe(toArray()));
       expect(events).toEqual([]); // EMPTY → 立即完成、不 hang
     });
 
@@ -51,7 +61,7 @@ describe('TopicsController (T8.10)', () => {
       const forJob = jest.fn();
       const controller = makeController({ getRunRef }, forJob);
 
-      const emitted = await lastValueFrom((await controller.stream('a')).pipe(toArray()));
+      const emitted = await lastValueFrom((await controller.stream('a', ACTOR)).pipe(toArray()));
       expect(emitted).toEqual([
         { type: 'completed', data: { runId: 'run-1', status: 'completed' } },
       ]);
@@ -63,7 +73,7 @@ describe('TopicsController (T8.10)', () => {
       const forJob = jest.fn();
       const controller = makeController({ getRunRef }, forJob);
 
-      const emitted = await lastValueFrom((await controller.stream('a')).pipe(toArray()));
+      const emitted = await lastValueFrom((await controller.stream('a', ACTOR)).pipe(toArray()));
       expect(emitted).toEqual([{ type: 'failed', data: { error: 'failed' } }]);
       expect(forJob).not.toHaveBeenCalled();
     });
@@ -78,7 +88,7 @@ describe('TopicsController (T8.10)', () => {
       const forJob = jest.fn().mockReturnValue(of(...source));
       const controller = makeController({ getRunRef }, forJob);
 
-      const emitted = await lastValueFrom((await controller.stream('a')).pipe(toArray()));
+      const emitted = await lastValueFrom((await controller.stream('a', ACTOR)).pipe(toArray()));
       expect(forJob).toHaveBeenCalledWith('run-1');
       expect(emitted).toEqual([
         { type: 'progress', data: { phase: 'embed', percent: 55 } },
@@ -92,7 +102,7 @@ describe('TopicsController (T8.10)', () => {
       const forJob = jest.fn().mockReturnValue(of(failedEvent));
       const controller = makeController({ getRunRef }, forJob);
 
-      const emitted = await lastValueFrom((await controller.stream('a')).pipe(toArray()));
+      const emitted = await lastValueFrom((await controller.stream('a', ACTOR)).pipe(toArray()));
       expect(emitted).toEqual([{ type: 'failed', data: { error: 'boom' } }]);
     });
 
@@ -100,7 +110,7 @@ describe('TopicsController (T8.10)', () => {
       const getRunRef = jest.fn().mockRejectedValue(new Error('db down'));
       const controller = makeController({ getRunRef });
 
-      const emitted = await lastValueFrom((await controller.stream('a')).pipe(toArray()));
+      const emitted = await lastValueFrom((await controller.stream('a', ACTOR)).pipe(toArray()));
       expect(emitted).toEqual([]); // 不 reject（SSE reject 會 hang）
     });
   });

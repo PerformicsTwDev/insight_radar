@@ -1,5 +1,7 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
+import type { AuthenticatedUser } from '../common/authenticated-user';
+import { assertOwnedRow } from '../common/owner-scope';
 import { queryConfig } from '../config/query.config';
 import { type AnalysisFeatureInput, computeFeatures } from '../keyword-analysis/features';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
@@ -54,28 +56,34 @@ export class SnapshotQueryService {
 
   /**
    * 讀分析的**不可變** snapshot 列（依 `rowIndex` 序），並在載入前分類 readiness（T6.3，AC-6.4/6.5）：
-   * - 未知 `analysisId`（查無列）→ `404`（{@link NotFoundException}）。
+   * - 未知 `analysisId`（查無列）→ `404`（owner 過濾單點 `assertOwnedRow`，越權亦同回 404）。
    * - 存在但**尚無 snapshot**（`queued`/`running`，或尚未持久化的 `partial`/`failed`，`resultSnapshotId==null`）→
    *   `409 NOT_READY`（{@link NotReadyException}），**不回不完整誤導資料**（AC-6.4）。
    * - `resultSnapshotId` 存在（`completed` 或已持久化的 `partial`）→ 讀該不可變 snapshot（翻頁穩定）。
    */
-  async loadSnapshot(analysisId: string): Promise<SnapshotRowData[]> {
-    const analysis = await this.loadAnalysis(analysisId);
+  async loadSnapshot(analysisId: string, actor: AuthenticatedUser): Promise<SnapshotRowData[]> {
+    const analysis = await this.loadAnalysis(analysisId, actor);
     if (!analysis.resultSnapshotId) {
       throw new NotReadyException(analysis.status);
     }
     return this.loadRows(analysis.resultSnapshotId);
   }
 
-  /** 讀分析行（status + resultSnapshotId）；未知 id → 404。feature 狀態 + readiness 判斷之共同來源。 */
-  private async loadAnalysis(analysisId: string): Promise<AnalysisFeatureInput> {
+  /**
+   * 讀分析行（status + resultSnapshotId + ownerId）；未知 id / 非 owner → 404。feature 狀態 + readiness 判斷
+   * 之共同來源，亦為 keywords/query 兩讀取路徑的 **owner 過濾唯一單點**（T10.6，AC-27.3/27.4）：越權與未知
+   * id 同回 404（不洩漏存在性），session 只見自己 + 共享（null）列、apiKey 機器 actor 不過濾。
+   */
+  private async loadAnalysis(
+    analysisId: string,
+    actor: AuthenticatedUser,
+  ): Promise<AnalysisFeatureInput> {
     const analysis = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
-      select: { status: true, resultSnapshotId: true },
+      select: { status: true, resultSnapshotId: true, ownerId: true },
     });
-    if (!analysis) {
-      throw new NotFoundException(`Analysis ${analysisId} not found`);
-    }
+    // 未知 id 與越權同回 404（不洩漏存在性）；通過後 analysis 收斂為非 null。
+    assertOwnedRow(analysis, actor, `Analysis ${analysisId} not found`);
     return analysis;
   }
 
@@ -99,10 +107,11 @@ export class SnapshotQueryService {
     filter: FilterSpec,
     sort: SortSpec,
     pagination: PageSpec,
+    actor: AuthenticatedUser,
   ): Promise<KeywordsListResponse> {
     // 單頁上限對 /keywords 亦適用（與 POST /query 一致，config.ts / .env.example）——避免回無上限整份 snapshot（M6-R2）。
     this.assertPageSizeWithinMax(pagination.pageSize);
-    const rows = await this.loadSnapshot(analysisId);
+    const rows = await this.loadSnapshot(analysisId, actor);
     const page = selectPage(applyFilter(rows, filter), sort, pagination);
     return {
       data: page.rows.map(toResultRow),
@@ -131,8 +140,12 @@ export class SnapshotQueryService {
    * id→404、無 snapshot→409 NOT_READY）外，另做 **feature-gating**（T6.8，AC-14.7）：view 依賴的 compute
    * feature（`serp`/`topics`）未 ready → 409 `FEATURE_NOT_READY`（而非誤導空表）。
    */
-  async query(analysisId: string, request: QueryRequest): Promise<ViewResult> {
-    const analysis = await this.loadAnalysis(analysisId);
+  async query(
+    analysisId: string,
+    request: QueryRequest,
+    actor: AuthenticatedUser,
+  ): Promise<ViewResult> {
+    const analysis = await this.loadAnalysis(analysisId, actor);
     if (!analysis.resultSnapshotId) {
       throw new NotReadyException(analysis.status);
     }

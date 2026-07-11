@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
 import { CacheNamespace } from '../cache/cache-namespace';
+import type { AuthenticatedUser } from '../common/authenticated-user';
 import { queryConfig } from '../config/query.config';
 import { queueConfig } from '../config/queue.config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -145,6 +146,9 @@ const baseInput: CreateAnalysisInput = {
   params: { geo: 'TW', language: 'zh-TW', mode: 'expand', includeAdult: false },
 };
 
+/** 機器 actor（x-api-key）：不套 owner 過濾（FR-27，AC-27.5）——這些既有測試驗非-owner 行為，用機器身分。 */
+const API_ACTOR: AuthenticatedUser = { kind: 'apiKey' };
+
 describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', () => {
   function seedExisting(prisma: FakePrisma, over: Partial<Row>): Row {
     const row: Row = {
@@ -170,7 +174,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
       createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs - 60_000),
     });
 
-    const { analysisId } = await service.create(baseInput);
+    const { analysisId } = await service.create(baseInput, API_ACTOR);
 
     expect(analysisId).not.toBe(stale.id); // 建了新任務，而非靜默回舊 id（#311）
     expect(queueAdd).toHaveBeenCalledTimes(1); // 新任務確實入列
@@ -188,7 +192,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
       createdAt: new Date(Date.now() - 1000),
     });
 
-    const { analysisId } = await service.create(baseInput);
+    const { analysisId } = await service.create(baseInput, API_ACTOR);
 
     expect(analysisId).toBe(winner.id);
     expect(prisma.rows).toHaveLength(1);
@@ -226,7 +230,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
       return realCreate!(args);
     });
 
-    const { analysisId } = await service.create(baseInput);
+    const { analysisId } = await service.create(baseInput, API_ACTOR);
 
     expect(analysisId).toBe(raceWinner.id); // 回並發勝者，不拋、不無限恢復
     expect(queueAdd).not.toHaveBeenCalled();
@@ -244,7 +248,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
       createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs - 60_000),
     });
 
-    const { analysisId } = await service.create(baseInput);
+    const { analysisId } = await service.create(baseInput, API_ACTOR);
 
     expect(analysisId).toBe(inflight.id); // coalesce 到進行中的列
     expect(queueAdd).not.toHaveBeenCalled(); // 不重複入列（不重打 Ads）
@@ -260,7 +264,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
       createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs / 2),
     });
 
-    await service.create(baseInput);
+    await service.create(baseInput, API_ACTOR);
 
     const idempSet = cache.setCalls.find((c) => c.key.startsWith(`${CacheNamespace.IDEMP}:`));
     expect(idempSet).toBeDefined();
@@ -274,7 +278,7 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
   it('enqueues a new job and persists a queued row + caches on first submit', async () => {
     const { service, queueAdd, prisma, cache } = await buildHarness();
 
-    const { analysisId } = await service.create(baseInput);
+    const { analysisId } = await service.create(baseInput, API_ACTOR);
 
     expect(analysisId).toMatch(/^[0-9a-f-]{36}$/);
     // queue.add: payload + idempotent jobId + retry policy
@@ -321,11 +325,14 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
   it('returns the SAME analysisId for semantically-equal submits (cache fast-path)', async () => {
     const { service, queueAdd, prisma } = await buildHarness();
 
-    const first = await service.create(baseInput);
-    const second = await service.create({
-      seeds: ['  trail   shoes', 'RUNNING SHOES'],
-      params: { includeAdult: false, mode: 'expand', language: 'zh-TW', geo: 'TW' },
-    });
+    const first = await service.create(baseInput, API_ACTOR);
+    const second = await service.create(
+      {
+        seeds: ['  trail   shoes', 'RUNNING SHOES'],
+        params: { includeAdult: false, mode: 'expand', language: 'zh-TW', geo: 'TW' },
+      },
+      API_ACTOR,
+    );
 
     expect(second.analysisId).toBe(first.analysisId);
     expect(queueAdd).toHaveBeenCalledTimes(1);
@@ -337,12 +344,12 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
 
     // First submit creates the row but we wipe the idemp cache to simulate the racing
     // second request that missed the cache before the first one populated it.
-    const first = await service.create(baseInput);
+    const first = await service.create(baseInput, API_ACTOR);
     for (const key of [...cache.store.keys()]) {
       if (key.startsWith(`${CacheNamespace.IDEMP}:`)) cache.store.delete(key);
     }
 
-    const second = await service.create(baseInput);
+    const second = await service.create(baseInput, API_ACTOR);
 
     // Must return the existing id, NOT throw P2002, NOT enqueue/create a second row.
     expect(second.analysisId).toBe(first.analysisId);
@@ -355,7 +362,7 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
     const failingAdd = jest.fn().mockRejectedValue(new Error('redis down'));
     const { service, prisma, cache } = await buildHarness(failingAdd);
 
-    await expect(service.create(baseInput)).rejects.toThrow('redis down');
+    await expect(service.create(baseInput, API_ACTOR)).rejects.toThrow('redis down');
 
     // Row must be rolled back so a retry isn't permanently wedged by P2002.
     expect(prisma.deleted).toHaveLength(1);
@@ -368,7 +375,7 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
     const { service, prisma, queueAdd } = await buildHarness();
     prisma.keywordAnalysis.create.mockRejectedValueOnce(new Error('connection reset'));
 
-    await expect(service.create(baseInput)).rejects.toThrow('connection reset');
+    await expect(service.create(baseInput, API_ACTOR)).rejects.toThrow('connection reset');
     expect(queueAdd).not.toHaveBeenCalled();
     expect(prisma.keywordAnalysis.findUnique).not.toHaveBeenCalled();
   });
@@ -384,17 +391,20 @@ describe('KeywordAnalysisService.create (T3.2, TC-10)', () => {
     prisma.keywordAnalysis.create.mockRejectedValueOnce(p2002);
     prisma.keywordAnalysis.findUnique.mockResolvedValueOnce(null);
 
-    await expect(service.create(baseInput)).rejects.toBe(p2002);
+    await expect(service.create(baseInput, API_ACTOR)).rejects.toBe(p2002);
   });
 
   it('produces DIFFERENT analysisId when params differ semantically (e.g. geo)', async () => {
     const { service } = await buildHarness();
 
-    const a = await service.create(baseInput);
-    const b = await service.create({
-      seeds: baseInput.seeds,
-      params: { ...baseInput.params, geo: 'US' },
-    });
+    const a = await service.create(baseInput, API_ACTOR);
+    const b = await service.create(
+      {
+        seeds: baseInput.seeds,
+        params: { ...baseInput.params, geo: 'US' },
+      },
+      API_ACTOR,
+    );
 
     expect(b.analysisId).not.toBe(a.analysisId);
   });
@@ -425,7 +435,9 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
   it('throws NotFound for an unknown analysisId', async () => {
     const { service, prisma } = await buildHarness();
 
-    await expect(service.getStatus('missing-id')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getStatus('missing-id', API_ACTOR)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(prisma.keywordAnalysis.findUnique).toHaveBeenCalledWith({
       where: { id: 'missing-id' },
       include: { resultSnapshot: true },
@@ -436,7 +448,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     const { service, prisma } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'queued', progress: { phase: 'queued', percent: 0 } });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res).toEqual({
       status: 'queued',
@@ -459,7 +471,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
       progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
     });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.status).toBe('running');
     expect(res.progress).toEqual({
@@ -482,7 +494,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
       resultSnapshot: { id: 'snap-1', keywordCount: 1980 },
     });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.status).toBe('completed');
     expect(res.result).toEqual({ resultSnapshotId: 'snap-1', count: 1980 });
@@ -502,7 +514,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
       resultSnapshot: { id: 'snap-2', keywordCount: 800 },
     });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.status).toBe('partial');
     expect(res.result).toEqual({ resultSnapshotId: 'snap-2', count: 800 });
@@ -512,7 +524,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     const { service, prisma } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'canceled', progress: { phase: 'fetch', percent: 20 } });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.status).toBe('canceled');
     expect(res.result).toEqual({ resultSnapshotId: null, count: null });
@@ -522,7 +534,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     const { service, prisma } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'failed', progress: { phase: 'fetch', percent: 40 } });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.status).toBe('failed');
     expect(res.result).toEqual({ resultSnapshotId: null, count: null });
@@ -532,7 +544,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     const { service, prisma } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'queued', progress: null });
 
-    const res = await service.getStatus('id-1');
+    const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.progress).toEqual({ phase: 'queued', percent: 0 });
   });
@@ -543,7 +555,7 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
     const { service, prisma, queueRemove } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'running' });
 
-    const out = await service.cancel('id-1');
+    const out = await service.cancel('id-1', API_ACTOR);
 
     expect(out).toEqual({ status: 'canceled' });
     expect(prisma.rows[0].status).toBe('canceled');
@@ -553,19 +565,19 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
   it('cancels a queued job too', async () => {
     const { service, prisma } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'queued' });
-    expect((await service.cancel('id-1')).status).toBe('canceled');
+    expect((await service.cancel('id-1', API_ACTOR)).status).toBe('canceled');
   });
 
   it('throws NotFound (404) for an unknown analysisId', async () => {
     const { service } = await buildHarness();
-    await expect(service.cancel('ghost')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.cancel('ghost', API_ACTOR)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('does not re-cancel a terminal job (returns current status, no queue removal)', async () => {
     const { service, prisma, queueRemove } = await buildHarness();
     seedRow(prisma, { id: 'id-1', status: 'completed' });
 
-    const out = await service.cancel('id-1');
+    const out = await service.cancel('id-1', API_ACTOR);
 
     expect(out).toEqual({ status: 'completed' });
     expect(prisma.rows[0].status).toBe('completed'); // 不覆寫已完成
@@ -578,7 +590,7 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
     // cancel 不得把它覆寫成 canceled（否則終態被改、結果仍可讀＝自相矛盾，§6.8）。
     seedRow(prisma, { id: 'id-1', status: 'partial' });
 
-    const out = await service.cancel('id-1');
+    const out = await service.cancel('id-1', API_ACTOR);
 
     expect(out).toEqual({ status: 'partial' });
     expect(prisma.rows[0].status).toBe('partial'); // 不覆寫已固化的 partial
@@ -590,7 +602,7 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
     queueRemove.mockRejectedValueOnce(new Error('job is locked'));
     seedRow(prisma, { id: 'id-1', status: 'running' });
 
-    const out = await service.cancel('id-1');
+    const out = await service.cancel('id-1', API_ACTOR);
 
     expect(out).toEqual({ status: 'canceled' });
     expect(prisma.rows[0].status).toBe('canceled');
@@ -605,7 +617,7 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
     );
     seedRow(prisma, { id: 'id-1', status: 'running' });
 
-    await service.cancel('id-1');
+    await service.cancel('id-1', API_ACTOR);
 
     const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(logged).not.toContain('s3cr3t');
@@ -623,7 +635,7 @@ describe('KeywordAnalysisService.cancel (T3.12, FR-8)', () => {
       status: 'running',
     });
 
-    const out = await service.cancel('id-1');
+    const out = await service.cancel('id-1', API_ACTOR);
 
     expect(out).toEqual({ status: 'completed' }); // 條件 updateMany 不覆寫終態
     expect(prisma.rows[0].status).toBe('completed');

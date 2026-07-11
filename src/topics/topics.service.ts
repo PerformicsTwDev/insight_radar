@@ -10,6 +10,8 @@ import {
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { Queue } from 'bullmq';
+import type { AuthenticatedUser } from '../common/authenticated-user';
+import { assertOwnedRow, canAccess } from '../common/owner-scope';
 import { embeddingsConfig } from '../config/embeddings.config';
 import { queueConfig } from '../config/queue.config';
 import { topicsConfig } from '../config/topics.config';
@@ -45,14 +47,18 @@ export class TopicsService {
     @Inject(queueConfig.KEY) private readonly queueCfg: ConfigType<typeof queueConfig>,
   ) {}
 
-  async create(analysisId: string, dto: CreateTopicRunDto): Promise<{ topicJobId: string }> {
+  async create(
+    analysisId: string,
+    dto: CreateTopicRunDto,
+    actor: AuthenticatedUser,
+  ): Promise<{ topicJobId: string }> {
     const analysis = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
       include: { resultSnapshot: true },
     });
-    if (!analysis) {
-      throw new NotFoundException(`keyword analysis ${analysisId} not found`);
-    }
+    // owner 過濾單點（FR-27/AC-27.3）：未知 id 或他人分析 → 同一 404（不洩漏存在性）；避免跨 owner 對別人
+    // 的 snapshot 建 TopicRun + 觸發昂貴分群 job。授權後 TS 收斂 analysis 為非 null。
+    assertOwnedRow(analysis, actor, `keyword analysis ${analysisId} not found`);
     if (
       !analysis.resultSnapshot ||
       (analysis.status !== 'completed' && analysis.status !== 'partial')
@@ -126,7 +132,14 @@ export class TopicsService {
    * 取某分析的分群結果（GET，Design §16.3）。無 run→404；進行中→回其 status（clusters 可能為空、client 續輪詢）。
    * 每字 topic/parent/intent 由所屬群繼承（不覆寫 FR-4 keyword_intents）。
    */
-  async getTopics(analysisId: string): Promise<TopicsResponse> {
+  async getTopics(analysisId: string, actor: AuthenticatedUser): Promise<TopicsResponse> {
+    // owner 過濾單點（FR-27/AC-27.3）：先閘父分析——未知/他人 → 404，**否則**回別人的分群 + 關鍵字明文（IDOR）。
+    const owner = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { ownerId: true },
+    });
+    assertOwnedRow(owner, actor, `keyword analysis ${analysisId} not found`);
+
     const run = await this.repo.findLatestRunByAnalysis(analysisId);
     if (!run) {
       throw new NotFoundException(`no topic run for analysis ${analysisId}`);
@@ -143,7 +156,19 @@ export class TopicsService {
    * SSE 用輕量 run 參照：analysisId → 最新 run 的 {runId, status}（SSE key=runId，因 queue.add jobId=runId）。
    * 無 run → null（SSE handler 據此回空串流）。
    */
-  async getRunRef(analysisId: string): Promise<{ runId: string; status: string } | null> {
+  async getRunRef(
+    analysisId: string,
+    actor: AuthenticatedUser,
+  ): Promise<{ runId: string; status: string } | null> {
+    // owner 過濾單點（SSE 不可拋——他人/未知 → 回 null → EMPTY 串流，與 keyword-analysis stream 的降級一致、
+    // 不洩漏存在性）。用 `canAccess`（非 assertOwnedRow）避免在 SSE 路徑拋例外。
+    const owner = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { ownerId: true },
+    });
+    if (!owner || !canAccess(owner, actor)) {
+      return null;
+    }
     const run = await this.repo.findLatestRunByAnalysis(analysisId);
     return run ? { runId: run.id, status: run.status } : null;
   }

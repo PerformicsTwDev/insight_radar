@@ -18,6 +18,8 @@ import type { ConfigType } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
+import type { AuthenticatedUser } from '../common/authenticated-user';
+import { CurrentActor } from '../common/current-actor.decorator';
 import { withHeartbeat } from '../common/sse-heartbeat';
 import { appConfig } from '../config/app.config';
 import { scrubSecrets } from '../logger/redaction';
@@ -66,7 +68,10 @@ export class KeywordAnalysisController {
 
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
-  async create(@Body() dto: CreateKeywordAnalysisDto): Promise<{ analysisId: string }> {
+  async create(
+    @Body() dto: CreateKeywordAnalysisDto,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<{ analysisId: string }> {
     const params: AnalysisParams = {
       geo: dto.geo,
       language: dto.language,
@@ -74,7 +79,7 @@ export class KeywordAnalysisController {
       includeAdult: dto.includeAdult ?? false,
       network: dto.network ?? 'GOOGLE_SEARCH',
     };
-    return this.service.create({ seeds: dto.seeds, params });
+    return this.service.create({ seeds: dto.seeds, params }, actor);
   }
 
   /**
@@ -83,21 +88,30 @@ export class KeywordAnalysisController {
    * 與 `:id` 段結構不同、不衝突，但明確置前避免誤配。
    */
   @Get()
-  list(@Query() query: ListAnalysesQueryDto): Promise<AnalysesListResponse> {
-    return this.service.list(query);
+  list(
+    @Query() query: ListAnalysesQueryDto,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<AnalysesListResponse> {
+    return this.service.list(query, actor);
   }
 
-  /** 輪詢分析狀態（T3.4，FR-8）。不存在的 id → 404（service 拋 NotFoundException）。 */
+  /** 輪詢分析狀態（T3.4，FR-8）。不存在的 id / 非 owner → 404（service 拋 NotFoundException，FR-27）。 */
   @Get(':id')
-  getStatus(@Param('id') id: string): Promise<AnalysisStatusResponse> {
-    return this.service.getStatus(id);
+  getStatus(
+    @Param('id') id: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<AnalysisStatusResponse> {
+    return this.service.getStatus(id, actor);
   }
 
-  /** 取消分析（T3.12，FR-8）。不存在 → 404；回最終 `status`（canceled，或已終態則回現狀）。 */
+  /** 取消分析（T3.12，FR-8）。不存在 / 非 owner → 404；回最終 `status`（canceled，或已終態則回現狀）。 */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  cancel(@Param('id') id: string): Promise<{ status: AnalysisStatus }> {
-    return this.service.cancel(id);
+  cancel(
+    @Param('id') id: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<{ status: AnalysisStatus }> {
+    return this.service.cancel(id, actor);
   }
 
   /**
@@ -115,8 +129,11 @@ export class KeywordAnalysisController {
    * 不靜默吞亦不拖垮連線；真實狀態由 `GET :id`（FR-8）取得。
    */
   @Sse(':id/stream')
-  async stream(@Param('id') id: string): Promise<Observable<MessageEvent>> {
-    const status = await this.fetchStatus(id);
+  async stream(
+    @Param('id') id: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<Observable<MessageEvent>> {
+    const status = await this.fetchStatus(id, actor);
     if (!status) {
       return EMPTY;
     }
@@ -131,10 +148,13 @@ export class KeywordAnalysisController {
     return withHeartbeat(events$, this.config.sseHeartbeatMs);
   }
 
-  /** 查狀態；不存在或非預期錯誤皆回 null（SSE handler 不可 reject）；非預期錯誤記錄日誌（不靜默吞）。 */
-  private async fetchStatus(id: string): Promise<AnalysisStatusResponse | null> {
+  /** 查狀態；不存在 / 非 owner / 非預期錯誤皆回 null（SSE handler 不可 reject）；非預期錯誤記錄日誌（不靜默吞）。 */
+  private async fetchStatus(
+    id: string,
+    actor: AuthenticatedUser,
+  ): Promise<AnalysisStatusResponse | null> {
     try {
-      return await this.service.getStatus(id);
+      return await this.service.getStatus(id, actor);
     } catch (error) {
       if (error instanceof NotFoundException) {
         return null;

@@ -14,6 +14,8 @@ import type { ConfigType } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import { EMPTY, type Observable, of } from 'rxjs';
 import { map, takeWhile } from 'rxjs/operators';
+import type { AuthenticatedUser } from '../common/authenticated-user';
+import { CurrentActor } from '../common/current-actor.decorator';
 import { withHeartbeat } from '../common/sse-heartbeat';
 import { appConfig } from '../config/app.config';
 import { type JobEvent, JobEventsService } from '../queue/job-events.service';
@@ -60,14 +62,21 @@ export class TopicsController {
   /** 觸發分群 run（enqueue-only）。未知分析 → 404；snapshot 未 ready → 425/409（service 拋）。 */
   @Post(':id/topics')
   @HttpCode(HttpStatus.ACCEPTED)
-  create(@Param('id') id: string, @Body() dto: CreateTopicRunDto): Promise<{ topicJobId: string }> {
-    return this.service.create(id, dto);
+  create(
+    @Param('id') id: string,
+    @Body() dto: CreateTopicRunDto,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<{ topicJobId: string }> {
+    return this.service.create(id, dto, actor);
   }
 
   /** 取分群結果（clusters + 每字 labels）。無 run → 404（service 拋）。 */
   @Get(':id/topics')
-  getTopics(@Param('id') id: string): Promise<TopicsResponse> {
-    return this.service.getTopics(id);
+  getTopics(
+    @Param('id') id: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<TopicsResponse> {
+    return this.service.getTopics(id, actor);
   }
 
   /**
@@ -81,8 +90,11 @@ export class TopicsController {
    * failedReason 的祕密遮罩已於 {@link JobEventsService.route}（NFR-5）。
    */
   @Sse(':id/topics/stream')
-  async stream(@Param('id') id: string): Promise<Observable<MessageEvent>> {
-    const ref = await this.service.getRunRef(id).catch(() => null); // 不可 reject
+  async stream(
+    @Param('id') id: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<Observable<MessageEvent>> {
+    const ref = await this.service.getRunRef(id, actor).catch(() => null); // 不可 reject
     if (!ref) {
       return EMPTY;
     }

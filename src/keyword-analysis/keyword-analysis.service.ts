@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { JobStatus } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import { CacheNamespace } from '../cache/cache-namespace';
 import { CacheService } from '../cache/cache.service';
+import type { AuthenticatedUser } from '../common/authenticated-user';
+import { assertOwnedRow, ownerIdOf, ownerWhere } from '../common/owner-scope';
 import { scrubSecrets } from '../logger/redaction';
 import { queryConfig } from '../config/query.config';
 import { queueConfig } from '../config/queue.config';
@@ -108,9 +110,10 @@ export class KeywordAnalysisService {
 
   /**
    * 分析歷史清單（T9.6，FR-23）：分頁 + `status` 過濾 + `createdAt desc`。`pageSize` 超 `QUERY_MAX_PAGE_SIZE`
-   * → 400（沿用讀取層上限，AC-23.3）。**owner 過濾 M10 補**（AC-23.4；M9 無 owner 欄位＝回全部）。
+   * → 400（沿用讀取層上限，AC-23.3）。**owner 過濾**（T10.6，AC-23.4/27.3/27.5）：session actor 只回自己
+   * + 共享（null）列、apiKey 機器 actor 回全部——scope 由 `ownerWhere(actor)` 併入 `where`，`?ownerId=` 無法繞過。
    */
-  async list(query: ListAnalysesQueryDto): Promise<AnalysesListResponse> {
+  async list(query: ListAnalysesQueryDto, actor: AuthenticatedUser): Promise<AnalysesListResponse> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? DEFAULT_HISTORY_PAGE_SIZE;
     if (pageSize > this.queryCfg.maxPageSize) {
@@ -121,7 +124,11 @@ export class KeywordAnalysisService {
       });
     }
 
-    const where: Prisma.KeywordAnalysisWhereInput = query.status ? { status: query.status } : {};
+    // owner scope 與 status 過濾複合（status AND (ownerId=self OR null)）；apiKey → ownerWhere={} 不過濾。
+    const where: Prisma.KeywordAnalysisWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...ownerWhere(actor),
+    };
     const skip = (page - 1) * pageSize;
     const total = await this.prisma.keywordAnalysis.count({ where });
     // M9-R4：越界 page（`skip ≥ total`）→ 短路回空頁，**不**對 DB 下越界 OFFSET 的 findMany。
@@ -140,7 +147,13 @@ export class KeywordAnalysisService {
     return { data: rows.map(toListRow), meta: { total, page, pageSize } };
   }
 
-  async create(input: CreateAnalysisInput): Promise<{ analysisId: string }> {
+  async create(
+    input: CreateAnalysisInput,
+    actor: AuthenticatedUser,
+  ): Promise<{ analysisId: string }> {
+    // owner 歸屬（AC-27.1）：session → actor.id、apiKey → null（機器資源）。**不**進 idempotency key
+    // （owner 為存取控制疊層、非去重身分；idempotency key = seeds+params canonical，FR-1）。
+    const ownerId = ownerIdOf(actor);
     const hash = computeIdempotencyKey(input.seeds, input.params);
     const idempKey = this.cache.buildKey(CacheNamespace.IDEMP, hash);
 
@@ -157,7 +170,7 @@ export class KeywordAnalysisService {
     // （NFR-8 並發下仍 idempotent，不對 client 拋 500）。
     try {
       await this.prisma.keywordAnalysis.create({
-        data: this.buildQueuedRow(analysisId, hash, input),
+        data: this.buildQueuedRow(analysisId, hash, input, ownerId),
       });
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
@@ -183,7 +196,14 @@ export class KeywordAnalysisService {
       // #311：既有列逾窗且**已終態**——旋轉其唯一鍵讓位、建新任務，使 DB 慢路徑與 Redis 快路徑
       // freshness 語意一致（否則舊列的永久 unique key 會靜默擊穿窗、月後重跑同 seeds 仍回陳舊結果）。
       // 舊列（含其 snapshot/歷史）保留不刪。
-      const reuse = await this.rotateExpiredAndCreate(existing, hash, idempKey, analysisId, input);
+      const reuse = await this.rotateExpiredAndCreate(
+        existing,
+        hash,
+        idempKey,
+        analysisId,
+        input,
+        ownerId,
+      );
       if (reuse) return reuse; // 並發旋轉競態落敗 → 回勝者 id
       // else：舊列已讓位、新列已建 → 續往下入列（analysisId 為新任務）。
     }
@@ -225,11 +245,12 @@ export class KeywordAnalysisService {
     return { analysisId };
   }
 
-  /** `queued` 列的 create data（idempotency 快/慢路徑共用，避免形狀漂移）。 */
+  /** `queued` 列的 create data（idempotency 快/慢路徑共用，避免形狀漂移）。`ownerId` 由 actor 決定（AC-27.1）。 */
   private buildQueuedRow(
     analysisId: string,
     hash: string,
     input: CreateAnalysisInput,
+    ownerId: string | null,
   ): Prisma.KeywordAnalysisUncheckedCreateInput {
     return {
       id: analysisId,
@@ -238,6 +259,7 @@ export class KeywordAnalysisService {
       params: input.params as Prisma.InputJsonValue,
       progress: { phase: 'queued', percent: 0 },
       idempotencyKey: hash,
+      ownerId,
     };
   }
 
@@ -277,6 +299,7 @@ export class KeywordAnalysisService {
     idempKey: string,
     analysisId: string,
     input: CreateAnalysisInput,
+    ownerId: string | null,
   ): Promise<{ analysisId: string } | null> {
     await this.prisma.keywordAnalysis.update({
       where: { id: existing.id },
@@ -284,7 +307,7 @@ export class KeywordAnalysisService {
     });
     try {
       await this.prisma.keywordAnalysis.create({
-        data: this.buildQueuedRow(analysisId, hash, input),
+        data: this.buildQueuedRow(analysisId, hash, input, ownerId),
       });
       return null;
     } catch (error) {
@@ -306,14 +329,13 @@ export class KeywordAnalysisService {
    * BullMQ `JobState` 無此語意，且 job 可能在 retention 後被逐出 → 不可僅讀 queue）。
    * 不存在 → 404；completed/partial 時自關聯 `ResultSnapshot` 取 `resultSnapshotId`+`count`（AC-8.4）。
    */
-  async getStatus(analysisId: string): Promise<AnalysisStatusResponse> {
+  async getStatus(analysisId: string, actor: AuthenticatedUser): Promise<AnalysisStatusResponse> {
     const row = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
       include: { resultSnapshot: true },
     });
-    if (!row) {
-      throw new NotFoundException(`Analysis ${analysisId} not found`);
-    }
+    // owner 過濾唯一單點（AC-27.3/27.4）：未知 id 與越權同回 404、不洩漏存在性；通過後 row 收斂為非 null。
+    assertOwnedRow(row, actor, `Analysis ${analysisId} not found`);
 
     const progress = isProgress(row.progress) ? row.progress : DEFAULT_PROGRESS;
     const result = row.resultSnapshot
@@ -332,14 +354,13 @@ export class KeywordAnalysisService {
    * 不覆寫；否則標 `status='canceled'` 並釋放佇列任務（best-effort：active job 鎖住無法 remove，DB
    * status 為權威信號）。
    */
-  async cancel(analysisId: string): Promise<{ status: AnalysisStatus }> {
+  async cancel(analysisId: string, actor: AuthenticatedUser): Promise<{ status: AnalysisStatus }> {
     const row = await this.prisma.keywordAnalysis.findUnique({
       where: { id: analysisId },
-      select: { status: true },
+      select: { status: true, ownerId: true },
     });
-    if (!row) {
-      throw new NotFoundException(`Analysis ${analysisId} not found`);
-    }
+    // owner 過濾唯一單點（AC-27.3/27.4）：未知 id / 越權同回 404，先於狀態機/更新——不對他人資源做任何寫入。
+    assertOwnedRow(row, actor, `Analysis ${analysisId} not found`);
     if (TERMINAL_STATUSES.has(row.status)) {
       return { status: row.status };
     }
