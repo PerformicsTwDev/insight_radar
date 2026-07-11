@@ -30,8 +30,10 @@ export type OwnerScopeWhere = Record<string, never> | { OR: Array<{ ownerId: str
  * - session：自己的（`ownerId === actor.id`）或共享 null-owner 列（`ownerId === null`）才 `true`。
  */
 export function canAccess(resource: OwnedResource, actor: AuthenticatedUser): boolean {
-  // RED skeleton（T10.6）：尚未納入「自己的列」分支——GREEN 補 `|| resource.ownerId === actor.id`。
-  return actor.kind === 'apiKey' || resource.ownerId === null;
+  if (actor.kind === 'apiKey') {
+    return true; // 機器 actor 不套 owner 過濾（AC-27.5）。
+  }
+  return resource.ownerId === null || resource.ownerId === actor.id; // 共享（null）或自己的（AC-27.3）。
 }
 
 /**
@@ -56,14 +58,13 @@ export function ownerWhere(actor: AuthenticatedUser): OwnerScopeWhere {
   if (actor.kind === 'apiKey') {
     return {};
   }
-  // RED skeleton（T10.6）：尚未納入自己的列——GREEN 補 `{ ownerId: actor.id }` 進 OR。
-  return { OR: [{ ownerId: null }] };
+  // 自己的（ownerId = actor.id）+ 共享（ownerId IS NULL）；`{ ownerId: null }` 於 Prisma 產生 IS NULL。
+  return { OR: [{ ownerId: actor.id }, { ownerId: null }] };
 }
 
 /**
  * 建立資源時要落 DB 的 `ownerId`（AC-27.1）：session → `actor.id`；apiKey → `null`（機器資源）。
  */
 export function ownerIdOf(actor: AuthenticatedUser): string | null {
-  // RED skeleton（T10.6）：尚未歸屬 session owner——GREEN 回 `actor.id`。
-  return actor.kind === 'session' ? null : null;
+  return actor.kind === 'session' ? actor.id : null;
 }
