@@ -356,4 +356,51 @@ describe('auth endpoints (e2e · TC-59 · FR-24)', () => {
       expect(res.status).toBe(403); // CsrfGuard 擋下；logout 非 @Public，session 狀態變更受 CSRF 保護
     });
   });
+
+  // —— T10.7 安全複驗（NFR-15）：把端到端 session 安全不變式一次串起（Design §17.5 S6~S8）——
+  describe('security matrix：端到端 session 安全複驗 (T10.7, NFR-15)', () => {
+    it('register→login(cookie flags)→me→跨站 CSRF 403→同源 logout 撤銷→同 cookie 再 me 401', async () => {
+      // 1) register + login：cookie flags = httpOnly + SameSite=Lax + Secure + Path=/（S6/AC-24.2）。
+      const reg = await register('mallory@example.com');
+      expect(reg.status).toBe(201);
+      const login = await request(server())
+        .post('/api/v1/auth/login')
+        .send({ email: 'mallory@example.com', password: PASSWORD });
+      expect(login.status).toBe(200);
+      const setCookie = setCookieValue(login);
+      expect(setCookie).toMatch(/HttpOnly/i);
+      expect(setCookie).toMatch(/SameSite=Lax/i);
+      expect(setCookie).toMatch(/Secure/i);
+      expect(setCookie).toMatch(/Path=\//i);
+      // body 不含 password / opaque sid（S7/NFR-5）。
+      const loginBody = JSON.stringify(login.body);
+      expect(loginBody).not.toContain(PASSWORD);
+      expect(loginBody).not.toContain(sidOf(setCookie));
+      const cookie = cookieHeader(setCookie);
+
+      // 2) me（有效 session）→ { id, email }，無 hash。
+      const me1 = await request(server()).get('/api/v1/auth/me').set('Cookie', cookie);
+      expect(me1.status).toBe(200);
+      expect(Object.keys(me1.body as object).sort()).toEqual(['email', 'id']);
+
+      // 3) 跨站 Origin 的 session 狀態變更（logout）→ 403（CSRF，AC-26.1；SameSite=Lax 之上第二層）。
+      const csrf = await request(server())
+        .post('/api/v1/auth/logout')
+        .set('Cookie', cookie)
+        .set('Origin', 'http://evil.example');
+      expect(csrf.status).toBe(403);
+
+      // 4) 同源 logout → 撤銷 Redis session + 清 cookie。
+      const logout = await request(server())
+        .post('/api/v1/auth/logout')
+        .set('Cookie', cookie)
+        .set('Origin', 'http://localhost:5173');
+      expect(logout.status).toBe(200);
+      expect(setCookieValue(logout)).toContain('sid=;'); // 清空
+
+      // 5) 同 cookie 再 me → 401（撤銷即失效，真理在 Redis session，AC-24.6）。
+      const me2 = await request(server()).get('/api/v1/auth/me').set('Cookie', cookie);
+      expect(me2.status).toBe(401);
+    });
+  });
 });
