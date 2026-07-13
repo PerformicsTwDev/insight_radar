@@ -27,23 +27,28 @@
 - **logout**：撤銷 Redis session + `clearCookie`；無有效 session → 401。**非 `@Public`**——是 session 狀態變更，受 `CompositeAuthGuard` + `CsrfGuard` 保護（防跨站強制登出）。
 - **me**：有效 session → `{id,email}`；無/失效 session → 401。
 
-## 端點總覽（11）
+## 端點總覽（16）
 
-認證端點（#2–#5）細節見上方「認證端點」節；以下為完整對外 HTTP 介面（`/health` 除外皆掛 `/api/v1`）。
+認證端點（#2–#5）細節見上方「認證端點」節；以下為完整對外 HTTP 介面（`/health` 除外皆掛 `/api/v1`）。詳細 request/response 契約以下方分節與 controller/DTO 為準（部分 M8/M9 端點——list/topics/views——尚未補分節，以此表 + OpenAPI 為契約來源）。
 
-| #   | Method | Path                                    | 說明                                         | 成功碼                     |
-| --- | ------ | --------------------------------------- | -------------------------------------------- | -------------------------- |
-| 1   | GET    | `/health`                               | 健康檢查（DB + cache probe）                 | 200 / 503                  |
-| 2   | POST   | `/api/v1/auth/register`                 | 建帳號（`@Public`）                          | **201**                    |
-| 3   | POST   | `/api/v1/auth/login`                    | 登入（設 session cookie，`@Public`）         | 200                        |
-| 4   | POST   | `/api/v1/auth/logout`                   | 登出（撤銷 session，受 CsrfGuard）           | 200                        |
-| 5   | GET    | `/api/v1/auth/me`                       | 取當前使用者（`@Public`，self-guard）        | 200                        |
-| 6   | POST   | `/api/v1/keyword-analyses`              | 建立分析（入列，enqueue-only）               | **202**                    |
-| 7   | GET    | `/api/v1/keyword-analyses/:id`          | 輪詢分析狀態                                 | 200                        |
-| 8   | DELETE | `/api/v1/keyword-analyses/:id`          | 取消分析                                     | 200                        |
-| 9   | GET    | `/api/v1/keyword-analyses/:id/stream`   | SSE 進度串流                                 | 200（`text/event-stream`） |
-| 10  | GET    | `/api/v1/keyword-analyses/:id/keywords` | 讀取關鍵字列表（篩選/排序/分頁）             | 200                        |
-| 11  | POST   | `/api/v1/keyword-analyses/:id/query`    | 具名視圖 view router（dashboard 表/圖/趨勢） | 200                        |
+| #   | Method | Path                                         | 說明                                         | 成功碼                     |
+| --- | ------ | -------------------------------------------- | -------------------------------------------- | -------------------------- |
+| 1   | GET    | `/health`                                    | 健康檢查（DB + cache probe）                 | 200 / 503                  |
+| 2   | POST   | `/api/v1/auth/register`                      | 建帳號（`@Public`）                          | **201**                    |
+| 3   | POST   | `/api/v1/auth/login`                         | 登入（設 session cookie，`@Public`）         | 200                        |
+| 4   | POST   | `/api/v1/auth/logout`                        | 登出（撤銷 session，受 CsrfGuard）           | 200                        |
+| 5   | GET    | `/api/v1/auth/me`                            | 取當前使用者（`@Public`，self-guard）        | 200                        |
+| 6   | POST   | `/api/v1/keyword-analyses`                   | 建立分析（入列，enqueue-only）               | **202**                    |
+| 7   | GET    | `/api/v1/keyword-analyses`                   | 分析歷史清單（分頁/status 過濾，FR-23）      | 200                        |
+| 8   | GET    | `/api/v1/keyword-analyses/:id`               | 輪詢分析狀態                                 | 200                        |
+| 9   | DELETE | `/api/v1/keyword-analyses/:id`               | 取消分析                                     | 200                        |
+| 10  | GET    | `/api/v1/keyword-analyses/:id/stream`        | SSE 進度串流                                 | 200（`text/event-stream`） |
+| 11  | GET    | `/api/v1/keyword-analyses/:id/keywords`      | 讀取關鍵字列表（篩選/排序/分頁）             | 200                        |
+| 12  | POST   | `/api/v1/keyword-analyses/:id/query`         | 具名視圖 view router（dashboard 表/圖/趨勢） | 200                        |
+| 13  | POST   | `/api/v1/keyword-analyses/:id/topics`        | 觸發主題分群（入列，FR-15）                  | **202**                    |
+| 14  | GET    | `/api/v1/keyword-analyses/:id/topics`        | 讀取主題分群結果                             | 200                        |
+| 15  | GET    | `/api/v1/keyword-analyses/:id/topics/stream` | 主題分群 SSE 進度串流                        | 200（`text/event-stream`） |
+| 16  | GET    | `/api/v1/views`                              | view metadata（allowedSelect/Filters/Sort）  | 200                        |
 
 ---
 
@@ -184,7 +189,7 @@ Enqueue-only：驗證入參 → 算 idempotency key → 建 `KeywordAnalysis`（
 | 碼  | 情境                                                     |
 | --- | -------------------------------------------------------- |
 | 201 | 建帳號成功（`auth/register`）                            |
-| 202 | 建立分析已入列（端點 2）                                 |
+| 202 | 建立分析 / 主題分群已入列（enqueue-only）                |
 | 400 | 入參/query 驗證失敗、非 UUID id、`min>max`、未知 view    |
 | 401 | 缺/錯 `x-api-key`、缺/失效 session、登入憑證錯           |
 | 403 | CSRF：session 狀態變更 `Origin` ∉ `ALLOWED_ORIGINS`      |
