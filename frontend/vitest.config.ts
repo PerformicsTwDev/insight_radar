@@ -2,7 +2,6 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 // Vitest config kept separate from vite.config.ts so the app build stays lean.
-// NOTE (T0.1): no coverage threshold / core glob here — those land in T0.2.
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -13,6 +12,24 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
+      // `all: true` → 未被任何測試觸及的 src 檔亦計入（記 0%），使覆蓋率 gate 能逼出「新增碼未測」。
+      all: true,
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/main.tsx', // app bootstrap 接線（由 e2e 驗，非單元）
+        'src/test/**', // 測試 setup
+        'src/**/*.test.{ts,tsx}', // 測試檔本身
+        'src/**/*.d.ts',
+        // 未來（M1+）：route tree（TanStack Router 產生檔）、純容器薄層 *.tsx（由 component/e2e 驗）。
+      ],
+      thresholds: {
+        // M0：global 85。core（`src/lib/**`、`src/api/serialization/**`）90 per-glob gate 於 M2/T2.3
+        // 第一個 core 檔存在時再加（無匹配 glob 會讓 vitest 報錯，故 M0 只設 global）。
+        lines: 85,
+        functions: 85,
+        branches: 85,
+        statements: 85,
+      },
     },
   },
 });
