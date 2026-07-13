@@ -32,7 +32,7 @@ const SECRET_FIELDS = [
   'password',
   'passwordHash',
   'password_hash',
-  // session 簽章祕密（M10，NFR-15）。
+  // session 祕密（M10，NFR-15；reserved——目前 sid 為 opaque 隨機值、不以此簽章，ADR-0006）。
   'sessionSecret',
   'SESSION_SECRET',
   // 通用
