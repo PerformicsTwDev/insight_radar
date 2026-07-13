@@ -66,6 +66,7 @@ pnpm start:prod                       # node dist/main
 - **Migration**：`prisma migrate deploy` 只前進、不生成/不改既有 migration。涉 `pg_trgm`/GIN/trgm 索引者已在 migration 手動補 SQL。**勿改已套用的 migration**（hook 會擋）。
 - **env / 祕密**：`API_KEY`、六項 Google Ads 憑證、`AZURE_OPENAI_API_KEY` 等祕密由部署環境注入，**絕不進 repo/log/fixture**（NFR-5）。`AZURE_OPENAI_API_VERSION` 須在 allowlist 內（非字典序 `>=`），否則啟動失敗。
 - **健康檢查**：部署後打 `GET /health`（免認證）；DB 或 cache down → 503，據此設 readiness probe。
+- **前端 SPA（`frontend/`）**：**同源部署**——正式環境靜態檔（`pnpm -C frontend build` → `frontend/dist`）由 NestJS `ServeStatic` 或同一 reverse proxy 供應，與 API 同源（cookie 天然同源、無 CORS）。開發自 frontend M0 起、尚未併入上述後端部署流程；併入時本節補前端 build/serve 步驟。
 - **水平擴展**：多 instance 共享同一 Redis/Postgres 安全 —— Ads 限流跨 instance 生效、idempotency 以 DB `@unique` 仲裁、worker 並發由 BullMQ 分派。
 
 ---
