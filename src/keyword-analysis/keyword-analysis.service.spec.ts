@@ -157,7 +157,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
       seeds: baseInput.seeds,
       params: baseInput.params,
       progress: { phase: 'done', percent: 100 },
-      idempotencyKey: computeIdempotencyKey(baseInput.seeds, baseInput.params),
+      idempotencyKey: computeIdempotencyKey(baseInput.seeds, baseInput.params, null),
       createdAt: new Date(),
       ...over,
     };
@@ -167,7 +167,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
 
   it('過 IDEMP_TTL_MS 窗後同語意重送 → 建新任務（不再由 DB fallback 永久回舊 analysisId）', async () => {
     const { service, prisma, queueAdd } = await buildHarness();
-    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params);
+    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params, null);
     // 上次分析的舊列：createdAt 超過 idempTtlMs 窗（Redis idemp 快取已過期，不預置）。
     const stale = seedExisting(prisma, {
       id: 'stale-analysis',
@@ -201,7 +201,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
 
   it('並發旋轉競態：讓位後重試 create 撞他人新列（P2002）→ 回勝者 id（不無限恢復）', async () => {
     const { service, prisma, queueAdd } = await buildHarness();
-    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params);
+    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params, null);
     const stale = seedExisting(prisma, {
       id: 'stale-analysis',
       createdAt: new Date(Date.now() - QUEUE_CONFIG.idempTtlMs - 1000),
@@ -239,7 +239,7 @@ describe('TC-54: idempotency DB 慢路徑 freshness TTL (#311, FR-1/AC-1.4)', ()
 
   it('過窗但仍在處理中（queued/running）的既有列 → coalesce 回其 id，不旋轉、不重複入列（M9-R2）', async () => {
     const { service, prisma, queueAdd } = await buildHarness();
-    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params);
+    const hash = computeIdempotencyKey(baseInput.seeds, baseInput.params, null);
     // worker 落後：舊列已逾 freshness 窗，但仍在處理中（status=queued）——不得旋轉讓位、不得重複入列
     // （否則相同 seeds 會被重複打 Google Ads、雙倍用量）。
     const inflight = seedExisting(prisma, {
