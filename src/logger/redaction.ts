@@ -63,6 +63,13 @@ export const REDACT_PATHS: string[] = [
   'req.headers.authorization',
   'headers["x-api-key"]',
   'headers.authorization',
+  // session cookie（M10，NFR-15）：opaque `sid` 是唯一人類 bearer 憑證——req `Cookie` 與 login res
+  // `Set-Cookie` 皆會被 pino-http 預設 serializer 輸出；明文入 log = session 劫持。req/res 前綴 +
+  // 頂層 headers 變體皆遮（與上方 x-api-key/authorization 同慣例；set-cookie 值為陣列，整段遮蔽）。
+  'req.headers.cookie',
+  'res.headers["set-cookie"]',
+  'headers.cookie',
+  'headers["set-cookie"]',
 ];
 
 // ⚠ pino redact 邊界（已知限制）：
