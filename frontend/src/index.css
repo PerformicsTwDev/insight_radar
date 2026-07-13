@@ -1,0 +1,15 @@
+/* Minimal boot-smoke baseline. Design tokens + Tailwind v4 arrive in T0.6. */
+:root {
+  color-scheme: dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+}
