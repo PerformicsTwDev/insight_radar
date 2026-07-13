@@ -366,6 +366,44 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
     });
   });
 
+  describe('cross-owner idempotency (AC-1.4 owner-scoped, #358)', () => {
+    // 位元相同的請求（同 seeds + params）由不同 actor 提交。快取 stub 恆 miss → 走 DB 慢路徑（P2002）：
+    // owner-agnostic key 下 B 會撞 A 的 unique 列、回 A 的**不可讀** analysisId（FR-27 下所有讀取 404）。
+    const shared: CreateAnalysisInput = {
+      seeds: ['cross owner shared seed'],
+      params: { geo: 'TW', language: 'zh-TW', mode: 'expand', includeAdult: false },
+    };
+
+    it('gives each session owner its own analysis for identical seeds+params (no cross-owner 404 dead-end)', async () => {
+      const a = await kaService.create(shared, SESSION_A);
+      const b = await kaService.create(shared, SESSION_B);
+
+      // 不同 session owner → 各建自己的分析（B 不再拿到 A 的不可讀 id）。
+      expect(b.analysisId).not.toBe(a.analysisId);
+      // 各自可讀自己的（不再 dead-end 404）。
+      expect((await kaService.getStatus(a.analysisId, SESSION_A)).status).toBeDefined();
+      expect((await kaService.getStatus(b.analysisId, SESSION_B)).status).toBeDefined();
+      // owner 歸屬正確。
+      const bRow = await prisma.keywordAnalysis.findUnique({
+        where: { id: b.analysisId },
+        select: { ownerId: true },
+      });
+      expect(bRow?.ownerId).toBe(OWNER_B);
+    });
+
+    it('still dedups for the SAME session owner within the TTL window (idempotent)', async () => {
+      const first = await kaService.create(shared, SESSION_A);
+      const second = await kaService.create(shared, SESSION_A);
+      expect(second.analysisId).toBe(first.analysisId); // 同 owner → 同一 analysisId
+    });
+
+    it('still dedups across machine (apiKey) actors — shared null-owner scope', async () => {
+      const first = await kaService.create(shared, API_KEY);
+      const second = await kaService.create(shared, API_KEY);
+      expect(second.analysisId).toBe(first.analysisId); // 機器 actor 間全域去重不變
+    });
+  });
+
   describe('topics sub-resource (FR-15/18 / AC-27.3 — cross-owner → 404 / EMPTY)', () => {
     it("returns 404 when a session actor GETs another owner's topics (no existence leak)", async () => {
       const aId = await seedCompleted(OWNER_A);
