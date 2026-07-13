@@ -16,6 +16,7 @@ export default tseslint.config(
       'jest.config.ts',
       'commitlint.config.js',
       'config/**',
+      'frontend/**', // 獨立 pnpm 子專案（自有 eslint.config.js + tsconfig；不屬根 type-aware project）
       '.claude/**', // Claude Code 工具設定/工作流（gitignored，非應用程式碼）
       '.kiro/**',
     ],

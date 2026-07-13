@@ -1,0 +1,7 @@
+# Generated / lock files — prettier must not reflow these.
+# (pnpm-lock.yaml reflow breaks `pnpm install --frozen-lockfile`.)
+dist
+coverage
+node_modules
+pnpm-lock.yaml
+*.local

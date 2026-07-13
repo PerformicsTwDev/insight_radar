@@ -7,3 +7,5 @@ CHANGELOG.md
 dist/
 coverage/
 node_modules/
+# 獨立前端子專案（自有 .prettierrc / .prettierignore；根 prettier 不得碰它的檔案或 lockfile）
+frontend/
