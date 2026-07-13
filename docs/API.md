@@ -15,29 +15,35 @@
 
 ### 認證端點（4，掛 `/api/v1/auth`）
 
-| Method | Path                    | 說明                             | 成功碼  | `@Public`         |
-| ------ | ----------------------- | -------------------------------- | ------- | ----------------- |
-| POST   | `/api/v1/auth/register` | 建帳號 `{email,password}`        | **201** | ✔                 |
-| POST   | `/api/v1/auth/login`    | 登入（設 session cookie）        | 200     | ✔                 |
-| POST   | `/api/v1/auth/logout`   | 登出（撤銷 session + 清 cookie） | 200     | —（受 CsrfGuard） |
-| GET    | `/api/v1/auth/me`       | 取當前使用者                     | 200     | ✔                 |
+| Method | Path                    | 說明                             | 成功碼  | `@Public`                  |
+| ------ | ----------------------- | -------------------------------- | ------- | -------------------------- |
+| POST   | `/api/v1/auth/register` | 建帳號 `{email,password}`        | **201** | ✔                          |
+| POST   | `/api/v1/auth/login`    | 登入（設 session cookie）        | 200     | ✔                          |
+| POST   | `/api/v1/auth/logout`   | 登出（撤銷 session + 清 cookie） | 200     | —（受 CompositeAuth+Csrf） |
+| GET    | `/api/v1/auth/me`       | 取當前使用者                     | 200     | ✔                          |
 
 - **register**：`{email,password}`（`password` 長度 ≥ `AUTH_MIN_PASSWORD_LEN`）→ `201 { user:{id,email} }`；email 重複 → **409**；格式錯 → 400。**密碼/hash 絕不回應/入 log**（argon2id，NFR-5）。
 - **login**：`{email,password}` → `200 { user:{id,email} }` + `Set-Cookie`（opaque sid，不入 body）。憑證錯（含 email 不存在）一律 **401**（不枚舉；對不存在 email 亦執行 dummy verify，使 timing 相近）。
 - **logout**：撤銷 Redis session + `clearCookie`；無有效 session → 401。**非 `@Public`**——是 session 狀態變更，受 `CompositeAuthGuard` + `CsrfGuard` 保護（防跨站強制登出）。
 - **me**：有效 session → `{id,email}`；無/失效 session → 401。
 
-## 端點總覽（7）
+## 端點總覽（11）
+
+認證端點（#2–#5）細節見上方「認證端點」節；以下為完整對外 HTTP 介面（`/health` 除外皆掛 `/api/v1`）。
 
 | #   | Method | Path                                    | 說明                                         | 成功碼                     |
 | --- | ------ | --------------------------------------- | -------------------------------------------- | -------------------------- |
 | 1   | GET    | `/health`                               | 健康檢查（DB + cache probe）                 | 200 / 503                  |
-| 2   | POST   | `/api/v1/keyword-analyses`              | 建立分析（入列，enqueue-only）               | **202**                    |
-| 3   | GET    | `/api/v1/keyword-analyses/:id`          | 輪詢分析狀態                                 | 200                        |
-| 4   | DELETE | `/api/v1/keyword-analyses/:id`          | 取消分析                                     | 200                        |
-| 5   | GET    | `/api/v1/keyword-analyses/:id/stream`   | SSE 進度串流                                 | 200（`text/event-stream`） |
-| 6   | GET    | `/api/v1/keyword-analyses/:id/keywords` | 讀取關鍵字列表（篩選/排序/分頁）             | 200                        |
-| 7   | POST   | `/api/v1/keyword-analyses/:id/query`    | 具名視圖 view router（dashboard 表/圖/趨勢） | 200                        |
+| 2   | POST   | `/api/v1/auth/register`                 | 建帳號（`@Public`）                          | **201**                    |
+| 3   | POST   | `/api/v1/auth/login`                    | 登入（設 session cookie，`@Public`）         | 200                        |
+| 4   | POST   | `/api/v1/auth/logout`                   | 登出（撤銷 session，受 CsrfGuard）           | 200                        |
+| 5   | GET    | `/api/v1/auth/me`                       | 取當前使用者（`@Public`，self-guard）        | 200                        |
+| 6   | POST   | `/api/v1/keyword-analyses`              | 建立分析（入列，enqueue-only）               | **202**                    |
+| 7   | GET    | `/api/v1/keyword-analyses/:id`          | 輪詢分析狀態                                 | 200                        |
+| 8   | DELETE | `/api/v1/keyword-analyses/:id`          | 取消分析                                     | 200                        |
+| 9   | GET    | `/api/v1/keyword-analyses/:id/stream`   | SSE 進度串流                                 | 200（`text/event-stream`） |
+| 10  | GET    | `/api/v1/keyword-analyses/:id/keywords` | 讀取關鍵字列表（篩選/排序/分頁）             | 200                        |
+| 11  | POST   | `/api/v1/keyword-analyses/:id/query`    | 具名視圖 view router（dashboard 表/圖/趨勢） | 200                        |
 
 ---
 
