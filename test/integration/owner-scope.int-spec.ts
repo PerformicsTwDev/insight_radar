@@ -402,6 +402,19 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
       const second = await kaService.create(shared, API_KEY);
       expect(second.analysisId).toBe(first.analysisId); // 機器 actor 間全域去重不變
     });
+
+    it('a session owner does NOT dedup against a pre-existing shared null-owner analysis (scopes distinct, intentional)', async () => {
+      // 刻意行為（AC-1.4）：null(機器/共享) scope 與 session scope 相異 → session 不 dedup 到 null-owner 列，
+      // 各建自己的（可讀、歸屬自己）分析。防未來把此當「漏 dedup」誤改回去（成本聲明已納 spec，非 bug）。
+      const machine = await kaService.create(shared, API_KEY); // null-owner 共享列
+      const session = await kaService.create(shared, SESSION_A); // 同 seeds+params、session scope
+      expect(session.analysisId).not.toBe(machine.analysisId);
+      const sRow = await prisma.keywordAnalysis.findUnique({
+        where: { id: session.analysisId },
+        select: { ownerId: true },
+      });
+      expect(sRow?.ownerId).toBe(OWNER_A); // 歸屬自己（非 null）
+    });
   });
 
   describe('topics sub-resource (FR-15/18 / AC-27.3 — cross-owner → 404 / EMPTY)', () => {
