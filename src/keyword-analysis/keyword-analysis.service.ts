@@ -151,10 +151,12 @@ export class KeywordAnalysisService {
     input: CreateAnalysisInput,
     actor: AuthenticatedUser,
   ): Promise<{ analysisId: string }> {
-    // owner 歸屬（AC-27.1）：session → actor.id、apiKey → null（機器資源）。**不**進 idempotency key
-    // （owner 為存取控制疊層、非去重身分；idempotency key = seeds+params canonical，FR-1）。
+    // owner 歸屬（AC-27.1）：session → actor.id、apiKey → null（機器資源）。**進 idempotency key 作為
+    // owner 分範圍**（AC-1.4/#358）：owner-scope 下 A 的結果 B 讀不到，若 key 不含 owner，B 的相同請求會命中
+    // A 的列、回**不可讀**的 analysisId（所有讀取路徑永久 404、dead-end）。session owner 各自去重；機器
+    // actor（null）之間仍全域去重（既有 x-api-key 語意不變）。
     const ownerId = ownerIdOf(actor);
-    const hash = computeIdempotencyKey(input.seeds, input.params);
+    const hash = computeIdempotencyKey(input.seeds, input.params, ownerId);
     const idempKey = this.cache.buildKey(CacheNamespace.IDEMP, hash);
 
     // 快路徑：idemp 快取命中 → 回舊 id。
