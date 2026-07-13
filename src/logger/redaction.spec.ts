@@ -91,12 +91,21 @@ describe('log redaction (TC-29)', () => {
         res: {
           headers: { 'set-cookie': ['sid=SID_RES_SECRET; HttpOnly; SameSite=Lax; Secure; Path=/'] },
         }, // login 回應的 Set-Cookie（Node getHeaders 為陣列）
-        headers: { cookie: 'sid=BARE_COOKIE_SECRET' }, // 頂層 headers 變體（與既有 x-api-key 同慣例）
+        // 頂層 headers 變體（與既有 x-api-key 同慣例）：cookie + set-cookie 陣列皆須遮（4 個註冊路徑全覆蓋）。
+        headers: {
+          cookie: 'sid=BARE_COOKIE_SECRET',
+          'set-cookie': ['sid=BARE_SETCOOKIE_SECRET; HttpOnly; Path=/'],
+        },
       },
       'request',
     );
 
-    for (const secret of ['SID_REQ_SECRET', 'SID_RES_SECRET', 'BARE_COOKIE_SECRET']) {
+    for (const secret of [
+      'SID_REQ_SECRET',
+      'SID_RES_SECRET',
+      'BARE_COOKIE_SECRET',
+      'BARE_SETCOOKIE_SECRET',
+    ]) {
       expect(output).not.toContain(secret);
     }
     expect(output).toContain(REDACT_CENSOR);
