@@ -10,7 +10,7 @@ export interface AuthConfig {
   argon2Parallelism: number;
   /** 密碼最小長度（弱密碼 → 驗證錯，S7/AC-24.1）。 */
   minPasswordLen: number;
-  /** session 簽章祕密（★redact；Joi fail-fast，不入 log/fixture）。 */
+  /** session 祕密（★redact；Joi fail-fast，不入 log/fixture）。reserved——目前 sid 為 opaque 隨機值、不以此簽章（ADR-0006）。 */
   sessionSecret: string;
   /** Redis session TTL（毫秒），預設 7 天。 */
   sessionTtlMs: number;
