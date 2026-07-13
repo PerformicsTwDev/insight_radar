@@ -82,6 +82,26 @@ describe('log redaction (TC-29)', () => {
     expect(output).not.toContain('TOKEN_SECRET');
   });
 
+  it('redacts the session cookie (Cookie / Set-Cookie headers) — sid is a bearer credential (M10, NFR-15)', () => {
+    // pino-http 預設 req/res serializer 會輸出完整 headers 物件：req 含 `cookie`、login res 含 `set-cookie`。
+    // M10 起 opaque `sid` 是唯一人類 bearer 憑證 → 明文入 log = session 劫持/帳號接管（httpOnly/Secure 全失效）。
+    const output = captureLog(
+      {
+        req: { headers: { cookie: 'sid=SID_REQ_SECRET; theme=dark' } }, // 每個認證請求的 Cookie
+        res: {
+          headers: { 'set-cookie': ['sid=SID_RES_SECRET; HttpOnly; SameSite=Lax; Secure; Path=/'] },
+        }, // login 回應的 Set-Cookie（Node getHeaders 為陣列）
+        headers: { cookie: 'sid=BARE_COOKIE_SECRET' }, // 頂層 headers 變體（與既有 x-api-key 同慣例）
+      },
+      'request',
+    );
+
+    for (const secret of ['SID_REQ_SECRET', 'SID_RES_SECRET', 'BARE_COOKIE_SECRET']) {
+      expect(output).not.toContain(secret);
+    }
+    expect(output).toContain(REDACT_CENSOR);
+  });
+
   it('redacts config-namespace shapes, connection-string passwords, and OAuth access tokens', () => {
     const output = captureLog(
       {
