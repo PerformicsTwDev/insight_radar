@@ -2,6 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
 import { createKeywordAnalysis, type CreateKeywordAnalysisBody } from '../../api/keywordAnalyses';
 import { checkValidity, mapFieldErrors, parseSeeds } from '../../lib/createAnalysisForm';
+import { JobTrackingPanel } from '../job/JobTrackingPanel';
 
 /**
  * Create-analysis home form (T1.2, FR-2). A thin container over the pure
@@ -70,14 +71,7 @@ export function HomeRoute() {
   }
 
   if (analysisId) {
-    return (
-      <section aria-labelledby="home-heading" className="max-w-2xl rounded-2xl bg-bg-card p-6">
-        <h2 id="home-heading" className="text-xl font-semibold">
-          關鍵字分析
-        </h2>
-        <p className="mt-2 text-sm text-white/60">分析已建立 · 進度將於 T1.3 上線。</p>
-      </section>
-    );
+    return <JobTrackingPanel analysisId={analysisId} />;
   }
 
   return (

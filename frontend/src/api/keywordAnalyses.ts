@@ -62,3 +62,53 @@ export async function createKeywordAnalysis(
     error: parsedError.success ? parsedError.data : undefined,
   };
 }
+
+/**
+ * Job status body (`GET :id`; T1.3, FR-3). Same openapi gap as the create route
+ * (codegen types it `never`), so the DB-truth body is zod-validated here. `status`
+ * is the C3-critical field (`completed` vs `partial`) → strict enum; progress /
+ * result are lenient/null-safe (null → not补0). `features` is opaque to job
+ * tracking (M4 gates own it) → passed through untyped.
+ */
+const JobProgressBodySchema = z.object({
+  phase: z.string().optional(),
+  percent: z.number().optional(),
+  expanded: z.number().optional(),
+  labeled: z.number().optional(),
+  total: z.number().optional(),
+});
+const JobResultBodySchema = z.object({
+  resultSnapshotId: z.string().optional(),
+  count: z.number().optional(),
+});
+export const JobStatusSchema = z.object({
+  status: z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'canceled']),
+  progress: JobProgressBodySchema.nullish(),
+  result: JobResultBodySchema.nullish(),
+  error: z.string().nullish(),
+  features: z.unknown().optional(),
+});
+export type KeywordAnalysisStatus = z.infer<typeof JobStatusSchema>;
+
+/**
+ * Fetch the authoritative DB status of an analysis (C3 confirmation + poll
+ * fallback). Egress via the typed `api` client; a non-2xx or a body that fails
+ * validation degrades to `null` (the caller keeps its last known state and, when
+ * polling, retries) rather than throwing.
+ */
+export async function getKeywordAnalysisStatus(id: string): Promise<KeywordAnalysisStatus | null> {
+  const { data, response } = await api.GET('/api/v1/keyword-analyses/{id}', {
+    params: { path: { id } },
+  });
+  if (!response.ok) return null;
+  const parsed = JobStatusSchema.safeParse(data);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Cancel an analysis (`DELETE :id`). Returns whether the backend accepted the cancel. */
+export async function cancelKeywordAnalysis(id: string): Promise<boolean> {
+  const { response } = await api.DELETE('/api/v1/keyword-analyses/{id}', {
+    params: { path: { id } },
+  });
+  return response.ok;
+}

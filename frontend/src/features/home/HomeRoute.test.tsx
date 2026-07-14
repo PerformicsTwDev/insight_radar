@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -16,8 +17,10 @@ const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
 /**
  * Mount HomeRoute inside a memory-history TanStack Router (root owns the same
- * `deserialize` search codec as the app) so `router.state.location.search`
- * reflects real navigation. Returns the router for post-submit URL assertions.
+ * `deserialize` search codec as the app) + a TanStack Query provider (the T1.3
+ * job-tracking panel needs one once an analysisId is present), so
+ * `router.state.location.search` reflects real navigation. Returns the router
+ * for post-submit URL assertions.
  */
 function renderHome() {
   const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
@@ -30,7 +33,12 @@ function renderHome() {
     routeTree: rootRoute.addChildren([indexRoute]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   });
-  render(<RouterProvider router={router} />);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
   return router;
 }
 
@@ -123,8 +131,9 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
       language: 'zh-TW',
       mode: 'expand',
     });
-    // After navigation the home route shows the T1.3 progress placeholder.
-    expect(await screen.findByText(/進度將於 T1\.3 上線/)).toBeInTheDocument();
+    // After navigation the home route swaps the form for the T1.3 job-tracking
+    // panel (queued → progress view; SSE is the inert test stub, so it stays put).
+    expect(await screen.findByText('分析進行中')).toBeInTheDocument();
   });
 
   it('wires the optional mode / network / includeAdult controls into the body', async () => {
