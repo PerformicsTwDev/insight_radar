@@ -11,6 +11,7 @@ import {
   resolveIntent,
   shouldVirtualize,
 } from '../../lib/keywordsTable';
+import { SparklineCell } from './SparklineCell';
 
 /**
  * Search-terms grand table (T2.1, FR-4). TanStack Table column model +
@@ -26,7 +27,15 @@ import {
  */
 
 const ROW_HEIGHT = 44;
-const COL_WIDTH = { text: 220, intent: 200, volume: 120, competition: 150, cpc: 170, ai: 72 };
+const COL_WIDTH = {
+  text: 220,
+  intent: 200,
+  volume: 120,
+  competition: 150,
+  cpc: 170,
+  trend: 128,
+  ai: 72,
+};
 
 const columns: ColumnDef<KeywordRow>[] = [
   {
@@ -70,6 +79,13 @@ const columns: ColumnDef<KeywordRow>[] = [
         {formatCpcRange(row.original.cpcLow, row.original.cpcHigh)}
       </span>
     ),
+  },
+  {
+    id: 'trend',
+    header: '搜尋趨勢',
+    size: COL_WIDTH.trend,
+    // 搜尋趨勢 sparkline from each row's monthlyVolumes (FR-4 → FR-21); null months break, never 0.
+    cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
   },
   {
     id: 'ai',
