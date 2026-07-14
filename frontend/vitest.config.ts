@@ -15,7 +15,8 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html', 'lcov'],
+      // `json-summary` → coverage/coverage-summary.json，供 frontend.yml 的 coverage ratchet（對 main 基準）。
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       // `all: true` → 未被任何測試觸及的 src 檔亦計入（記 0%），使覆蓋率 gate 能逼出「新增碼未測」。
       all: true,
       include: ['src/**/*.{ts,tsx}'],

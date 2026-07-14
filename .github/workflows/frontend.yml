@@ -1,0 +1,104 @@
+name: frontend
+
+# 獨立前端子專案（frontend/，T0.4）：僅在 frontend/** 或本 workflow 變動時跑（不拖累後端 jest/Testcontainers CI）。
+# 後端 ci.yml 以 paths-ignore:['frontend/**'] 互補——純前端變更只跑此 workflow。
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', '.github/workflows/frontend.yml']
+  pull_request:
+    branches: [main]
+    paths: ['frontend/**', '.github/workflows/frontend.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  # —— 第 1 段：lint / format / typecheck / build（單一 LTS）——
+  quality:
+    name: frontend · lint · typecheck · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # pnpm 版本取自 packageManager（root 與 frontend 皆 9.15.0）
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint # eslint --max-warnings=0（禁用清單 + 硬化規則）
+      - run: pnpm format:check # prettier --check
+      - run: pnpm typecheck # tsc -b
+      - run: pnpm build # tsc -b && vite build
+
+  # —— 第 2 段：test + coverage gate（global ≥85%）+ ratchet vs main ——
+  test:
+    name: frontend · test + coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # coverage ratchet 需下載 main 的 coverage artifact
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Test + coverage gate (global ≥85%)
+        run: pnpm test:cov # vitest --coverage；thresholds 於 vitest.config
+      - name: Coverage summary → run summary
+        if: ${{ always() }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const p = "coverage/coverage-summary.json";
+            if (!fs.existsSync(p)) { console.log("no coverage-summary.json — skip"); process.exit(0); }
+            const t = JSON.parse(fs.readFileSync(p, "utf8")).total;
+            const row = (k) => `| ${k} | ${t[k].pct}% (${t[k].covered}/${t[k].total}) |`;
+            const md = ["### Frontend coverage", "", "| metric | covered |", "| --- | --- |",
+              row("statements"), row("branches"), row("functions"), row("lines"), ""].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          '
+      # coverage ratchet（DevRules §11.5）：PR 覆蓋率不得低於 main 基準（容忍 0.1pp）。
+      # 基準 = frontend workflow 在 main 最近一次成功 run 的 coverage artifact；缺失（首次/過期）→ 跳過、不假紅。
+      - name: Coverage ratchet vs main baseline (PR only)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow frontend --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -z "${run_id:-}" ]; then echo "::notice::frontend coverage ratchet: no successful main run found — skip"; exit 0; fi
+          if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name frontend-coverage --dir /tmp/base-fe-coverage 2>/dev/null; then
+            echo "::notice::frontend coverage ratchet: baseline artifact unavailable (expired?) — skip"; exit 0
+          fi
+          node -e '
+            const fs = require("node:fs");
+            const base = JSON.parse(fs.readFileSync("/tmp/base-fe-coverage/coverage-summary.json", "utf8")).total;
+            const cur = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+            const TOL = 0.1; let bad = false;
+            for (const k of ["statements", "branches", "functions", "lines"]) {
+              const drop = base[k].pct - cur[k].pct;
+              console.log(`${k}: main ${base[k].pct}% -> pr ${cur[k].pct}% (${(-drop).toFixed(2)}pp)`);
+              if (drop > TOL) { console.error(`::error::frontend coverage ratchet: ${k} dropped ${drop.toFixed(2)}pp (>${TOL}pp) vs main`); bad = true; }
+            }
+            process.exit(bad ? 1 : 0);
+          '
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 7
