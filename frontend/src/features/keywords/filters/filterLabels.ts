@@ -19,7 +19,6 @@ import type { FilterFieldDef } from './filterFields';
 /** The popover's raw inputs, assembled into a typed {@link Chip} by {@link buildChip}. */
 export interface ChipInputs {
   readonly include: string;
-  readonly exclude: string;
   readonly minText: string;
   readonly maxText: string;
   readonly selected: readonly string[];
@@ -32,11 +31,11 @@ export interface ChipInputs {
 export function buildChip(field: FilterFieldKey, def: FilterFieldDef, i: ChipInputs): Chip {
   switch (def.type) {
     case 'inex':
+      // Include-only at M2: the backend `q` has no NOT capability (backend #416).
       return {
         type: 'inex',
         field: field as InexFieldKey,
         include: i.include.trim(),
-        exclude: i.exclude.trim() || undefined,
       };
     case 'range':
       return {
@@ -66,7 +65,6 @@ export function buildChip(field: FilterFieldKey, def: FilterFieldDef, i: ChipInp
 /** The popover input values seeded when a field's chip is (re)opened. */
 export interface PopoverSeed {
   readonly include: string;
-  readonly exclude: string;
   readonly minText: string;
   readonly maxText: string;
   readonly selected: readonly string[];
@@ -89,7 +87,6 @@ export function popoverSeed(current: Chip | undefined): PopoverSeed {
   const range = current?.type === 'range' ? current : undefined;
   return {
     include: inex?.include ?? '',
-    exclude: inex?.exclude ?? '',
     minText: range?.min !== undefined ? String(range.min) : '',
     maxText: range?.max !== undefined ? String(range.max) : '',
     selected: current?.type === 'options' ? current.values : [],

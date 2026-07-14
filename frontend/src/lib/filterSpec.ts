@@ -11,8 +11,8 @@ import { z } from 'zod';
  * `FilterSpecDto`): the flat set of fields the backend `buildPredicate` honours.
  * The global backend ValidationPipe is `whitelist + forbidNonWhitelisted`, so an
  * unknown field is a 400 — the type therefore carries **only** these fields, and
- * anything the UI can express but the backend can't (a text-exclude term, a topic
- * dimension) is a documented gap, never an invented field (#392 class).
+ * anything the UI could express but the backend can't (a topic dimension) is a
+ * documented gap, never an invented field (#392 class).
  *
  * Semantics (FR-6): multiple filters combine as **AND**; the options within one
  * filter are an **OR** set; `min>max` ranges and empty terms are dropped so an
@@ -44,12 +44,15 @@ export type OptionsFieldKey = 'intent' | 'competition';
 export type MenuKwFieldKey = 'intentTopic' | 'journeyTopic' | 'customTopic';
 export type FilterFieldKey = InexFieldKey | RangeFieldKey | OptionsFieldKey | MenuKwFieldKey;
 
-/** `inex` — include / exclude text. Chips store backend-native values (raw text). */
+/**
+ * `inex` — include text (backend-native raw text). Include-only at M2: the backend
+ * `q` is a case-insensitive contains with no NOT capability, so an exclude term
+ * would be a decorative no-op — deferred to M2+ (backend #416, FR-6 / Design §6 C4).
+ */
 export interface InexChip {
   readonly type: 'inex';
   readonly field: InexFieldKey;
   readonly include?: string;
-  readonly exclude?: string;
 }
 /** `range` — min / max numeric bounds. */
 export interface RangeChip {
@@ -180,8 +183,7 @@ export function chipsToSpec(chips: readonly Chip[]): FilterSpec {
   for (const chip of chips) {
     switch (chip.type) {
       case 'inex':
-        // Only the include term maps to the backend `q` (case-insensitive contains).
-        // An exclude term has no backend field — UI-carried, documented gap (#392 class).
+        // The include term maps to the backend `q` (case-insensitive contains).
         if (chip.include !== undefined) raw.q = chip.include;
         break;
       case 'range':
@@ -218,9 +220,9 @@ export function chipsToSpec(chips: readonly Chip[]): FilterSpec {
 /**
  * Project a `FilterSpec` back to chips (one chip per present field group),
  * carrying backend-native values so `chipsToSpec(specToChips(spec))` is the
- * identity (TC-4). The codec is FilterSpec-centric: `menukw` (topic dimension)
- * and an inex `exclude` term never appear here because the FilterSpec has no such
- * field — which is exactly why the round-trip is closed.
+ * identity (TC-4). The codec is FilterSpec-centric: a `menukw` (topic dimension)
+ * chip never appears here because the FilterSpec has no such field — which is
+ * exactly why the round-trip is closed.
  */
 export function specToChips(spec: FilterSpec): Chip[] {
   const chips: Chip[] = [];

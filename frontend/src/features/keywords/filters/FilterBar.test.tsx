@@ -219,16 +219,11 @@ describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
     expect(screen.getByRole('button', { name: /資訊型、交易型/ })).toBeInTheDocument();
   });
 
-  it('edits the UI-only 不包含 (exclude) input without touching the base spec', () => {
+  it('renders an include-only inex popover (no exclude input — backend has no NOT)', () => {
     render(<Harness />);
     const pop = openChip('搜尋詞');
-    const exclude = pop.getByLabelText<HTMLInputElement>('不包含');
-    fireEvent.change(exclude, { target: { value: '二手' } });
-    // the controlled input reflects the typed value...
-    expect(exclude.value).toBe('二手');
-    // ...but exclude has no backend field, so applying it leaves the spec empty.
-    fireEvent.click(pop.getByRole('button', { name: '套用' }));
-    expect(readSpec()).toEqual({});
+    expect(pop.getByLabelText('包含')).toBeInTheDocument();
+    expect(pop.queryByLabelText('不包含')).not.toBeInTheDocument();
   });
 
   it('seeds a reopened range popover from a min-only bound', () => {

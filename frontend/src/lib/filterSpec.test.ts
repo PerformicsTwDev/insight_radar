@@ -54,15 +54,6 @@ describe('TC-3 · chipsToSpec (chips → FilterSpec)', () => {
     });
   });
 
-  it('does not emit q from an exclude-only inex chip (backend FilterSpec has no text-exclude field)', () => {
-    // documented contract gap (#392 class): the backend `q` is include-only; an
-    // exclude term is UI-carried but has nothing to serialize into the FilterSpec.
-    expect(chipsToSpec([{ type: 'inex', field: 'keyword', exclude: '二手' }])).toEqual({});
-    expect(
-      chipsToSpec([{ type: 'inex', field: 'keyword', include: 'shoe', exclude: '二手' }]),
-    ).toEqual({ q: 'shoe' });
-  });
-
   it('omits an empty include term (empty string is not a filter)', () => {
     expect(chipsToSpec([{ type: 'inex', field: 'keyword', include: '' }])).toEqual({});
   });

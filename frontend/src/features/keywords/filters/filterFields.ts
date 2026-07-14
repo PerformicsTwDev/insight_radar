@@ -26,7 +26,6 @@ interface FilterFieldDefBase {
   /** range fields: render bounds as money (NT$) vs plain numbers. */
   readonly money?: boolean;
   readonly includePlaceholder?: string;
-  readonly excludePlaceholder?: string;
 }
 
 /**
@@ -66,7 +65,6 @@ export const FILTER_FIELDS: Readonly<Record<FilterFieldKey, FilterFieldDef>> = {
     type: 'inex',
     label: '搜尋詞',
     includePlaceholder: '包含字，例如：寵物',
-    excludePlaceholder: '不包含字，例如：二手',
   },
   intent: { type: 'options', label: '意圖類別', options: INTENT_OPTIONS },
   competition: { type: 'options', label: '競爭度', options: COMPETITION_OPTIONS },

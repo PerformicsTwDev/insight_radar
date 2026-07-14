@@ -63,7 +63,6 @@ function FilterChip({
   const [open, setOpen] = useState(false);
 
   const [include, setInclude] = useState('');
-  const [exclude, setExclude] = useState('');
   const [minText, setMinText] = useState('');
   const [maxText, setMaxText] = useState('');
   const [selected, setSelected] = useState<readonly string[]>([]);
@@ -79,7 +78,6 @@ function FilterChip({
     // (the single reverse of buildChip; menukw seeds to '' — it never round-trips).
     const seed = popoverSeed(current);
     setInclude(seed.include);
-    setExclude(seed.exclude);
     setMinText(seed.minText);
     setMaxText(seed.maxText);
     setSelected(seed.selected);
@@ -96,7 +94,6 @@ function FilterChip({
         spec,
         buildChip(field, def, {
           include,
-          exclude,
           minText,
           maxText,
           selected,
@@ -138,7 +135,6 @@ function FilterChip({
           <ChipBody
             def={def}
             include={include}
-            exclude={exclude}
             minText={minText}
             maxText={maxText}
             selected={selected}
@@ -146,7 +142,6 @@ function FilterChip({
             keyword={keyword}
             rangeValid={rangeValid}
             onInclude={setInclude}
-            onExclude={setExclude}
             onMin={setMinText}
             onMax={setMaxText}
             onToggleOption={(v) => setSelected((prev) => toggleValue(prev, v))}
@@ -175,7 +170,6 @@ function FilterChip({
 interface ChipBodyProps {
   readonly def: FilterFieldDef;
   readonly include: string;
-  readonly exclude: string;
   readonly minText: string;
   readonly maxText: string;
   readonly selected: readonly string[];
@@ -183,7 +177,6 @@ interface ChipBodyProps {
   readonly keyword: string;
   readonly rangeValid: boolean;
   readonly onInclude: (v: string) => void;
-  readonly onExclude: (v: string) => void;
   readonly onMin: (v: string) => void;
   readonly onMax: (v: string) => void;
   readonly onToggleOption: (v: string) => void;
@@ -194,23 +187,16 @@ interface ChipBodyProps {
 function ChipBody(props: ChipBodyProps): ReactElement {
   const { def } = props;
   if (def.type === 'inex') {
+    // Include-only at M2: the backend `q` has no NOT capability, so an exclude
+    // input would be a decorative no-op (deferred to M2+, backend #416, FR-6).
     return (
-      <div className="flex flex-col gap-2">
-        <input
-          aria-label="包含"
-          value={props.include}
-          onChange={(e) => props.onInclude(e.target.value)}
-          placeholder={def.includePlaceholder}
-          className={INPUT}
-        />
-        <input
-          aria-label="不包含"
-          value={props.exclude}
-          onChange={(e) => props.onExclude(e.target.value)}
-          placeholder={def.excludePlaceholder}
-          className={INPUT}
-        />
-      </div>
+      <input
+        aria-label="包含"
+        value={props.include}
+        onChange={(e) => props.onInclude(e.target.value)}
+        placeholder={def.includePlaceholder}
+        className={INPUT}
+      />
     );
   }
   if (def.type === 'range') {

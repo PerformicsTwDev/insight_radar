@@ -16,7 +16,6 @@ import type { Chip } from '../../../lib/filterSpec';
 
 const inputs = (patch: Partial<ChipInputs> = {}): ChipInputs => ({
   include: '',
-  exclude: '',
   minText: '',
   maxText: '',
   selected: [],
@@ -27,19 +26,12 @@ const inputs = (patch: Partial<ChipInputs> = {}): ChipInputs => ({
 });
 
 describe('buildChip', () => {
-  it('inex: trims include; empty exclude → undefined', () => {
+  it('inex: trims include (include-only at M2 — backend has no NOT filter)', () => {
     expect(buildChip('keyword', FILTER_FIELDS.keyword, inputs({ include: ' pets ' }))).toEqual({
       type: 'inex',
       field: 'keyword',
       include: 'pets',
-      exclude: undefined,
     });
-  });
-
-  it('inex: keeps a trimmed non-empty exclude', () => {
-    expect(
-      buildChip('keyword', FILTER_FIELDS.keyword, inputs({ include: 'a', exclude: ' b ' })),
-    ).toEqual({ type: 'inex', field: 'keyword', include: 'a', exclude: 'b' });
   });
 
   it('range: parses min/max', () => {
@@ -71,7 +63,6 @@ describe('buildChip', () => {
 describe('popoverSeed', () => {
   const empty = {
     include: '',
-    exclude: '',
     minText: '',
     maxText: '',
     selected: [],
@@ -81,12 +72,13 @@ describe('popoverSeed', () => {
 
   it('no current chip → all inputs empty', () => expect(popoverSeed(undefined)).toEqual(empty));
 
-  it('inex chip → seeds include + exclude from the chip', () =>
-    expect(
-      popoverSeed({ type: 'inex', field: 'keyword', include: 'shoe', exclude: '二手' }),
-    ).toEqual({ ...empty, include: 'shoe', exclude: '二手' }));
+  it('inex chip → seeds include from the chip', () =>
+    expect(popoverSeed({ type: 'inex', field: 'keyword', include: 'shoe' })).toEqual({
+      ...empty,
+      include: 'shoe',
+    }));
 
-  it('inex chip with an absent include/exclude → the `?? ""` fallbacks seed empty', () =>
+  it('inex chip with an absent include → the `?? ""` fallback seeds empty', () =>
     // specToChips never yields this shape (q is always a string), but the defensive
     // fallback is unit-covered here rather than left as a dead branch in the component.
     expect(popoverSeed({ type: 'inex', field: 'keyword' })).toEqual(empty));
