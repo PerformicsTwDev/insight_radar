@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
 import { RootLayout } from './components/RootLayout';
+import { LoginRoute } from './features/auth/LoginRoute';
 import { HomeRoute } from './features/home/HomeRoute';
 import { deserialize } from './lib/urlState';
 
@@ -24,7 +25,15 @@ const indexRoute = createRoute({
   component: HomeRoute,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute]);
+// Login page (T1.4, FR-12). Reachable directly or via the global 401 redirect;
+// the pending return URL is held in module state (see `useUnauthorizedRedirect`).
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginRoute,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, loginRoute]);
 
 export const router = createRouter({ routeTree });
 

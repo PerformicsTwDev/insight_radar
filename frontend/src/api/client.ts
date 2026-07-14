@@ -1,5 +1,7 @@
 import createClient from 'openapi-fetch';
 import { config } from '../config/env';
+import { createAuthProvider } from '../lib/auth/authProvider';
+import { createAuthMiddleware } from './authInterceptor';
 import type { paths } from './schema';
 
 /**
@@ -11,11 +13,25 @@ import type { paths } from './schema';
  * 無法 parse 相對 URL，jsdom origin（`http://localhost:3000`）則 MSW 依 pathname 攔截。base URL 之後由
  * T0.6 config（`VITE_*`）視需覆寫（跨 host 部署時）。
  */
+
+/**
+ * The single app-wide auth provider, selected by `VITE_AUTH_PROVIDER` (C9). One
+ * instance so header attachment + 401 handling read the same credential source.
+ */
+export const authProvider = createAuthProvider(config.authProvider);
+
 export const api = createClient<paths>({
   // `config.apiBaseUrl`（`VITE_API_BASE_URL`）覆寫；預設 `''` → 同源（`window.location.origin`）。
   baseUrl: config.apiBaseUrl || window.location.origin,
+  // 送出 httpOnly session cookie（同源預設即送；'include' 亦涵蓋跨 host base URL 情境）。前端不讀 token（NFR-5）。
+  credentials: 'include',
   // openapi-fetch 於 createClient 時**捕獲** `globalThis.fetch`（模組載入時）。MSW（Vitest）於
   // `beforeAll` 才 patch `globalThis.fetch`——若捕獲舊參照則 test 會打到真網路（ECONNREFUSED）。
   // 用 wrapper 於**呼叫時**動態解析 `globalThis.fetch` → 拿到 MSW patched 版（prod 無害、就是瀏覽器 fetch）。
   fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args),
 });
+
+// Auth middleware (T1.4, FR-12): attach the provider's auth headers to every
+// request, and route a global 401 (except the login call) to the registered
+// unauthorized handler. Wired app-side via `useUnauthorizedRedirect`.
+api.use(createAuthMiddleware(authProvider));
