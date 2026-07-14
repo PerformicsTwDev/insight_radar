@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { api } from './client';
 import type { components } from './schema';
 
 /**
@@ -18,6 +19,9 @@ import type { components } from './schema';
 /** Request body — bound to the generated openapi DTO (drift → compile error). */
 export type CreateKeywordAnalysisBody = components['schemas']['CreateKeywordAnalysisDto'];
 
+/** 202 body (not in openapi; per FR-2 → `{ analysisId }`). */
+const CreateResponseSchema = z.object({ analysisId: z.string().min(1) });
+
 /** `ErrorResponse` shape (Design §4; not in openapi — the codegen has no error schema). */
 export const ErrorResponseSchema = z.object({
   statusCode: z.number(),
@@ -33,9 +37,28 @@ export type CreateKeywordAnalysisResult =
   | { readonly ok: true; readonly analysisId: string }
   | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
 
-// RED stub (T1.2) — typed not-implemented shell; real impl (typed `api` egress + zod parse) in green.
-export function createKeywordAnalysis(
-  _body: CreateKeywordAnalysisBody,
+/**
+ * Create a keyword analysis. Egress goes through the typed `api` client (never a
+ * bare fetch). On 202 the (untyped-in-openapi) body is zod-validated to `{ ok:
+ * true, analysisId }`; on any non-2xx the body is parsed against `ErrorResponse`
+ * so callers can surface `fields` inline (undefined when the body is not an
+ * `ErrorResponse`). A 202 without a valid `analysisId` degrades to `ok:false`.
+ */
+export async function createKeywordAnalysis(
+  body: CreateKeywordAnalysisBody,
 ): Promise<CreateKeywordAnalysisResult> {
-  return Promise.resolve({ ok: false, status: 0 });
+  const { data, error, response } = await api.POST('/api/v1/keyword-analyses', { body });
+
+  if (response.ok) {
+    const parsed = CreateResponseSchema.safeParse(data);
+    if (parsed.success) return { ok: true, analysisId: parsed.data.analysisId };
+    return { ok: false, status: response.status };
+  }
+
+  const parsedError = ErrorResponseSchema.safeParse(error);
+  return {
+    ok: false,
+    status: response.status,
+    error: parsedError.success ? parsedError.data : undefined,
+  };
 }

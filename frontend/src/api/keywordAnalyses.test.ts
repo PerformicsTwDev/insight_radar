@@ -71,7 +71,9 @@ describe('TC-13 · createKeywordAnalysis error body (ErrorResponse.fields)', () 
 
   it('leaves error undefined for a non-ErrorResponse body', async () => {
     server.use(
-      http.post('/api/v1/keyword-analyses', () => HttpResponse.json({ nope: true }, { status: 500 })),
+      http.post('/api/v1/keyword-analyses', () =>
+        HttpResponse.json({ nope: true }, { status: 500 }),
+      ),
     );
 
     const result = await createKeywordAnalysis(validBody);

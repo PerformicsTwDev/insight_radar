@@ -108,4 +108,54 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     // After navigation the home route shows the T1.3 progress placeholder.
     expect(await screen.findByText(/進度將於 T1\.3 上線/)).toBeInTheDocument();
   });
+
+  it('wires the optional mode / network / includeAdult controls into the body', async () => {
+    let received: unknown;
+    server.use(
+      http.post('/api/v1/keyword-analyses', async ({ request }) => {
+        received = await request.json();
+        return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
+      }),
+    );
+    renderHome();
+
+    fireEvent.change(await screen.findByLabelText('種子關鍵字'), { target: { value: 'shoes' } });
+    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'US' } });
+    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'en' } });
+    fireEvent.click(screen.getByLabelText('精準 (exact)'));
+    fireEvent.change(screen.getByLabelText('搜尋網路 (network)'), {
+      target: { value: 'GOOGLE_SEARCH_AND_PARTNERS' },
+    });
+    fireEvent.click(screen.getByLabelText('包含成人內容 (includeAdult)'));
+    fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
+
+    await waitFor(() => {
+      expect(received).toEqual({
+        seeds: ['shoes'],
+        geo: 'US',
+        language: 'en',
+        mode: 'exact',
+        network: 'GOOGLE_SEARCH_AND_PARTNERS',
+        includeAdult: true,
+      });
+    });
+  });
+
+  it('surfaces a generic error when a failure has no field-level messages', async () => {
+    server.use(
+      http.post('/api/v1/keyword-analyses', () =>
+        HttpResponse.json({ nope: true }, { status: 500 }),
+      ),
+    );
+    renderHome();
+
+    fireEvent.change(await screen.findByLabelText('種子關鍵字'), { target: { value: 'shoes' } });
+    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
+    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
+    fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
+
+    expect(await screen.findByText('建立分析失敗，請稍後再試。')).toBeInTheDocument();
+    // Non-terminal failure: still on the form (no navigation), CTA re-enabled.
+    expect(screen.getByRole('button', { name: '建立分析' })).toBeEnabled();
+  });
 });
