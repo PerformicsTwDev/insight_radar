@@ -1,15 +1,51 @@
-/* Minimal boot-smoke baseline. Design tokens + Tailwind v4 arrive in T0.6. */
+@import 'tailwindcss';
+
+/*
+ * 設計 tokens 單一來源（自 uiux 報告 §3；Design「設計 tokens 移植表」）。
+ * 元件**不寫死 hex**——用 Tailwind utility（`bg-brand` / `text-warn` …）或 `var(--color-*)`。
+ * 意圖語意色（I/C/T/N）之 **JS 權威為 `src/lib/intentMap.ts`（C2 正確性單點，snapshot 守）**；
+ * 此處 @theme 為 Tailwind utility 生成用、須與 intentMap 同值（改一處即改兩處）。
+ */
+@theme {
+  /* 主色 */
+  --color-brand: #52b788;
+  --color-brand-dark: #40916c;
+
+  /* 背景階 */
+  --color-bg-body: #222222;
+  --color-bg-card: #2c2c2c;
+  --color-bg-input: #363636;
+  --color-bg-raised: #3a3a3a;
+
+  /* 警示 */
+  --color-warn: #e8a735;
+
+  /* 意圖語意色（I/C/T/N；C2——與 intentMap.ts 同源） */
+  --color-intent-informational: #5bc0eb;
+  --color-intent-commercial: #52b788;
+  --color-intent-transactional: #ffd166;
+  --color-intent-navigational: #9b5de5;
+
+  /* 趨勢 / 負向 */
+  --color-trend-surge: #f4845f;
+  --color-trend-negative: #ef6f6c;
+
+  /* 邊框（頂 bar；主/分隔用 Tailwind white/10、white/5） */
+  --color-border-topbar: #1a1a1a;
+
+  /* 字型（數值一律 mono） */
+  --font-sans: Inter, 'PingFang TC', 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+}
+
 :root {
   color-scheme: dark;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  line-height: 1.5;
 }
 
 body {
   margin: 0;
+  background: var(--color-bg-body);
+  color: white;
+  font-family: var(--font-sans);
+  line-height: 1.5;
 }

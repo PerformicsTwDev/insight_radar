@@ -1,4 +1,5 @@
 import createClient from 'openapi-fetch';
+import { config } from '../config/env';
 import type { paths } from './schema';
 
 /**
@@ -11,7 +12,8 @@ import type { paths } from './schema';
  * T0.6 config（`VITE_*`）視需覆寫（跨 host 部署時）。
  */
 export const api = createClient<paths>({
-  baseUrl: window.location.origin,
+  // `config.apiBaseUrl`（`VITE_API_BASE_URL`）覆寫；預設 `''` → 同源（`window.location.origin`）。
+  baseUrl: config.apiBaseUrl || window.location.origin,
   // openapi-fetch 於 createClient 時**捕獲** `globalThis.fetch`（模組載入時）。MSW（Vitest）於
   // `beforeAll` 才 patch `globalThis.fetch`——若捕獲舊參照則 test 會打到真網路（ECONNREFUSED）。
   // 用 wrapper 於**呼叫時**動態解析 `globalThis.fetch` → 拿到 MSW patched 版（prod 無害、就是瀏覽器 fetch）。
