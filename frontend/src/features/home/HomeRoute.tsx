@@ -1,8 +1,10 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
 import { createKeywordAnalysis, type CreateKeywordAnalysisBody } from '../../api/keywordAnalyses';
+import { appendDedupedSeeds } from '../../lib/aiIdeation';
 import { checkValidity, mapFieldErrors, parseSeeds } from '../../lib/createAnalysisForm';
 import { JobTrackingPanel } from '../job/JobTrackingPanel';
+import { AiIdeationCard } from './AiIdeationCard';
 
 /**
  * Create-analysis home form (T1.2, FR-2). A thin container over the pure
@@ -204,6 +206,13 @@ export function HomeRoute() {
           </button>
         </div>
       </form>
+
+      <AiIdeationCard
+        seeds={parseSeeds(seedsRaw)}
+        onGenerated={(keywords) =>
+          setSeedsRaw((prev) => appendDedupedSeeds(parseSeeds(prev), keywords).join('\n'))
+        }
+      />
     </section>
   );
 }

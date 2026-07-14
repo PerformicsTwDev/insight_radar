@@ -186,3 +186,34 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     expect(screen.getByRole('button', { name: '建立分析' })).toBeEnabled();
   });
 });
+
+describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
+  it('generates from the existing seeds and appends de-duplicated, without creating an analysis', async () => {
+    let received: unknown;
+    server.use(
+      http.post('/api/v1/ai-ideation', async ({ request }) => {
+        received = await request.json();
+        return HttpResponse.json(
+          { keywords: ['trail shoes', 'Running Shoes', 'marathon'] },
+          { status: 200 },
+        );
+      }),
+    );
+    const router = renderHome();
+
+    const seeds = await screen.findByLabelText<HTMLTextAreaElement>('種子關鍵字');
+    fireEvent.change(seeds, { target: { value: 'running shoes' } });
+    fireEvent.click(screen.getByRole('button', { name: '送出' }));
+
+    // "Running Shoes" de-dupes against the existing "running shoes" (C7); the two
+    // genuinely-new keywords append in order.
+    await waitFor(() => expect(seeds.value).toBe('running shoes\ntrail shoes\nmarathon'));
+
+    // The request seeds are the form's EXISTING seeds (FR-20 / AC-20.1 「現有 seeds」).
+    expect(received).toEqual({ template: 'long-tail', seeds: ['running shoes'] });
+
+    // 不自動建立分析：URL 無 analysisId、仍在建立表單。
+    expect(router.state.location.search).not.toHaveProperty('analysisId');
+    expect(screen.getByRole('button', { name: '建立分析' })).toBeInTheDocument();
+  });
+});
