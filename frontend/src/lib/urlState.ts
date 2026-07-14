@@ -79,8 +79,11 @@ export function serialize(state: AppSearch): Record<string, string> {
  * fields, and normalises malformed values to a not-found (undefined) state.
  * Never throws — safe as the router's `validateSearch`.
  */
-export function deserialize(raw: Record<string, unknown>): AppSearch {
-  const parsed = AppSearchSchema.parse(raw);
+export function deserialize(raw: unknown): AppSearch {
+  // 頂層 `.catch({})` 使非物件輸入（`null`/`42`/`[]`…）亦正規化為 `{}` 而非拋錯——per-field
+  // `.catch(undefined)` 已處理欄位級無效值；此補頂層，使 codec 對**任意**輸入 never-throw
+  // （此為通用 export，非僅 router `validateSearch` 用）。
+  const parsed = AppSearchSchema.catch({}).parse(raw);
   const out: MutableAppSearch = {};
   if (parsed.analysisId !== undefined) out.analysisId = parsed.analysisId;
   if (parsed.view !== undefined) out.view = parsed.view;

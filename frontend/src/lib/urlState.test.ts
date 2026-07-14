@@ -88,5 +88,12 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
       expect(deserialize({})).toEqual({});
       expect(deserialize({ unknownKey: 'x' })).toEqual({});
     });
+
+    it('never throws even for non-object input (null / number / array / string)', () => {
+      for (const bad of [null, undefined, 42, 'x', [], true]) {
+        expect(() => deserialize(bad)).not.toThrow();
+        expect(deserialize(bad)).toEqual({});
+      }
+    });
   });
 });
