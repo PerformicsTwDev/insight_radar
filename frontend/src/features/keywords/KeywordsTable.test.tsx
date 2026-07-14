@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { KeywordsTable } from './KeywordsTable';
 import { EM_DASH } from '../../lib/keywordsTable';
 import type { KeywordRow } from '../../api/keywords';
@@ -131,5 +131,42 @@ describe('TC-15 · KeywordsTable virtualization (windows a large page)', () => {
       .filter((r) => within(r).queryAllByRole('cell').length > 0);
     expect(bodyRows.length).toBeGreaterThan(0);
     expect(bodyRows.length).toBeLessThan(many.length);
+  });
+
+  it('windows correctly when scrolled deep into a 3,000+ row page (AC-4.1 scroll depth)', async () => {
+    const manyThousands: KeywordRow[] = Array.from({ length: 3500 }, (_, i) => ({
+      text: `kw-${i}`,
+      intentLabels: ['informational'],
+      avgMonthlySearches: i,
+      competition: 'LOW',
+      competitionIndex: i,
+      cpcLow: 1,
+      cpcHigh: 2,
+    }));
+    render(<KeywordsTable rows={manyThousands} />);
+    await screen.findByText('kw-0'); // initial window at the top
+
+    // Scroll well past row 3,000 (row height 44px) and let the virtualizer recompute.
+    const scroller = screen.getByRole('table');
+    scroller.scrollTop = 3000 * 44;
+    fireEvent.scroll(scroller);
+
+    // The window shifts to the deep rows: a ~row-3,000 keyword renders, the top row is
+    // gone, and the DOM row count stays bounded (windowed — not proportional to 3,500).
+    expect(await screen.findByText('kw-3000')).toBeInTheDocument();
+    expect(screen.queryByText('kw-0')).not.toBeInTheDocument();
+
+    const bodyRows = screen
+      .getAllByRole('row')
+      .filter((r) => within(r).queryAllByRole('cell').length > 0);
+    expect(bodyRows.length).toBeGreaterThan(0);
+    expect(bodyRows.length).toBeLessThan(60); // bounded window, not ~3,500 DOM rows
+
+    // Frozen column + sticky header remain applied after a deep scroll (CSS pinning
+    // is asserted here; pixel-level sticky rendering is a visual-regression concern,
+    // deferred to the M6 Playwright visual baseline).
+    const deepRow = screen.getByRole('row', { name: /kw-3000/ });
+    expect(within(deepRow).getAllByRole('cell')[0].className).toContain('sticky');
+    expect(screen.getByTestId('keywords-thead').className).toContain('sticky');
   });
 });

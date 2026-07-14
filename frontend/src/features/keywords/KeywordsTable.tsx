@@ -179,6 +179,10 @@ function IntentCell({ labels }: { labels: string[] }): ReactElement {
     <div className="flex flex-wrap gap-1">
       {labels.map((label) => {
         const { zh, color } = resolveIntent(label);
+        // Color comes from the intentMap SSOT (C2) as a runtime value, so it is applied
+        // inline rather than via a Tailwind token class — a label→color lookup can't be
+        // JIT-safelisted into a static class without a safelist (do NOT "fix" this into a
+        // dynamic className, which Tailwind would purge).
         return (
           <span
             key={label}

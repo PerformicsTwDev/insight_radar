@@ -36,6 +36,10 @@ describe('TC-15 · keywordsTable formatters (null → — 不補 0, C12)', () =>
     it('formats a value as NT$ with two decimals', () => {
       expect(formatCpc(1.2)).toBe('NT$1.20');
     });
+
+    it('renders a genuine 0 CPC as a value, not — (0 ≠ missing, C12)', () => {
+      expect(formatCpc(0)).toBe('NT$0.00');
+    });
   });
 
   describe('formatCpcRange', () => {
