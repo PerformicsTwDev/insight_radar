@@ -11,8 +11,12 @@ export const EM_DASH = '—';
 /** Range separator (en dash), distinct from the missing marker (em dash). */
 const EN_DASH = '–';
 
-/** Competition enum → zh label (Google Ads: LOW / MEDIUM / HIGH). */
-const COMPETITION_ZH: Readonly<Record<string, string>> = {
+/**
+ * Competition enum → zh label (Google Ads: LOW / MEDIUM / HIGH). Single source for
+ * the 高/中/低 mapping — reused by the table cell (below) and the filter options
+ * (`features/keywords/filters`) so the label can never drift between the two.
+ */
+export const COMPETITION_ZH: Readonly<Record<string, string>> = {
   LOW: '低',
   MEDIUM: '中',
   HIGH: '高',

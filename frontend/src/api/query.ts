@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { api } from './client';
+import type { FilterSpec } from '../lib/filterSpec';
 import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
 
 /**
@@ -20,19 +21,13 @@ import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
  * union discriminates **structurally** on each shape's distinctive keys.
  */
 
-/** Shared `FilterSpec` subset (backend `FilterSpecDto`) — the `/query` body's `filters`. */
-export interface QueryFilters {
-  readonly q?: string;
-  readonly intent?: readonly string[];
-  readonly intentMode?: 'any' | 'all';
-  readonly competition?: readonly string[];
-  readonly volumeMin?: number;
-  readonly volumeMax?: number;
-  readonly competitionIndexMin?: number;
-  readonly competitionIndexMax?: number;
-  readonly cpcMin?: number;
-  readonly cpcMax?: number;
-}
+/**
+ * The `/query` body's `filters` — the canonical backend-exact `FilterSpec`. Single
+ * source in `lib/filterSpec` (the chips↔spec↔URL codec, T2.5 / Design §6 C4);
+ * re-exported under the historical name so existing imports keep working and the
+ * `/query` + `/keywords` filters share one shape (no divergent copy).
+ */
+export type QueryFilters = FilterSpec;
 
 export interface QuerySort {
   readonly field: string;

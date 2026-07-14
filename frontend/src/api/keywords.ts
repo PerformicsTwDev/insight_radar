@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { api } from './client';
+import type { FilterSpec } from '../lib/filterSpec';
 import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
 
 /**
@@ -65,25 +66,16 @@ export type MonthlyVolume = z.infer<typeof MonthlyVolumeSchema>;
 
 /**
  * Query params for `GET :id/keywords`. Mirrors the backend `FilterKeywordsQueryDto`
- * (pagination + sort + FilterSpec subset). Local SSOT for the query surface since
- * the openapi op under-documents it (T2.5/T2.6 consume the same egress).
+ * = the shared `FilterSpec` (single source in `lib/filterSpec`, T2.5) + list-only
+ * pagination / sort. Extending the canonical `FilterSpec` keeps the filter surface
+ * unified with `/query` and the chips↔URL codec (no divergent copy).
  */
-export interface GetKeywordsParams {
+export interface GetKeywordsParams extends FilterSpec {
   readonly page?: number;
   readonly pageSize?: number;
   readonly cursor?: string;
   readonly sortBy?: 'avgMonthlySearches' | 'competitionIndex' | 'cpcLow' | 'cpcHigh' | 'text';
   readonly sortDir?: 'asc' | 'desc';
-  readonly q?: string;
-  readonly intent?: readonly string[];
-  readonly intentMode?: 'any' | 'all';
-  readonly competition?: readonly string[];
-  readonly volumeMin?: number;
-  readonly volumeMax?: number;
-  readonly competitionIndexMin?: number;
-  readonly competitionIndexMax?: number;
-  readonly cpcMin?: number;
-  readonly cpcMax?: number;
 }
 
 export type GetKeywordsResult =
