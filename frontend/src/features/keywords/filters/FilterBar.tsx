@@ -4,15 +4,11 @@ import {
   clearField,
   isValidRange,
   specToChips,
-  type Chip,
   type FilterFieldKey,
   type FilterSpec,
-  type InexFieldKey,
-  type MenuKwFieldKey,
-  type OptionsFieldKey,
-  type RangeFieldKey,
 } from '../../../lib/filterSpec';
 import { FILTER_FIELDS, type FilterFieldDef } from './filterFields';
+import { buildChip, parseNum, toggleValue, valueLabel } from './filterLabels';
 
 /**
  * Filter chips bar (T2.5, FR-6, Design §6 C4). A controlled component: it renders
@@ -271,11 +267,8 @@ function ChipBody(props: ChipBodyProps): ReactElement {
         className={INPUT}
       >
         <option value="">全部主題</option>
-        {(def.options ?? []).map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
+        {/* 主題 options are empty at M2 (no topics yet); the topic view-router
+            dimension + its option rendering are wired at M3 (T3.x). */}
       </select>
       <input
         aria-label="關鍵字"
@@ -286,98 +279,4 @@ function ChipBody(props: ChipBodyProps): ReactElement {
       />
     </div>
   );
-}
-
-// ── pure helpers ─────────────────────────────────────────────────────────────
-
-interface ChipInputs {
-  readonly include: string;
-  readonly exclude: string;
-  readonly minText: string;
-  readonly maxText: string;
-  readonly selected: readonly string[];
-  readonly topic: string;
-  readonly keyword: string;
-  readonly current: Chip | undefined;
-}
-
-/** Build the typed `Chip` for a field from the popover's raw inputs. */
-function buildChip(field: FilterFieldKey, def: FilterFieldDef, i: ChipInputs): Chip {
-  switch (def.type) {
-    case 'inex':
-      return {
-        type: 'inex',
-        field: field as InexFieldKey,
-        include: i.include.trim(),
-        exclude: i.exclude.trim() || undefined,
-      };
-    case 'range':
-      return {
-        type: 'range',
-        field: field as RangeFieldKey,
-        min: parseNum(i.minText),
-        max: parseNum(i.maxText),
-      };
-    case 'options':
-      return {
-        type: 'options',
-        field: field as OptionsFieldKey,
-        values: i.selected,
-        // preserve an existing intentMode across edits (the UI is any-only, mockup parity).
-        mode: i.current?.type === 'options' ? i.current.mode : undefined,
-      };
-    default:
-      return {
-        type: 'menukw',
-        field: field as MenuKwFieldKey,
-        topic: i.topic.trim() || undefined,
-        keyword: i.keyword.trim() || undefined,
-      };
-  }
-}
-
-/** Parse a numeric input: blank → undefined; non-finite → undefined (codec drops it too). */
-function parseNum(text: string): number | undefined {
-  const trimmed = text.trim();
-  if (trimmed === '') {
-    return undefined;
-  }
-  const n = Number(trimmed);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function toggleValue(values: readonly string[], value: string): readonly string[] {
-  return values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
-}
-
-/** The zh chip label showing the current selection (or 不限 when unset). */
-function valueLabel(current: Chip | undefined, def: FilterFieldDef): string {
-  if (current === undefined) {
-    return '不限';
-  }
-  if (current.type === 'range') {
-    return rangeLabel(current.min, current.max, def.money === true);
-  }
-  if (current.type === 'options') {
-    return current.values.map((v) => optionLabel(def, v)).join('、');
-  }
-  // inex is the only remaining chip a FilterSpec can produce (menukw never round-trips
-  // from the flat spec, so its label is only ever the unset 不限 above); its include
-  // is the non-empty q.
-  return current.type === 'inex' ? `含 ${current.include ?? ''}` : '不限';
-}
-
-function rangeLabel(min: number | undefined, max: number | undefined, money: boolean): string {
-  const fmt = (n: number): string => (money ? `NT$${n}` : String(n));
-  if (min !== undefined && max !== undefined) {
-    return `${fmt(min)}–${fmt(max)}`;
-  }
-  if (min !== undefined) {
-    return `${fmt(min)}+`;
-  }
-  return `≤${fmt(max ?? 0)}`;
-}
-
-function optionLabel(def: FilterFieldDef, value: string): string {
-  return (def.options ?? []).find((o) => o.value === value)?.label ?? value;
 }
