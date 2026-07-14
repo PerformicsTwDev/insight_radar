@@ -45,12 +45,18 @@ describe('TC-17 · KeywordsFilters (router-bound URL sync)', () => {
     );
   });
 
-  it('hydrates chips from an existing filters param and clears it on 清除全部', async () => {
-    const filters = serializeFiltersToUrl({ q: 'shoe', volumeMin: 100 });
-    const router = renderInRouter(`/?filters=${encodeURIComponent(filters)}`);
+  it('drives the chip from the URL state and clears the param on 清除全部', async () => {
+    const router = renderInRouter();
+    const chip = await screen.findByRole('button', { name: /搜尋詞/ });
+    fireEvent.click(chip);
+    const pop = within(screen.getByRole('group', { name: '搜尋詞 篩選' }));
+    fireEvent.change(pop.getByLabelText('包含'), { target: { value: 'shoe' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
 
-    // hydrated: the 搜尋詞 chip reflects the incoming q.
+    // The container holds no local state — the chip label is derived from the URL
+    // `filters` param, so seeing 含 shoe proves the read path (URL → FilterSpec).
     expect(await screen.findByRole('button', { name: /含 shoe/ })).toBeInTheDocument();
+    expect(router.state.location.search.filters).toBe(serializeFiltersToUrl({ q: 'shoe' }));
 
     fireEvent.click(screen.getByRole('button', { name: '清除全部' }));
     await waitFor(() => expect(router.state.location.search.filters).toBeUndefined());

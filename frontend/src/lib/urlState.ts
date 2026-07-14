@@ -22,10 +22,11 @@ export const KNOWN_VIEWS = ['keywords', 'trend', 'intent', 'journey', 'history']
 export type KnownView = (typeof KNOWN_VIEWS)[number];
 
 /**
- * Authoritative UI state carried in the URL search params. `filters` is an
- * opaque passthrough string for T1.1 — the full FilterSpec chips↔spec↔URL codec
- * is M2/T2.5 (Design §6 C4), which is the one place that bidirectional mapping
- * may live. Here we only round-trip the raw serialized value untouched.
+ * Authoritative UI state carried in the URL search params. `filters` is the
+ * opaque serialized FilterSpec string: this module only round-trips the raw value
+ * untouched, while the FilterSpec ↔ string mapping lives in the single
+ * `lib/filterSpec` codec (`serializeFiltersToUrl` / `deserializeFiltersFromUrl`,
+ * T2.5 / Design §6 C4) — the one place that bidirectional mapping may live.
  */
 export interface AppSearch {
   readonly analysisId?: string;

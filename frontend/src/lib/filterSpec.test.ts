@@ -43,9 +43,9 @@ describe('TC-3 · chipsToSpec (chips → FilterSpec)', () => {
   });
 
   it('keeps an options chip as an OR set (the array carries every selected option)', () => {
-    expect(chipsToSpec([{ type: 'options', field: 'intent', values: [INFO, COMM, TRANS] }])).toEqual(
-      { intent: [INFO, COMM, TRANS] },
-    );
+    expect(
+      chipsToSpec([{ type: 'options', field: 'intent', values: [INFO, COMM, TRANS] }]),
+    ).toEqual({ intent: [INFO, COMM, TRANS] });
   });
 
   it('maps an inex include term to the backend q (case-insensitive contains)', () => {
@@ -58,9 +58,9 @@ describe('TC-3 · chipsToSpec (chips → FilterSpec)', () => {
     // documented contract gap (#392 class): the backend `q` is include-only; an
     // exclude term is UI-carried but has nothing to serialize into the FilterSpec.
     expect(chipsToSpec([{ type: 'inex', field: 'keyword', exclude: '二手' }])).toEqual({});
-    expect(chipsToSpec([{ type: 'inex', field: 'keyword', include: 'shoe', exclude: '二手' }])).toEqual(
-      { q: 'shoe' },
-    );
+    expect(
+      chipsToSpec([{ type: 'inex', field: 'keyword', include: 'shoe', exclude: '二手' }]),
+    ).toEqual({ q: 'shoe' });
   });
 
   it('omits an empty include term (empty string is not a filter)', () => {
@@ -77,9 +77,10 @@ describe('TC-3 · chipsToSpec (chips → FilterSpec)', () => {
       volumeMin: 100,
       volumeMax: 500,
     });
-    expect(
-      chipsToSpec([{ type: 'range', field: 'competitionIndex', min: 10, max: 50 }]),
-    ).toEqual({ competitionIndexMin: 10, competitionIndexMax: 50 });
+    expect(chipsToSpec([{ type: 'range', field: 'competitionIndex', min: 10, max: 50 }])).toEqual({
+      competitionIndexMin: 10,
+      competitionIndexMax: 50,
+    });
     expect(chipsToSpec([{ type: 'range', field: 'cpc', min: 2, max: 8 }])).toEqual({
       cpcMin: 2,
       cpcMax: 8,
@@ -153,12 +154,12 @@ describe('TC-4 · round-trip identity (FilterSpec → chips → FilterSpec)', ()
     expect(chipsToSpec(specToChips(spec))).toEqual(spec);
   });
 
-  it.each(specs)('deserializeFiltersFromUrl(serializeFiltersToUrl(%s)) deep-equals the spec', (
-    _name,
-    spec,
-  ) => {
-    expect(deserializeFiltersFromUrl(serializeFiltersToUrl(spec))).toEqual(spec);
-  });
+  it.each(specs)(
+    'deserializeFiltersFromUrl(serializeFiltersToUrl(%s)) deep-equals the spec',
+    (_name, spec) => {
+      expect(deserializeFiltersFromUrl(serializeFiltersToUrl(spec))).toEqual(spec);
+    },
+  );
 
   it('is three-way consistent: chips → spec → url → spec → chips', () => {
     const chips: Chip[] = [
@@ -209,7 +210,9 @@ describe('TC-4 · URL codec (compact, stable, never throws)', () => {
   });
 
   it('normalises a min>max range and an intentMode-without-intent away on deserialize', () => {
-    expect(deserializeFiltersFromUrl(JSON.stringify({ volumeMin: 500, volumeMax: 100 }))).toEqual({});
+    expect(deserializeFiltersFromUrl(JSON.stringify({ volumeMin: 500, volumeMax: 100 }))).toEqual(
+      {},
+    );
     expect(deserializeFiltersFromUrl(JSON.stringify({ intentMode: 'all' }))).toEqual({});
   });
 });

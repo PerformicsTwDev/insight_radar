@@ -34,7 +34,8 @@ function Harness({ allowedFilters }: { allowedFilters?: readonly FilterFieldKey[
   );
 }
 
-const readSpec = (): FilterSpec => JSON.parse(screen.getByTestId('spec').textContent ?? '{}');
+const readSpec = (): FilterSpec =>
+  JSON.parse(screen.getByTestId('spec').textContent ?? '{}') as FilterSpec;
 const readUrl = (): string => screen.getByTestId('url').textContent ?? '';
 
 /** Open a chip's popover by clicking its toggle, then return the popover scope. */
@@ -163,9 +164,72 @@ describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
   it('offers a menukw chip but its selection does not alter the base FilterSpec (documented gap)', () => {
     render(<Harness allowedFilters={['intentTopic']} />);
     const pop = openChip('意圖主題');
+    fireEvent.change(pop.getByLabelText('主題'), { target: { value: '' } });
     fireEvent.change(pop.getByLabelText('關鍵字'), { target: { value: '寵物' } });
     fireEvent.click(pop.getByRole('button', { name: '套用' }));
     // topic dimension is not part of the flat /keywords FilterSpec → no-op on the spec.
     expect(readSpec()).toEqual({});
+  });
+
+  it('toggles the popover closed when the chip is clicked again', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /搜尋量/ }));
+    expect(screen.getByRole('group', { name: '搜尋量 篩選' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /搜尋量/ }));
+    expect(screen.queryByRole('group', { name: '搜尋量 篩選' })).not.toBeInTheDocument();
+  });
+
+  it('seeds the popover inputs from the current spec when re-opened', () => {
+    render(<Harness />);
+    let pop = openChip('搜尋詞');
+    fireEvent.change(pop.getByLabelText('包含'), { target: { value: 'shoe' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+
+    pop = openChip('搜尋詞');
+    expect(pop.getByLabelText<HTMLInputElement>('包含').value).toBe('shoe');
+  });
+
+  it('seeds a range popover and shows a — bounded label for an open-upper range', () => {
+    render(<Harness />);
+    let pop = openChip('搜尋量');
+    fireEvent.change(pop.getByLabelText('最高'), { target: { value: '500' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+
+    // max-only range → the chip shows a ≤ label; reopening seeds the 最高 input.
+    expect(screen.getByRole('button', { name: /≤500/ })).toBeInTheDocument();
+    pop = openChip('搜尋量');
+    expect(pop.getByLabelText<HTMLInputElement>('最高').value).toBe('500');
+  });
+
+  it('formats a money range chip label as NT$ (CPC)', () => {
+    render(<Harness />);
+    const pop = openChip('CPC');
+    fireEvent.change(pop.getByLabelText('最低'), { target: { value: '2' } });
+    fireEvent.change(pop.getByLabelText('最高'), { target: { value: '8' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+    expect(screen.getByRole('button', { name: /NT\$2–NT\$8/ })).toBeInTheDocument();
+  });
+
+  it('shows the joined zh option labels on an applied options chip', () => {
+    render(<Harness />);
+    const pop = openChip('意圖類別');
+    fireEvent.click(pop.getByRole('checkbox', { name: '資訊型' }));
+    fireEvent.click(pop.getByRole('checkbox', { name: '交易型' }));
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+    expect(screen.getByRole('button', { name: /資訊型、交易型/ })).toBeInTheDocument();
+  });
+
+  it('unchecks an already-selected option (toggle off)', () => {
+    render(<Harness />);
+    let pop = openChip('意圖類別');
+    fireEvent.click(pop.getByRole('checkbox', { name: '資訊型' }));
+    fireEvent.click(pop.getByRole('checkbox', { name: '商業型' }));
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+    expect(readSpec()).toEqual({ intent: ['informational', 'commercial'] });
+
+    pop = openChip('意圖類別');
+    fireEvent.click(pop.getByRole('checkbox', { name: '資訊型' })); // toggle off
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+    expect(readSpec()).toEqual({ intent: ['commercial'] });
   });
 });
