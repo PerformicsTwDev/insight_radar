@@ -113,6 +113,9 @@ export async function getKeywordAnalysisStatus(id: string): Promise<StatusFetch>
   const { data, response } = await api.GET('/api/v1/keyword-analyses/{id}', {
     params: { path: { id } },
   });
+  // 404 is permanent (deleted / expired / owner-filtered) → not-found terminal; every
+  // other non-2xx (or invalid body) is transient → keep polling toward recovery.
+  if (response.status === 404) return { kind: 'not_found' };
   if (!response.ok) return { kind: 'unavailable' };
   const parsed = JobStatusSchema.safeParse(data);
   return parsed.success ? { kind: 'ok', status: parsed.data } : { kind: 'unavailable' };
