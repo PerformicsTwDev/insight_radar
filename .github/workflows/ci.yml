@@ -3,8 +3,10 @@ name: ci
 on:
   pull_request:
     branches: [main]
+    paths-ignore: ['frontend/**'] # 純前端變更只跑 frontend.yml，不觸發後端 jest/Testcontainers（T0.4）
   push:
     branches: [main]
+    paths-ignore: ['frontend/**']
 
 # 供應鏈最小權限（NFR-5）；個別 job 需要時才 elevate
 permissions:
