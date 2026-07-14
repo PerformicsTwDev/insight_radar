@@ -91,7 +91,7 @@ describe('TC-13 · createKeywordAnalysis error body (ErrorResponse.fields)', () 
 });
 
 describe('TC-35 · getKeywordAnalysisStatus (GET :id DB-truth egress)', () => {
-  it('validates + returns a status body (C3: strict status enum)', async () => {
+  it('returns { kind: ok, status } on a valid 200 (C3: strict status enum)', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id', () =>
         HttpResponse.json(
@@ -101,29 +101,33 @@ describe('TC-35 · getKeywordAnalysisStatus (GET :id DB-truth egress)', () => {
       ),
     );
 
-    const status = await getKeywordAnalysisStatus(ANALYSIS_ID);
-
-    expect(status).toEqual({
-      status: 'partial',
-      progress: { percent: 90 },
-      result: { count: 8 },
+    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toEqual({
+      kind: 'ok',
+      status: { status: 'partial', progress: { percent: 90 }, result: { count: 8 } },
     });
   });
 
-  it('returns null on a non-2xx response', async () => {
+  it('returns { kind: not_found } on a 404 (deleted / expired / other-owner id) — M1-R1', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 404 })),
+    );
+    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toEqual({ kind: 'not_found' });
+  });
+
+  it('returns { kind: unavailable } on a transient non-2xx (5xx)', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 500 })),
     );
-    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toBeNull();
+    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toEqual({ kind: 'unavailable' });
   });
 
-  it('returns null when the body fails validation (unknown status value)', async () => {
+  it('returns { kind: unavailable } when the body fails validation (unknown status value)', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id', () =>
         HttpResponse.json({ status: 'bogus' }, { status: 200 }),
       ),
     );
-    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toBeNull();
+    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toEqual({ kind: 'unavailable' });
   });
 });
 

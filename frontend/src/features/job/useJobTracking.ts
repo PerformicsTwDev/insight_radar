@@ -148,12 +148,15 @@ export function useJobTracking(
     if (state.status !== 'confirming') return;
     let active = true;
     void getKeywordAnalysisStatus(analysisId)
-      .then((status) => {
+      .then((res) => {
         if (!active) return;
-        if (status) dispatch(toDbStatusEvent(status));
-        // Confirm GET returned null (non-2xx / schema-invalid body) → don't park in
-        // `confirming` forever; fall back to poll (`sse_error` → transport='poll'),
-        // which re-fetches `GET :id` on an interval until the DB truth resolves.
+        if (res.kind === 'ok') dispatch(toDbStatusEvent(res.status));
+        // Confirm GET says the id is gone (404) → settle into the not-found
+        // terminal (stops both transports) rather than parking in `confirming`.
+        else if (res.kind === 'not_found') dispatch({ type: 'not_found' });
+        // Transient failure (other non-2xx / schema-invalid body) → don't park in
+        // `confirming`; fall back to poll (`sse_error` → transport='poll'), which
+        // re-fetches `GET :id` on an interval until the DB truth resolves.
         else dispatch({ type: 'sse_error' });
       })
       .catch(() => {
@@ -177,7 +180,13 @@ export function useJobTracking(
   });
 
   useEffect(() => {
-    if (pollQuery.data) dispatch(toDbStatusEvent(pollQuery.data));
+    const res = pollQuery.data;
+    if (!res) return;
+    if (res.kind === 'ok') dispatch(toDbStatusEvent(res.status));
+    // A persistent 404 settles to not-found (terminal → transport 'none' disables
+    // this query), so the poll can't spin forever on a gone id (FR-3 boundary).
+    else if (res.kind === 'not_found') dispatch({ type: 'not_found' });
+    // 'unavailable' → transient; keep polling toward recovery (no dispatch).
   }, [pollQuery.data]);
 
   const cancel = useCallback(async () => {

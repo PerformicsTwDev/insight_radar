@@ -91,18 +91,34 @@ export const JobStatusSchema = z.object({
 export type KeywordAnalysisStatus = z.infer<typeof JobStatusSchema>;
 
 /**
- * Fetch the authoritative DB status of an analysis (C3 confirmation + poll
- * fallback). Egress via the typed `api` client; a non-2xx or a body that fails
- * validation degrades to `null` (the caller keeps its last known state and, when
- * polling, retries) rather than throwing.
+ * Result of fetching the authoritative DB status (`GET :id`). A **404 is
+ * `not_found`** — permanent (deleted / expired / owner-filtered shared link) →
+ * the caller settles into the not-found terminal and stops polling (FR-3
+ * boundary). Any other non-2xx or a schema-invalid body is `unavailable` —
+ * treated as transient, so the poll keeps retrying toward recovery. The 404 vs
+ * other-error split is exactly what prevents the UI freezing on a gone id.
  */
-export async function getKeywordAnalysisStatus(id: string): Promise<KeywordAnalysisStatus | null> {
+export type StatusFetch =
+  | { readonly kind: 'ok'; readonly status: KeywordAnalysisStatus }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'unavailable' };
+
+/**
+ * Fetch the authoritative DB status of an analysis (C3 confirmation + poll
+ * fallback). Egress via the typed `api` client; never throws — every failure is
+ * mapped to a {@link StatusFetch} discriminant so the caller can distinguish a
+ * permanent not-found from a transient error.
+ */
+export async function getKeywordAnalysisStatus(id: string): Promise<StatusFetch> {
   const { data, response } = await api.GET('/api/v1/keyword-analyses/{id}', {
     params: { path: { id } },
   });
-  if (!response.ok) return null;
+  // 404 is permanent (deleted / expired / owner-filtered) → not-found terminal; every
+  // other non-2xx (or invalid body) is transient → keep polling toward recovery.
+  if (response.status === 404) return { kind: 'not_found' };
+  if (!response.ok) return { kind: 'unavailable' };
   const parsed = JobStatusSchema.safeParse(data);
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? { kind: 'ok', status: parsed.data } : { kind: 'unavailable' };
 }
 
 /** Cancel an analysis (`DELETE :id`). Returns whether the backend accepted the cancel. */

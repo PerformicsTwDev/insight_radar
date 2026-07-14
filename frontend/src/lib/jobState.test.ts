@@ -215,6 +215,22 @@ describe('TC-10 · SSE-broken → poll fallback (§7)', () => {
   });
 });
 
+describe('TC-10 · not_found terminal (FR-3 未知 id → not-found; M1-R1)', () => {
+  it('not_found → not_found terminal and stops both transports', () => {
+    const s = run([progressEvt, { type: 'not_found' }]);
+    expect(s.status).toBe('not_found');
+    expect(s.transport).toBe('none');
+  });
+
+  it('classifies not_found as terminal', () => {
+    expect(isTerminal('not_found')).toBe(true);
+  });
+
+  it('ignores not_found once already terminal (no override of a settled outcome)', () => {
+    expect(run([dbTerminal('completed'), { type: 'not_found' }]).status).toBe('completed');
+  });
+});
+
 describe('TC-10 · isConnectionStale (C6 heartbeat predicate)', () => {
   const TIMEOUT = 20_000;
   it('is not stale before the timeout window elapses', () => {

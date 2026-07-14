@@ -34,6 +34,13 @@ export function JobProgress({
       );
     case 'failed':
       return <FailedView error={state.error} />;
+    case 'not_found':
+      return (
+        <div role="status" className="flex flex-col gap-1">
+          <p className="text-sm font-semibold text-white/70">找不到分析</p>
+          <p className="text-xs text-white/50">此分析不存在或已失效，請重新建立。</p>
+        </div>
+      );
     case 'canceled':
       return (
         <div role="status" className="flex flex-col gap-1">
