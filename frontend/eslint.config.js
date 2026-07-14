@@ -83,7 +83,28 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       'no-restricted-imports': ['error', restrictedImports],
+      // 單一出口不變式（Design §2/§3「M0 即設」）：業務碼禁繞過 typed `api/` client 直接 `fetch`，
+      // 禁繞過 fail-fast config 直接讀 `import.meta.env`。（`api/client.ts` 用 `globalThis.fetch`——
+      // MemberExpression callee、非 bare，不受此擋；`config/env.ts` 為 env 唯一授權讀點，下方 override 放行。）
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.name='fetch']",
+          message:
+            '禁 bare fetch——業務碼經 typed `api/` client（src/api/client.ts）打後端（single-egress，Design §2/§3）。',
+        },
+        {
+          selector: "MemberExpression[object.type='MetaProperty'][property.name='env']",
+          message:
+            '禁直接讀 import.meta.env——經 `src/config/env.ts`（fail-fast 驗證後的 `config`）取設定。',
+        },
+      ],
     },
+  },
+  // `config/env.ts` = import.meta.env 的唯一授權讀點（fail-fast schema 入口）。
+  {
+    files: ['src/config/env.ts'],
+    rules: { 'no-restricted-syntax': 'off' },
   },
   // Disable ESLint stylistic rules that conflict with Prettier (Prettier owns formatting).
   prettier,
