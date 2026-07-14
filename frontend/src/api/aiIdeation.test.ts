@@ -34,7 +34,9 @@ describe('TC-31 · generateIdeas', () => {
 
   it('returns ok:false when the 200 body is not a valid { keywords } shape', async () => {
     server.use(
-      http.post('/api/v1/ai-ideation', () => HttpResponse.json({ keywords: 'nope' }, { status: 200 })),
+      http.post('/api/v1/ai-ideation', () =>
+        HttpResponse.json({ keywords: 'nope' }, { status: 200 }),
+      ),
     );
     const result = await generateIdeas({ template: 'long-tail', seeds: ['x'] });
     expect(result.ok).toBe(false);

@@ -38,13 +38,18 @@ describe('TC-31 · AiIdeationCard', () => {
     const onGenerated = vi.fn();
     render(<AiIdeationCard onGenerated={onGenerated} />);
 
-    fireEvent.change(screen.getByLabelText('發想主題'), { target: { value: 'running shoes, trail' } });
+    fireEvent.change(screen.getByLabelText('發想主題'), {
+      target: { value: 'running shoes, trail' },
+    });
     const select = screen.getByLabelText<HTMLSelectElement>('發想模板');
     fireEvent.change(select, { target: { value: select.options[1].value } });
     fireEvent.click(screen.getByRole('button', { name: '生成關鍵字' }));
 
     await waitFor(() => expect(onGenerated).toHaveBeenCalledWith(['trail shoes', 'marathon']));
-    expect(received).toEqual({ template: select.options[1].value, seeds: ['running shoes', 'trail'] });
+    expect(received).toEqual({
+      template: select.options[1].value,
+      seeds: ['running shoes', 'trail'],
+    });
   });
 
   it('shows a pulsing "生成中…" state while the request is in flight', async () => {
@@ -60,6 +65,15 @@ describe('TC-31 · AiIdeationCard', () => {
 
     expect(await screen.findByText('生成中…')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('生成中…')).not.toBeInTheDocument());
+  });
+
+  it('ignores a form submit while the theme is empty (Enter-key guard, no request)', () => {
+    const onGenerated = vi.fn();
+    render(<AiIdeationCard onGenerated={onGenerated} />);
+    // Submit the form directly (no theme) → guarded early-return, no egress fired
+    // (MSW would error on any unhandled request, so a silent pass proves none went out).
+    fireEvent.submit(screen.getByRole('form', { name: 'AI 輔助發想' }));
+    expect(onGenerated).not.toHaveBeenCalled();
   });
 
   it('shows a generic error on a non-2xx and does not call onGenerated', async () => {
