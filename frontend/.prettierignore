@@ -5,3 +5,8 @@ coverage
 node_modules
 pnpm-lock.yaml
 *.local
+
+# Playwright generated artifacts (baselines are PNG — no prettier parser anyway).
+test-results
+playwright-report
+blob-report

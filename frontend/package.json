@@ -18,6 +18,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
+    "e2e": "playwright test --project=e2e",
+    "e2e:visual": "playwright test --project=visual",
+    "e2e:update": "playwright test --project=visual --update-snapshots",
     "openapi:gen": "echo 'openapi codegen wired in T0.5'",
     "verify": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test:cov"
   },
@@ -27,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.10.5",
