@@ -21,10 +21,12 @@
     "e2e": "playwright test --project=e2e",
     "e2e:visual": "playwright test --project=visual",
     "e2e:update": "playwright test --project=visual --update-snapshots",
-    "openapi:gen": "echo 'openapi codegen wired in T0.5'",
+    "openapi:gen": "openapi-typescript ../openapi.json -o src/api/schema.d.ts",
+    "openapi:check": "openapi-typescript ../openapi.json | diff -u src/api/schema.d.ts - || (echo '::error::openapi drift — run pnpm -C frontend openapi:gen and commit' && exit 1)",
     "verify": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test:cov"
   },
   "dependencies": {
+    "openapi-fetch": "^0.17.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -44,6 +46,8 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
     "jsdom": "^25.0.1",
+    "msw": "^2.15.0",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.4.2",
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.19.0",

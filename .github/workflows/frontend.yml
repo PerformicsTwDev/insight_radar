@@ -37,6 +37,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint # eslint --max-warnings=0（禁用清單 + 硬化規則）
       - run: pnpm format:check # prettier --check
+      - run: pnpm openapi:check # TC-38 drift：對 ../openapi.json 重跑 codegen 與 committed schema.d.ts 無 diff
       - run: pnpm typecheck # tsc -b
       - run: pnpm build # tsc -b && vite build
 
