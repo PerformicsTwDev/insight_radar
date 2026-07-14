@@ -18,6 +18,12 @@ coverage
 .env.*
 !.env.example
 
+# Playwright artifacts (baselines in *-snapshots/ ARE committed — do NOT ignore them)
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

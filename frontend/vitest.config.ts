@@ -9,6 +9,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Vitest owns unit/component tests under `src/` ONLY. Playwright owns `e2e/`
+    // (its own `test`/`expect` API); without this scope Vitest would try to run
+    // the `e2e/**/*.spec.ts` Playwright specs and crash (T0.3).
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
