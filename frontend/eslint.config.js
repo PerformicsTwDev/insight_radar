@@ -106,6 +106,17 @@ export default tseslint.config(
     files: ['src/config/env.ts'],
     rules: { 'no-restricted-syntax': 'off' },
   },
+  // C1 守門（Design §6）：趨勢門檻只准來自 config，禁在 `lib/trend` 內聯 magic number
+  // （防未來把 5/20 寫死回來）。允許：0（回落 sign 邊界）、1（`length-1`）、100（% 換算）。
+  {
+    files: ['src/lib/trend.ts'],
+    rules: {
+      '@typescript-eslint/no-magic-numbers': [
+        'error',
+        { ignore: [0, 1, 100], ignoreArrayIndexes: true, ignoreEnums: true },
+      ],
+    },
+  },
   // Disable ESLint stylistic rules that conflict with Prettier (Prettier owns formatting).
   prettier,
 );
