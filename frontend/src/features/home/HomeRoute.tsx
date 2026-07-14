@@ -88,6 +88,7 @@ export function HomeRoute() {
       <p className="mt-2 text-sm text-white/60">輸入種子關鍵字建立一份新的分析。</p>
 
       <form
+        aria-label="建立分析"
         className="mt-6 flex flex-col gap-5"
         onSubmit={(e) => {
           e.preventDefault();

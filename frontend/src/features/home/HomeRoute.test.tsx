@@ -58,7 +58,7 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
             statusCode: 400,
             code: 'VALIDATION',
             message: 'Validation failed',
-            fields: { geo: ['地區為必填'], seeds: ['至少一個種子字'] },
+            fields: { geo: ['地區為必填'], seeds: ['至少一個種子字'], language: ['語言格式錯誤'] },
             path: '/api/v1/keyword-analyses',
             timestamp: '2026-07-14T00:00:00.000Z',
           },
@@ -70,11 +70,29 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
 
     fireEvent.change(await screen.findByLabelText('種子關鍵字'), { target: { value: 'x' } });
     fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'ZZ' } });
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
+    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'bad' } });
     fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
 
     expect(await screen.findByText('地區為必填')).toBeInTheDocument();
     expect(screen.getByText('至少一個種子字')).toBeInTheDocument();
+    // language 欄亦有 field error → aria-invalid 分支（inline 錯誤三欄皆走到）。
+    expect(screen.getByText('語言格式錯誤')).toBeInTheDocument();
+    expect(screen.getByLabelText('語言 (language)')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('does not POST when the form is submitted while invalid (guard)', async () => {
+    let called = false;
+    server.use(
+      http.post('/api/v1/keyword-analyses', () => {
+        called = true;
+        return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
+      }),
+    );
+    renderHome();
+    // 空 seeds/geo/language → 不可送出；直接 submit form（模擬 Enter/程式化送出，繞過 disabled 按鈕）。
+    fireEvent.submit(await screen.findByRole('form', { name: '建立分析' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(called).toBe(false); // handleSubmit 的 !isSubmittable 早退（不打後端）
   });
 });
 
