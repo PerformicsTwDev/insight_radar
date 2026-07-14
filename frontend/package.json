@@ -23,7 +23,7 @@
     "e2e:update": "playwright test --project=visual --update-snapshots",
     "openapi:gen": "openapi-typescript ../openapi.json -o src/api/schema.d.ts",
     "openapi:check": "openapi-typescript ../openapi.json | diff -u src/api/schema.d.ts - || (echo '::error::openapi drift — run pnpm -C frontend openapi:gen and commit' && exit 1)",
-    "verify": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test:cov"
+    "verify": "pnpm lint && pnpm format:check && pnpm openapi:check && pnpm typecheck && pnpm build && pnpm test:cov"
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0",
