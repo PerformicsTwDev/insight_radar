@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import type { ReactNode } from 'react';
 import { config } from '../../config/env';
 import { server } from '../../api/msw/server';
@@ -197,6 +197,79 @@ describe('TC-35 · C3 partial confirmation (completed → GET :id decides)', () 
 
     await waitFor(() => expect(result.current.state.status).toBe('completed'));
     expect(result.current.state.result).toEqual({ resultSnapshotId: 'snap', count: 12 });
+  });
+
+  it('confirm GET :id returning non-2xx falls back to poll (not stuck in confirming)', async () => {
+    let calls = 0;
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ statusCode: 500, message: 'boom' }, { status: 500 })
+          : HttpResponse.json({ status: 'partial', result: { count: 2 } }, { status: 200 });
+      }),
+    );
+    const { result } = renderJob(ID);
+    act(() => FakeEventSource.last().emit('completed', { count: 5 }));
+    // confirm GET → null → sse_error → transport poll → poll GET :id → partial (never parked in confirming).
+    await waitFor(() => expect(result.current.state.status).toBe('partial'));
+    expect(result.current.state.transport).toBe('none');
+  });
+
+  it('does not dispatch after unmount while confirming (cleanup guard — no post-unmount state update)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', async () => {
+        await delay(30); // resolves AFTER we unmount → the effect's `active` guard must short-circuit
+        return HttpResponse.json({ status: 'completed', result: { count: 1 } }, { status: 200 });
+      }),
+    );
+    const { unmount } = renderJob(ID);
+    act(() => FakeEventSource.last().emit('completed', { count: 1 })); // → confirming → fires the delayed GET :id
+    unmount(); // active = false before the GET resolves
+    await delay(60); // GET resolves → `.then` sees `!active` → early return (no dispatch on an unmounted hook)
+  });
+
+  it('confirm GET :id rejecting (network error) falls back to poll (no unhandled rejection)', async () => {
+    let calls = 0;
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.error() // fetch rejects → getKeywordAnalysisStatus rejects → the `.catch` path
+          : HttpResponse.json({ status: 'completed', result: { count: 9 } }, { status: 200 });
+      }),
+    );
+    const { result } = renderJob(ID);
+    act(() => FakeEventSource.last().emit('completed', { count: 9 }));
+    await waitFor(() => expect(result.current.state.status).toBe('completed'));
+  });
+});
+
+describe('TC-10 · resets when the tracked analysisId changes (search-param nav, no remount)', () => {
+  it('re-subscribes to the new job and drops the previous job state', async () => {
+    const ID_B = '99999999-8888-7777-6666-555555555555';
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () =>
+        HttpResponse.json({ status: 'completed', result: { count: 1 } }, { status: 200 }),
+      ),
+    );
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useJobTracking(id, { eventSourceFactory: factory }),
+      { wrapper: wrapper(), initialProps: { id: ID } },
+    );
+    // Job A → terminal completed.
+    act(() => FakeEventSource.last().emit('completed', { count: 1 }));
+    await waitFor(() => expect(result.current.state.status).toBe('completed'));
+    const instancesA = FakeEventSource.instances.length;
+
+    // Navigate to job B: same hook instance, new id, no remount → must reset + re-subscribe.
+    rerender({ id: ID_B });
+
+    await waitFor(() => {
+      expect(FakeEventSource.instances.length).toBeGreaterThan(instancesA);
+      expect(FakeEventSource.last().url).toContain(ID_B);
+    });
+    expect(result.current.state.status).not.toBe('completed'); // fresh, not job A's terminal state
   });
 });
 

@@ -60,6 +60,7 @@ export type DbStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed'
 
 /** Events the reducer understands (produced by the effectful shell from SSE / poll / user IO). */
 export type JobEvent =
+  | { readonly type: 'reset' }
   | { readonly type: 'sse_open' }
   | { readonly type: 'progress'; readonly progress: JobProgress }
   | { readonly type: 'sse_completed'; readonly result: JobResult }
@@ -167,6 +168,9 @@ function isProgressable(status: JobStatus): boolean {
  */
 export function jobReducer(state: JobState, event: JobEvent): JobState {
   switch (event.type) {
+    case 'reset':
+      // 追蹤目標（analysisId）改變 → 重置為全新 job（不得殘留前一個 job 的終態，防跨 job 洩漏）。
+      return initialJobState();
     case 'sse_open':
       return isTerminal(state.status) ? state : { ...state, transport: 'sse' };
     case 'progress':

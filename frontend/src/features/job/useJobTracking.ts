@@ -80,6 +80,20 @@ export function useJobTracking(
   // heartbeat interval compares this to `now` via the pure staleness predicate.
   const lastEventAtRef = useRef<number>(Date.now());
 
+  // Reset when the tracked job changes. TanStack Router does NOT remount the route
+  // on search-only navigation, so `?analysisId=A` → `?analysisId=B` re-renders this
+  // SAME hook with a new id while `state` still holds job A's (possibly terminal)
+  // state — which would show job A's status for job B and never subscribe to B.
+  // Dispatch a `reset` on id-change so B starts fresh (SSE re-subscribes). Ref-guarded
+  // so the initial mount (already fresh) doesn't redundantly reset.
+  const trackedIdRef = useRef(analysisId);
+  useEffect(() => {
+    if (trackedIdRef.current !== analysisId) {
+      trackedIdRef.current = analysisId;
+      dispatch({ type: 'reset' });
+    }
+  }, [analysisId]);
+
   // Mirror the normalised job state into the Query cache (shared across subscribers, §7).
   useEffect(() => {
     if (analysisId) queryClient.setQueryData(['job', analysisId], state);
@@ -133,9 +147,20 @@ export function useJobTracking(
     if (!analysisId) return;
     if (state.status !== 'confirming') return;
     let active = true;
-    void getKeywordAnalysisStatus(analysisId).then((status) => {
-      if (active && status) dispatch(toDbStatusEvent(status));
-    });
+    void getKeywordAnalysisStatus(analysisId)
+      .then((status) => {
+        if (!active) return;
+        if (status) dispatch(toDbStatusEvent(status));
+        // Confirm GET returned null (non-2xx / schema-invalid body) → don't park in
+        // `confirming` forever; fall back to poll (`sse_error` → transport='poll'),
+        // which re-fetches `GET :id` on an interval until the DB truth resolves.
+        else dispatch({ type: 'sse_error' });
+      })
+      .catch(() => {
+        // Confirm GET rejected (network failure) → same poll fallback; also prevents
+        // an unhandled promise rejection.
+        if (active) dispatch({ type: 'sse_error' });
+      });
     return () => {
       active = false;
     };

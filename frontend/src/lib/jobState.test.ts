@@ -37,6 +37,13 @@ describe('TC-10 · jobState.initialJobState + isTerminal', () => {
     expect(isTerminal('running')).toBe(false);
     expect(isTerminal('confirming')).toBe(false);
   });
+
+  it('reset returns a fresh initial state from ANY state (drops the previous job)', () => {
+    // 追蹤目標改變時用——即使前一 job 已終態，reset 也回全新（不殘留、不洩漏到新 job）。
+    const terminal = run([dbTerminal('completed')]);
+    expect(isTerminal(terminal.status)).toBe(true);
+    expect(jobReducer(terminal, { type: 'reset' })).toEqual(initialJobState());
+  });
 });
 
 describe('TC-10 · jobState progress transitions', () => {
