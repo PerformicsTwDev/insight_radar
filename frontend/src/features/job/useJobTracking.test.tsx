@@ -30,8 +30,8 @@ class FakeEventSource implements EventSourceLike {
     return es;
   }
   closed = false;
-  onopen: ((this: unknown, ev: Event) => unknown) | null = null;
-  onerror: ((this: unknown, ev: Event) => unknown) | null = null;
+  onopen: ((ev: Event) => unknown) | null = null;
+  onerror: ((ev: Event) => unknown) | null = null;
   private readonly listeners = new Map<string, ((event: MessageEvent) => void)[]>();
   constructor(public readonly url: string) {
     FakeEventSource.instances.push(this);
@@ -72,7 +72,9 @@ function wrapper() {
 }
 
 function renderJob(analysisId: string | undefined, f: EventSourceFactory = factory) {
-  return renderHook(() => useJobTracking(analysisId, { eventSourceFactory: f }), { wrapper: wrapper() });
+  return renderHook(() => useJobTracking(analysisId, { eventSourceFactory: f }), {
+    wrapper: wrapper(),
+  });
 }
 
 beforeEach(() => {
@@ -214,7 +216,7 @@ describe('TC-35 · SSE-broken → poll fallback (§7 single authoritative transp
     await waitFor(() => expect(result.current.state.progress).toEqual({ percent: 55 }));
   });
 
-  it('heartbeat silence past the timeout closes the stream and falls back to poll (C6)', async () => {
+  it('heartbeat silence past the timeout closes the stream and falls back to poll (C6)', () => {
     vi.useFakeTimers();
     server.use(
       http.get('/api/v1/keyword-analyses/:id', () =>

@@ -3,12 +3,23 @@ import { JobProgress } from './JobProgress';
 import type { JobState } from '../../lib/jobState';
 
 function stateWith(patch: Partial<JobState>): JobState {
-  return { status: 'queued', transport: 'sse', progress: null, result: null, error: null, ...patch };
+  return {
+    status: 'queued',
+    transport: 'sse',
+    progress: null,
+    result: null,
+    error: null,
+    ...patch,
+  };
 }
 
 describe('TC-14 · JobProgress (four job states)', () => {
   it('renders the progress state with percent + phase (running)', () => {
-    render(<JobProgress state={stateWith({ status: 'running', progress: { phase: '擴充中', percent: 42 } })} />);
+    render(
+      <JobProgress
+        state={stateWith({ status: 'running', progress: { phase: '擴充中', percent: 42 } })}
+      />,
+    );
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '42');
     expect(screen.getByText('擴充中')).toBeInTheDocument();
@@ -36,13 +47,21 @@ describe('TC-14 · JobProgress (four job states)', () => {
   });
 
   it('renders the completed state with the result count', () => {
-    render(<JobProgress state={stateWith({ status: 'completed', transport: 'none', result: { count: 128 } })} />);
+    render(
+      <JobProgress
+        state={stateWith({ status: 'completed', transport: 'none', result: { count: 128 } })}
+      />,
+    );
     expect(screen.getByText('分析完成')).toBeInTheDocument();
     expect(screen.getByText(/128/)).toBeInTheDocument();
   });
 
   it('renders the partial state distinctly (not mistaken for completed)', () => {
-    render(<JobProgress state={stateWith({ status: 'partial', transport: 'none', result: { count: 40 } })} />);
+    render(
+      <JobProgress
+        state={stateWith({ status: 'partial', transport: 'none', result: { count: 40 } })}
+      />,
+    );
     expect(screen.getByText('部分完成')).toBeInTheDocument();
     expect(screen.queryByText('分析完成')).not.toBeInTheDocument();
   });
@@ -52,7 +71,9 @@ describe('TC-14 · JobProgress (four job states)', () => {
       <JobProgress state={stateWith({ status: 'completed', transport: 'none', result: null })} />,
     );
     expect(screen.getByText('分析完成')).toBeInTheDocument();
-    rerender(<JobProgress state={stateWith({ status: 'partial', transport: 'none', result: null })} />);
+    rerender(
+      <JobProgress state={stateWith({ status: 'partial', transport: 'none', result: null })} />,
+    );
     expect(screen.getByText('部分完成')).toBeInTheDocument();
   });
 
@@ -62,7 +83,9 @@ describe('TC-14 · JobProgress (four job states)', () => {
     );
     expect(screen.getByRole('alert')).toHaveTextContent('配額不足');
 
-    rerender(<JobProgress state={stateWith({ status: 'failed', transport: 'none', error: null })} />);
+    rerender(
+      <JobProgress state={stateWith({ status: 'failed', transport: 'none', error: null })} />,
+    );
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 

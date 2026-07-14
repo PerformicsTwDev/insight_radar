@@ -73,7 +73,10 @@ describe('TC-10 · jobState progress transitions', () => {
 
 describe('TC-10 · C3 partial confirmation (SSE completed is NOT terminal-completed)', () => {
   it('sse_completed → confirming (intermediate), NOT completed', () => {
-    const s = run([progressEvt, { type: 'sse_completed', result: { resultSnapshotId: 'snap-1', count: 12 } }]);
+    const s = run([
+      progressEvt,
+      { type: 'sse_completed', result: { resultSnapshotId: 'snap-1', count: 12 } },
+    ]);
     expect(s.status).toBe('confirming');
     expect(s.result).toEqual({ resultSnapshotId: 'snap-1', count: 12 });
     expect(s.transport).toBe('sse'); // still SSE until GET :id confirms
@@ -82,7 +85,13 @@ describe('TC-10 · C3 partial confirmation (SSE completed is NOT terminal-comple
   it('confirming + DB says completed → completed terminal (transport none)', () => {
     const s = run([
       { type: 'sse_completed', result: { count: 12 } },
-      { type: 'db_status', status: 'completed', progress: null, result: { resultSnapshotId: 'snap', count: 12 }, error: null },
+      {
+        type: 'db_status',
+        status: 'completed',
+        progress: null,
+        result: { resultSnapshotId: 'snap', count: 12 },
+        error: null,
+      },
     ]);
     expect(s.status).toBe('completed');
     expect(s.result).toEqual({ resultSnapshotId: 'snap', count: 12 });
@@ -113,6 +122,12 @@ describe('TC-10 · failed / cancel terminals', () => {
     expect(s.transport).toBe('none');
   });
 
+  it('ignores a late sse_failed once already terminal (no override)', () => {
+    const s = run([dbTerminal('completed'), { type: 'sse_failed', error: 'late' }]);
+    expect(s.status).toBe('completed');
+    expect(s.error).toBeNull();
+  });
+
   it('cancel → canceled terminal (transport none); ignored once terminal', () => {
     expect(run([progressEvt, { type: 'cancel' }]).status).toBe('canceled');
     expect(run([progressEvt, { type: 'cancel' }]).transport).toBe('none');
@@ -122,7 +137,13 @@ describe('TC-10 · failed / cancel terminals', () => {
 
 describe('TC-10 · db_status (poll) transitions', () => {
   it('applies a running DB snapshot, keeping the poll transport', () => {
-    const from: JobState = { status: 'running', transport: 'poll', progress: null, result: null, error: null };
+    const from: JobState = {
+      status: 'running',
+      transport: 'poll',
+      progress: null,
+      result: null,
+      error: null,
+    };
     const s = jobReducer(from, {
       type: 'db_status',
       status: 'running',
@@ -142,8 +163,20 @@ describe('TC-10 · db_status (poll) transitions', () => {
   });
 
   it('poll reaching a terminal DB status settles + stops transports (failed / canceled)', () => {
-    const from: JobState = { status: 'running', transport: 'poll', progress: null, result: null, error: null };
-    const failed = jobReducer(from, { type: 'db_status', status: 'failed', progress: null, result: null, error: 'nope' });
+    const from: JobState = {
+      status: 'running',
+      transport: 'poll',
+      progress: null,
+      result: null,
+      error: null,
+    };
+    const failed = jobReducer(from, {
+      type: 'db_status',
+      status: 'failed',
+      progress: null,
+      result: null,
+      error: 'nope',
+    });
     expect(failed.status).toBe('failed');
     expect(failed.error).toBe('nope');
     expect(failed.transport).toBe('none');

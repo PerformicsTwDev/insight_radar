@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * Pure job-tracking state machine (T1.3, FR-3; Design §5/§6 C3/C6). **No React /
  * no IO** → core `src/lib/**` (≥90% coverage gate). The effectful shell
@@ -24,13 +26,7 @@
 
 /** Job lifecycle status. `confirming` is the C3 intermediate (SSE completed → awaiting DB truth). */
 export type JobStatus =
-  | 'queued'
-  | 'running'
-  | 'confirming'
-  | 'completed'
-  | 'partial'
-  | 'failed'
-  | 'canceled';
+  'queued' | 'running' | 'confirming' | 'completed' | 'partial' | 'failed' | 'canceled';
 
 /** The single authoritative data source currently driving the job (§7). */
 export type Transport = 'sse' | 'poll' | 'none';
@@ -104,19 +100,100 @@ export function initialJobState(): JobState {
  * events + `onopen`; a quiet connection safely falls back to polling.
  */
 export function isConnectionStale(
-  _lastEventAt: number,
-  _now: number,
-  _heartbeatTimeoutMs: number,
+  lastEventAt: number,
+  now: number,
+  heartbeatTimeoutMs: number,
 ): boolean {
-  return false;
+  return now - lastEventAt >= heartbeatTimeoutMs;
 }
 
-/** Pure SSE frame → {@link JobEvent} decoder (TC-35). Unknown types / bad JSON → `null` (ignored). */
-export function toJobEvent(_type: string, _rawData: string): JobEvent | null {
-  return null;
+const ProgressFrame = z.object({
+  phase: z.string().optional(),
+  percent: z.number().optional(),
+  expanded: z.number().optional(),
+  labeled: z.number().optional(),
+  total: z.number().optional(),
+});
+const CompletedFrame = z.object({
+  resultSnapshotId: z.string().optional(),
+  count: z.number().optional(),
+});
+const FailedFrame = z.object({ error: z.string() });
+
+/** Parse JSON, returning `undefined` (not throwing) for a malformed SSE frame. */
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
-/** The job-tracking reducer. Pure; every guard/transition is exercised by TC-10. */
-export function jobReducer(state: JobState, _event: JobEvent): JobState {
-  return state;
+/**
+ * Pure SSE frame → {@link JobEvent} decoder (TC-35). Only the three named events
+ * (`progress` / `completed` / `failed`) yield a domain event; any other type
+ * (including the never-surfaced heartbeat comment) or a body that fails schema
+ * validation returns `null` and is ignored — never terminates the stream (C6).
+ */
+export function toJobEvent(type: string, rawData: string): JobEvent | null {
+  switch (type) {
+    case 'progress': {
+      const parsed = ProgressFrame.safeParse(safeJsonParse(rawData));
+      return parsed.success ? { type: 'progress', progress: parsed.data } : null;
+    }
+    case 'completed': {
+      const parsed = CompletedFrame.safeParse(safeJsonParse(rawData));
+      return parsed.success ? { type: 'sse_completed', result: parsed.data } : null;
+    }
+    case 'failed': {
+      const parsed = FailedFrame.safeParse(safeJsonParse(rawData));
+      return parsed.success ? { type: 'sse_failed', error: parsed.data.error } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Whether progress-like updates may still be applied (only while queued/running). */
+function isProgressable(status: JobStatus): boolean {
+  return status === 'queued' || status === 'running';
+}
+
+/**
+ * The job-tracking reducer. Pure; every guard/transition is exercised by TC-10.
+ * Terminal states absorb late events (no revival / no terminal→non-terminal
+ * regression); `sse_completed` intentionally lands in `confirming`, never
+ * straight to `completed` (C3).
+ */
+export function jobReducer(state: JobState, event: JobEvent): JobState {
+  switch (event.type) {
+    case 'sse_open':
+      return isTerminal(state.status) ? state : { ...state, transport: 'sse' };
+    case 'progress':
+      return isProgressable(state.status)
+        ? { ...state, status: 'running', progress: event.progress }
+        : state;
+    case 'sse_completed':
+      return isProgressable(state.status)
+        ? { ...state, status: 'confirming', result: event.result }
+        : state;
+    case 'sse_failed':
+      return isTerminal(state.status)
+        ? state
+        : { ...state, status: 'failed', transport: 'none', error: event.error };
+    case 'sse_error':
+    case 'heartbeat_timeout':
+      return isTerminal(state.status) ? state : { ...state, transport: 'poll' };
+    case 'cancel':
+      return isTerminal(state.status) ? state : { ...state, status: 'canceled', transport: 'none' };
+    case 'db_status':
+      if (isTerminal(state.status)) return state;
+      return {
+        status: event.status,
+        transport: isTerminal(event.status) ? 'none' : state.transport,
+        progress: event.progress,
+        result: event.result,
+        error: event.error,
+      };
+  }
 }

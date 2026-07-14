@@ -96,11 +96,19 @@ export type KeywordAnalysisStatus = z.infer<typeof JobStatusSchema>;
  * validation degrades to `null` (the caller keeps its last known state and, when
  * polling, retries) rather than throwing.
  */
-export async function getKeywordAnalysisStatus(_id: string): Promise<KeywordAnalysisStatus | null> {
-  return null;
+export async function getKeywordAnalysisStatus(id: string): Promise<KeywordAnalysisStatus | null> {
+  const { data, response } = await api.GET('/api/v1/keyword-analyses/{id}', {
+    params: { path: { id } },
+  });
+  if (!response.ok) return null;
+  const parsed = JobStatusSchema.safeParse(data);
+  return parsed.success ? parsed.data : null;
 }
 
 /** Cancel an analysis (`DELETE :id`). Returns whether the backend accepted the cancel. */
-export async function cancelKeywordAnalysis(_id: string): Promise<boolean> {
-  return false;
+export async function cancelKeywordAnalysis(id: string): Promise<boolean> {
+  const { response } = await api.DELETE('/api/v1/keyword-analyses/{id}', {
+    params: { path: { id } },
+  });
+  return response.ok;
 }
