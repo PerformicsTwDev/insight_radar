@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  capturePendingRedirect,
   consumePendingRedirect,
   redirectTargetFor,
   setPendingRedirect,
@@ -22,6 +23,27 @@ describe('TC-23 · pending redirect store', () => {
   });
 
   it('is null before anything is captured', () => {
+    expect(consumePendingRedirect()).toBeNull();
+  });
+});
+
+describe('TC-23 · capturePendingRedirect (concurrent-401 safe)', () => {
+  it('captures a normal deep link on a 401', () => {
+    capturePendingRedirect('/?analysisId=xyz');
+    expect(consumePendingRedirect()).toBe('/?analysisId=xyz');
+  });
+
+  it('does not overwrite the first captured deep link when a later 401 fires after nav to /login', () => {
+    // Burst of concurrent protected-request 401s: the 1st captures the real target
+    // and starts navigating; the 2nd fires once location is already /login → target
+    // computes null and must NOT clobber the 1st (AC-12.1 保留原 URL).
+    capturePendingRedirect('/?analysisId=abc'); // 1st 401 (real deep link)
+    capturePendingRedirect('/login'); // 2nd 401 (already redirecting)
+    expect(consumePendingRedirect()).toBe('/?analysisId=abc');
+  });
+
+  it('leaves the pending target untouched when the only 401 fires already on /login', () => {
+    capturePendingRedirect('/login');
     expect(consumePendingRedirect()).toBeNull();
   });
 });

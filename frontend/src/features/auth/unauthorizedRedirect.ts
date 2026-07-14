@@ -34,6 +34,20 @@ export function redirectTargetFor(href: string): string | null {
 }
 
 /**
+ * Capture the return target from a 401 at the given current href. Concurrent
+ * protected requests (dashboard queries + `useJobTracking` polling) can 401 in a
+ * burst: the first captures the real deep link and starts navigating to /login;
+ * a later one, firing after the location has already become /login, computes a
+ * `null` target — it must **not** overwrite the first (real) target with `null`
+ * (that would drop the user to `/` after re-login, violating AC-12.1). So only a
+ * non-null target is recorded.
+ */
+export function capturePendingRedirect(href: string): void {
+  const target = redirectTargetFor(href);
+  if (target !== null) setPendingRedirect(target);
+}
+
+/**
  * Wire the global 401 handler to this router — call once, in the root layout.
  * Clears the handler on unmount so tests/hot-reload don't leak a stale router.
  */
@@ -42,7 +56,7 @@ export function useUnauthorizedRedirect(): void {
   useEffect(() => {
     setUnauthorizedHandler(() => {
       authProvider.onUnauthorized();
-      setPendingRedirect(redirectTargetFor(router.state.location.href));
+      capturePendingRedirect(router.state.location.href);
       void router.navigate({ to: '/login' });
     });
     return () => setUnauthorizedHandler(null);
