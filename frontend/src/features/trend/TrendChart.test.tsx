@@ -29,13 +29,14 @@ vi.mock('chart.js', () => {
   return { Chart: MockChart, registerables: [] };
 });
 
+import { TrendChart } from './TrendChart';
 import {
-  TrendChart,
   getTooltipEl,
+  handleExternalTooltip,
   toTrendTooltipModel,
   updateTooltipEl,
   type TrendTooltipModel,
-} from './TrendChart';
+} from './trendTooltip';
 import type { KeywordSeriesInput } from '../../lib/trendSeries';
 
 interface Dataset {
@@ -113,6 +114,14 @@ describe('TC-16 · TrendChart (aggregate line + axis-aligned multi-line)', () =>
     expect(chart.configs).toHaveLength(0);
   });
 
+  it('shows a no-selectable-terms hint when the popover opens with no keywords', () => {
+    // axis present (chart draws) but no keyword rows to filter by.
+    render(<TrendChart axis={AXIS} total={TOTAL} keywords={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: /篩選搜尋詞/ }));
+    expect(screen.getByText('尚無可選搜尋詞')).toBeInTheDocument();
+    expect(lastConfig().data.datasets).toHaveLength(1);
+  });
+
   it('destroys the chart on unmount', () => {
     const { unmount } = render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
     unmount();
@@ -143,6 +152,28 @@ describe('TC-16 · external HTML tooltip helpers (multi-line, null-safe)', () =>
     expect(model.visible).toBe(false);
   });
 
+  it('falls back safely for missing label / non-string colour / missing title / no points', () => {
+    const model = toTrendTooltipModel({
+      opacity: 1,
+      // no title, dataset without label, borderColor a non-string (gradient), y not a number
+      dataPoints: [{ dataset: { borderColor: { some: 'gradient' } }, parsed: {} }],
+    });
+    expect(model.title).toBe('');
+    expect(model.rows).toEqual([{ label: '', value: '—', color: '' }]);
+  });
+
+  it('falls back to document.body for a canvas with no parent', () => {
+    const canvas = document.createElement('canvas'); // detached (no parentElement)
+    const el = getTooltipEl(canvas);
+    expect(el.parentElement).toBe(document.body);
+    el.remove();
+  });
+
+  it('treats a tooltip with no dataPoints as an empty row set', () => {
+    const model = toTrendTooltipModel({ opacity: 1, title: ['2026-02'] });
+    expect(model.rows).toEqual([]);
+  });
+
   it('reuses one tooltip element per canvas parent (idempotent)', () => {
     const parent = document.createElement('div');
     const canvas = document.createElement('canvas');
@@ -168,5 +199,45 @@ describe('TC-16 · external HTML tooltip helpers (multi-line, null-safe)', () =>
 
     updateTooltipEl(el, { visible: false, title: '', rows: [] });
     expect(el.style.opacity).toBe('0');
+  });
+
+  it('builds + positions the tooltip element from a Chart.js external context', () => {
+    const parent = document.createElement('div');
+    const canvas = document.createElement('canvas');
+    parent.appendChild(canvas);
+    document.body.appendChild(parent);
+
+    handleExternalTooltip({
+      chart: { canvas },
+      tooltip: {
+        opacity: 1,
+        caretX: 20,
+        caretY: 30,
+        title: ['2026-02'],
+        dataPoints: [
+          { dataset: { label: 'running shoes', borderColor: '#aaa' }, parsed: { y: 140 } },
+        ],
+      },
+    });
+
+    const el = parent.querySelector<HTMLElement>('[data-trend-tooltip]');
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toContain('running shoes: 140');
+    expect(el?.style.opacity).toBe('1');
+    expect(el?.style.left).toBe('20px');
+    expect(el?.style.top).toBe('30px');
+  });
+
+  it('defaults caret position to 0 when Chart.js omits it', () => {
+    const parent = document.createElement('div');
+    const canvas = document.createElement('canvas');
+    parent.appendChild(canvas);
+    document.body.appendChild(parent);
+
+    handleExternalTooltip({ chart: { canvas }, tooltip: { opacity: 1, dataPoints: [] } });
+
+    const el = parent.querySelector<HTMLElement>('[data-trend-tooltip]');
+    expect(el?.style.left).toBe('0px');
+    expect(el?.style.top).toBe('0px');
   });
 });

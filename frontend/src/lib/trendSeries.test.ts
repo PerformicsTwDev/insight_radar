@@ -120,7 +120,13 @@ describe('TC-8 · assembleTrendDatasets (aggregate + axis-aligned per-keyword li
       { keyword: 'running shoes', volumes: [v(2026, 1, 100), v(2026, 3, 140)] },
       { keyword: 'trail shoes', volumes: [v(2026, 2, 50)] },
     ];
-    const data = assembleTrendDatasets({ axis, total, keywords, palette: PALETTE, aggregate: AGGREGATE });
+    const data = assembleTrendDatasets({
+      axis,
+      total,
+      keywords,
+      palette: PALETTE,
+      aggregate: AGGREGATE,
+    });
     expect(data.datasets).toHaveLength(3);
     // aggregate first
     expect(data.datasets[0].label).toBe('全部搜尋詞加總');
@@ -144,14 +150,25 @@ describe('TC-8 · assembleTrendDatasets (aggregate + axis-aligned per-keyword li
       keyword: `kw${i}`,
       volumes: [v(2026, 1, i)],
     }));
-    const data = assembleTrendDatasets({ axis, total, keywords, palette: PALETTE, aggregate: AGGREGATE });
+    const data = assembleTrendDatasets({
+      axis,
+      total,
+      keywords,
+      palette: PALETTE,
+      aggregate: AGGREGATE,
+    });
     // datasets[0] is aggregate; keyword i uses pickColor(i): #aaa,#bbb,#ccc,#aaa
     expect(data.datasets[1].borderColor).toBe('#aaa');
     expect(data.datasets[4].borderColor).toBe('#aaa'); // 4th keyword wraps back to index 0
   });
 
   it('handles an empty axis / total (empty state) with just an empty aggregate line', () => {
-    const data = assembleTrendDatasets({ axis: [], total: [], palette: PALETTE, aggregate: AGGREGATE });
+    const data = assembleTrendDatasets({
+      axis: [],
+      total: [],
+      palette: PALETTE,
+      aggregate: AGGREGATE,
+    });
     expect(data.labels).toEqual([]);
     expect(data.datasets).toHaveLength(1);
     expect(data.datasets[0].data).toEqual([]);

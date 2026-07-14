@@ -18,9 +18,6 @@
  *   an empty month is `0`, sustaining a continuous grand-total line.)
  */
 
-// STUB (red): typed not-implemented shell so TC-8 imports resolve and fail on
-// assertions, not on compile. Real implementation lands in the green commit.
-
 /**
  * Minimal month-series element for axis alignment (backend `MonthlySearchVolume`).
  * The api `MonthlyVolume` (`{ year, month, searches }`) is structurally assignable.
@@ -81,29 +78,87 @@ export interface AssembleTrendParams {
   readonly aggregate: AggregateStyle;
 }
 
-export function monthKey(_v: { readonly year: number; readonly month: number }): string {
-  return '';
+/** No-data marker for null / missing values in the tooltip (mirrors the table's `—`, C12). */
+const EM_DASH = '—';
+
+/**
+ * `(year, month)` → `'YYYY-MM'` — **identical** to the backend's `monthKey`
+ * (`build-trend.ts`): zero-padded month so lexical order equals chronological
+ * order. This exact parity is what lets {@link alignToAxis} match a row's month to
+ * the authoritative axis slot instead of re-deriving months (C10).
+ */
+export function monthKey(v: { readonly year: number; readonly month: number }): string {
+  return `${v.year}-${String(v.month).padStart(2, '0')}`;
 }
 
+/**
+ * Align a row's monthly volumes onto the backend `axis` **by position** (C10). Each
+ * axis month gets that month's `searches`, or `null` when the row has no such month
+ * (a gap, never 0 — C12); a month with `searches === null` is likewise a `null` gap.
+ * A month present in the row but **not** on the axis is dropped (the axis is
+ * authoritative). A real `0` is preserved.
+ */
 export function alignToAxis(
-  _volumes: readonly AxisMonthlyVolume[],
-  _axis: readonly string[],
+  volumes: readonly AxisMonthlyVolume[],
+  axis: readonly string[],
 ): (number | null)[] {
-  return [];
+  const byKey = new Map<string, number | null>();
+  for (const v of volumes) {
+    byKey.set(monthKey(v), v.searches);
+  }
+  // Map over the AXIS (not the row): extra row months fall away; absent months → null.
+  return axis.map((key) => byKey.get(key) ?? null);
 }
 
-export function pickColor(_index: number, _palette: readonly string[]): string {
-  return '';
+/** Pick the palette colour for a keyword line by index, cycling modulo palette length. */
+export function pickColor(index: number, palette: readonly string[]): string {
+  return palette[index % palette.length];
 }
 
-export function assembleTrendDatasets(_params: AssembleTrendParams): TrendChartData {
-  return { labels: [], datasets: [] };
+/**
+ * Assemble Chart.js datasets: the aggregate line first (from `total`, brand style,
+ * area fill), then one axis-aligned line per selected keyword (10-colour cycle, no
+ * fill). Every per-keyword series is aligned to the same `axis` (C10) with `null`
+ * gaps (C12). `labels` = the backend axis verbatim.
+ */
+export function assembleTrendDatasets(params: AssembleTrendParams): TrendChartData {
+  const { axis, total, keywords = [], palette, aggregate } = params;
+
+  const aggregateDataset: TrendDataset = {
+    label: aggregate.label,
+    data: [...total],
+    borderColor: aggregate.color,
+    backgroundColor: aggregate.fillColor,
+    fill: true,
+  };
+
+  const keywordDatasets: TrendDataset[] = keywords.map((keyword, index) => {
+    const color = pickColor(index, palette);
+    return {
+      label: keyword.keyword,
+      data: alignToAxis(keyword.volumes, axis),
+      borderColor: color,
+      backgroundColor: color,
+      fill: false,
+    };
+  });
+
+  return { labels: [...axis], datasets: [aggregateDataset, ...keywordDatasets] };
 }
 
-export function formatTooltipValue(_value: number | null | undefined): string {
-  return '';
+/** Null-safe tooltip value: `—` for null / undefined (never 0, C12); a number → grouped digits. */
+export function formatTooltipValue(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return EM_DASH;
+  }
+  return value.toLocaleString('en-US');
 }
 
-export function buildTooltipRows(_points: readonly TrendTooltipPoint[]): TooltipRow[] {
-  return [];
+/** Format tooltip points into rows, keeping each series colour and a null-safe value. */
+export function buildTooltipRows(points: readonly TrendTooltipPoint[]): TooltipRow[] {
+  return points.map((point) => ({
+    label: point.label,
+    value: formatTooltipValue(point.value),
+    color: point.color,
+  }));
 }

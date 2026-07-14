@@ -12,13 +12,13 @@ import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
  * op (path drift → compile error) and send the real body cast-free via a
  * request-level `bodySerializer` (openapi-fetch calls it whenever `body` is not
  * `undefined`; `body: {}` satisfies the `Record<string, never>` type), and (b)
- * zod-validate the untyped **response** body here against the view-router
- * contract (backend `view-definition.ts`): a structural union over the three
- * response shapes (table | trend | chart), tagged with a `kind` discriminant.
+ * zod-validate the untyped **response** body here against the view-router contract
+ * (backend `view-definition.ts`): a structural union over the three response
+ * shapes (table | trend | chart), each tagged with a `kind` discriminant. The
+ * response `view` field carries the view **name** (`keywords`/`trend`/
+ * `intent_distribution`/…), not the kind — several names share a shape — so the
+ * union discriminates **structurally** on each shape's distinctive keys.
  */
-
-// STUB (red): typed not-implemented shell so TC-34 imports resolve and fail on
-// assertions, not on compile. Real implementation lands in the green commit.
 
 /** Shared `FilterSpec` subset (backend `FilterSpecDto`) — the `/query` body's `filters`. */
 export interface QueryFilters {
@@ -54,44 +54,101 @@ export interface QueryRequest {
   readonly pagination?: QueryPagination;
 }
 
-/** table view: `{ view, columns, rows, pagination }` (backend `TableViewResult`). */
-export type TableView = {
-  readonly kind: 'table';
-  readonly view: string;
-  readonly columns: { key: string; label: string; type: 'text' | 'number' | 'array' }[];
-  readonly rows: Record<string, unknown>[];
-  readonly pagination: { total: number; page: number; pageSize: number; cursor: string | null };
-};
+/** `ColumnDef` (backend `view-definition.ts`). */
+const ColumnDefSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: z.enum(['text', 'number', 'array']),
+});
 
-/** trend view: `{ view, axis, total, series }` (backend `TrendViewResult`). */
-export type TrendView = {
-  readonly kind: 'trend';
-  readonly view: string;
-  readonly axis: string[];
-  readonly total: number[];
-  readonly series: { keyword: string; points: (number | null)[] }[];
-};
+/** `PageMeta` (backend `paginate.ts`; `cursor` null on the last page). */
+const PageMetaSchema = z.object({
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  cursor: z.string().nullable(),
+});
 
-/** chart view: `{ view, groups, meta }` (backend `ChartViewResult`). */
-export type ChartView = {
-  readonly kind: 'chart';
-  readonly view: string;
-  readonly groups: {
-    key: Record<string, string | number>;
-    measures: Record<string, number | null>;
-  }[];
-  readonly meta: { total: number; truncated: boolean };
-};
+/** table view: distinctive keys `columns` + `rows` + `pagination` (backend `TableViewResult`). */
+const TableViewSchema = z
+  .object({
+    view: z.string(),
+    columns: z.array(ColumnDefSchema),
+    rows: z.array(z.record(z.string(), z.unknown())),
+    pagination: PageMetaSchema,
+  })
+  .transform((v) => ({ kind: 'table' as const, ...v }));
 
-export type QueryView = TableView | TrendView | ChartView;
+/** trend view: distinctive keys `axis` + `total` + `series` (backend `TrendViewResult`). */
+const TrendViewSchema = z
+  .object({
+    view: z.string(),
+    axis: z.array(z.string()),
+    total: z.array(z.number()),
+    series: z.array(z.object({ keyword: z.string(), points: z.array(z.number().nullable()) })),
+  })
+  .transform((v) => ({ kind: 'trend' as const, ...v }));
+
+/** chart view: distinctive keys `groups` + `meta` (backend `ChartViewResult`). */
+const ChartViewSchema = z
+  .object({
+    view: z.string(),
+    groups: z.array(
+      z.object({
+        key: z.record(z.string(), z.union([z.string(), z.number()])),
+        measures: z.record(z.string(), z.number().nullable()),
+      }),
+    ),
+    meta: z.object({ total: z.number(), truncated: z.boolean() }),
+  })
+  .transform((v) => ({ kind: 'chart' as const, ...v }));
+
+/**
+ * The three view-response shapes. `z.union` tries each in order and returns the
+ * first match; each schema requires its distinctive keys, so a body of one shape
+ * can never match another (order-independent). A body matching none → parse error.
+ */
+export const QueryViewSchema = z.union([TrendViewSchema, TableViewSchema, ChartViewSchema]);
+
+export type TableView = Extract<z.infer<typeof QueryViewSchema>, { kind: 'table' }>;
+export type TrendView = Extract<z.infer<typeof QueryViewSchema>, { kind: 'trend' }>;
+export type ChartView = Extract<z.infer<typeof QueryViewSchema>, { kind: 'chart' }>;
+export type QueryView = z.infer<typeof QueryViewSchema>;
 
 export type PostQueryResult =
   | { readonly ok: true; readonly view: QueryView }
   | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
 
-// Placeholder schema so the export exists for the red import (unused until green).
-export const QueryViewSchema = z.unknown();
+/**
+ * Run a view query. Egress via the typed `api` client (never a bare fetch). On 2xx
+ * the (openapi-untyped) body is zod-validated as the view-shape union and exposed
+ * as `{ ok: true, view }` (tagged by `kind`); a body matching no shape degrades to
+ * `ok:false`. On any non-2xx the body is parsed against `ErrorResponse` so callers
+ * can surface `fields` (undefined when the body is not an `ErrorResponse`). Never
+ * throws.
+ */
+export async function postQuery(id: string, request: QueryRequest): Promise<PostQueryResult> {
+  const { data, error, response } = await api.POST('/api/v1/keyword-analyses/{id}/query', {
+    params: { path: { id } },
+    // Body is under-documented in openapi (typed `Record<string, never>`); send the
+    // real payload cast-free via the serializer, which openapi-fetch calls whenever
+    // `body` is not undefined (`{}` satisfies the empty-record type).
+    body: {},
+    bodySerializer: () => JSON.stringify(request),
+  });
 
-export async function postQuery(_id: string, _request: QueryRequest): Promise<PostQueryResult> {
-  return { ok: false, status: 0 };
+  if (response.ok) {
+    const parsed = QueryViewSchema.safeParse(data);
+    if (parsed.success) {
+      return { ok: true, view: parsed.data };
+    }
+    return { ok: false, status: response.status };
+  }
+
+  const parsedError = ErrorResponseSchema.safeParse(error);
+  return {
+    ok: false,
+    status: response.status,
+    error: parsedError.success ? parsedError.data : undefined,
+  };
 }
