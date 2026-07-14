@@ -1,0 +1,76 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { delay, http, HttpResponse } from 'msw';
+import { describe, expect, it, vi } from 'vitest';
+import { server } from '../../api/msw/server';
+import { AiIdeationCard } from './AiIdeationCard';
+
+/**
+ * TC-31 (card) — the "詢問 AI 輔助發想" sub-card: a theme input + a 10-template
+ * dropdown + submit → POST /ai-ideation (MSW stub) → hands the generated
+ * keywords back to the host via `onGenerated`. Empty theme gates the submit; a
+ * non-2xx surfaces a generic error; a pulsing state shows while generating.
+ */
+
+describe('TC-31 · AiIdeationCard', () => {
+  it('renders a theme input and a 10-option template dropdown', () => {
+    render(<AiIdeationCard onGenerated={vi.fn()} />);
+    expect(screen.getByLabelText('發想主題')).toBeInTheDocument();
+    const select = screen.getByLabelText<HTMLSelectElement>('發想模板');
+    expect(select.options).toHaveLength(10);
+  });
+
+  it('disables submit until a theme is entered', () => {
+    render(<AiIdeationCard onGenerated={vi.fn()} />);
+    const submit = screen.getByRole('button', { name: '生成關鍵字' });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('發想主題'), { target: { value: 'running' } });
+    expect(submit).toBeEnabled();
+  });
+
+  it('submits { template, seeds } and hands generated keywords to onGenerated', async () => {
+    let received: unknown;
+    server.use(
+      http.post('/api/v1/ai-ideation', async ({ request }) => {
+        received = await request.json();
+        return HttpResponse.json({ keywords: ['trail shoes', 'marathon'] }, { status: 200 });
+      }),
+    );
+    const onGenerated = vi.fn();
+    render(<AiIdeationCard onGenerated={onGenerated} />);
+
+    fireEvent.change(screen.getByLabelText('發想主題'), { target: { value: 'running shoes, trail' } });
+    const select = screen.getByLabelText<HTMLSelectElement>('發想模板');
+    fireEvent.change(select, { target: { value: select.options[1].value } });
+    fireEvent.click(screen.getByRole('button', { name: '生成關鍵字' }));
+
+    await waitFor(() => expect(onGenerated).toHaveBeenCalledWith(['trail shoes', 'marathon']));
+    expect(received).toEqual({ template: select.options[1].value, seeds: ['running shoes', 'trail'] });
+  });
+
+  it('shows a pulsing "生成中…" state while the request is in flight', async () => {
+    server.use(
+      http.post('/api/v1/ai-ideation', async () => {
+        await delay(30);
+        return HttpResponse.json({ keywords: ['x'] }, { status: 200 });
+      }),
+    );
+    render(<AiIdeationCard onGenerated={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('發想主題'), { target: { value: 'running' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成關鍵字' }));
+
+    expect(await screen.findByText('生成中…')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('生成中…')).not.toBeInTheDocument());
+  });
+
+  it('shows a generic error on a non-2xx and does not call onGenerated', async () => {
+    server.use(http.post('/api/v1/ai-ideation', () => new HttpResponse(null, { status: 400 })));
+    const onGenerated = vi.fn();
+    render(<AiIdeationCard onGenerated={onGenerated} />);
+
+    fireEvent.change(screen.getByLabelText('發想主題'), { target: { value: 'running' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成關鍵字' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/發想失敗/);
+    expect(onGenerated).not.toHaveBeenCalled();
+  });
+});
