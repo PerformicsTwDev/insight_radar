@@ -24,9 +24,23 @@ import { z } from 'zod';
  *   machine selects, never both.
  */
 
-/** Job lifecycle status. `confirming` is the C3 intermediate (SSE completed → awaiting DB truth). */
+/**
+ * Job lifecycle status. `confirming` is the C3 intermediate (SSE completed →
+ * awaiting DB truth). `not_found` is the FR-3 boundary terminal reached when the
+ * authoritative `GET :id` reports the id is unknown/gone (404) — deleted,
+ * expired, or not the caller's (owner-filtered shared links 404); it stops both
+ * transports so the UI shows an explicit not-found state instead of freezing on
+ * "分析進行中" forever.
+ */
 export type JobStatus =
-  'queued' | 'running' | 'confirming' | 'completed' | 'partial' | 'failed' | 'canceled';
+  | 'queued'
+  | 'running'
+  | 'confirming'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'canceled'
+  | 'not_found';
 
 /** The single authoritative data source currently driving the job (§7). */
 export type Transport = 'sse' | 'poll' | 'none';
@@ -68,6 +82,7 @@ export type JobEvent =
   | { readonly type: 'sse_error' }
   | { readonly type: 'heartbeat_timeout' }
   | { readonly type: 'cancel' }
+  | { readonly type: 'not_found' }
   | {
       readonly type: 'db_status';
       readonly status: DbStatus;
@@ -81,6 +96,7 @@ const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>([
   'partial',
   'failed',
   'canceled',
+  'not_found',
 ]);
 
 /** A job status is terminal once the DB truth is a settled outcome (both transports stop). */
@@ -190,6 +206,12 @@ export function jobReducer(state: JobState, event: JobEvent): JobState {
       return isTerminal(state.status) ? state : { ...state, transport: 'poll' };
     case 'cancel':
       return isTerminal(state.status) ? state : { ...state, status: 'canceled', transport: 'none' };
+    case 'not_found':
+      // Authoritative GET :id says the id is unknown/gone (404) → terminal; stop
+      // both transports so the poll fallback can't spin forever (FR-3 boundary).
+      return isTerminal(state.status)
+        ? state
+        : { ...state, status: 'not_found', transport: 'none' };
     case 'db_status':
       if (isTerminal(state.status)) return state;
       return {

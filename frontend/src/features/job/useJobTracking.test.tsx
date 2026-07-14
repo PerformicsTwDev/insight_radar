@@ -319,6 +319,45 @@ describe('TC-35 · SSE-broken → poll fallback (§7 single authoritative transp
   });
 });
 
+describe('TC-10 · not-found terminal (unknown / deleted id → not-found; M1-R1)', () => {
+  it('confirm GET :id → 404 → not_found terminal (not stuck in confirming)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 404 })),
+    );
+    const { result } = renderJob(ID);
+    act(() => FakeEventSource.last().emit('completed', { count: 3 })); // → confirming → GET :id
+    await waitFor(() => expect(result.current.state.status).toBe('not_found'));
+    expect(result.current.state.transport).toBe('none');
+  });
+
+  it('poll GET :id → 404 → not_found terminal (stops the poll, no infinite retry)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 404 })),
+    );
+    const { result } = renderJob(ID);
+    act(() => FakeEventSource.last().emitError()); // SSE broken → transport poll
+    await waitFor(() => expect(result.current.state.status).toBe('not_found'));
+    // transport 'none' disables the poll query → it cannot keep retrying a gone id.
+    expect(result.current.state.transport).toBe('none');
+  });
+
+  it('poll GET :id transient 5xx stays polling (unavailable, NOT not_found)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 503 })),
+    );
+    const { result } = renderJob(ID);
+    act(() => FakeEventSource.last().emitError());
+    await waitFor(() => expect(result.current.state.transport).toBe('poll'));
+    // A transient 5xx must not settle to a terminal — the poll keeps retrying.
+    // Wrap the in-flight poll settle in act() so its dispatch is flushed cleanly.
+    await act(async () => {
+      await delay(50);
+    });
+    expect(result.current.state.status).not.toBe('not_found');
+    expect(result.current.state.transport).toBe('poll');
+  });
+});
+
 describe('TC-35 · cancel + no-analysis guards', () => {
   it('cancel() calls DELETE :id and settles to canceled', async () => {
     let deleted = false;

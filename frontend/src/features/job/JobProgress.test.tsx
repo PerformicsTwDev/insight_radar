@@ -93,4 +93,9 @@ describe('TC-14 · JobProgress (four job states)', () => {
     render(<JobProgress state={stateWith({ status: 'canceled', transport: 'none' })} />);
     expect(screen.getByText('已取消')).toBeInTheDocument();
   });
+
+  it('renders the not-found state (unknown / deleted id → not-found; M1-R1)', () => {
+    render(<JobProgress state={stateWith({ status: 'not_found', transport: 'none' })} />);
+    expect(screen.getByText('找不到分析')).toBeInTheDocument();
+  });
 });
