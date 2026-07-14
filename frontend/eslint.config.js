@@ -46,7 +46,14 @@ export default tseslint.config(
   // Global ignores: build artifacts, coverage, deps, and the (JS) config file itself
   // (no tsconfig project → would break the type-aware parser).
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'eslint.config.js', 'scripts/**'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      'eslint.config.js',
+      'scripts/**',
+      'src/api/schema.d.ts', // openapi-typescript 產物（勿 lint；drift 由 openapi:check 守）
+    ],
   },
   {
     files: ['**/*.{ts,tsx}'],
