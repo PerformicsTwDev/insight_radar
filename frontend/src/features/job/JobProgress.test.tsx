@@ -13,7 +13,7 @@ function stateWith(patch: Partial<JobState>): JobState {
   };
 }
 
-describe('TC-14 · JobProgress (four job states)', () => {
+describe('TC-14 · JobProgress (job-status states)', () => {
   it('renders the progress state with percent + phase (running)', () => {
     render(
       <JobProgress
