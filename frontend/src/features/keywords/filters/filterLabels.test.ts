@@ -3,6 +3,7 @@ import {
   buildChip,
   optionLabel,
   parseNum,
+  popoverSeed,
   rangeLabel,
   toggleValue,
   valueLabel,
@@ -65,6 +66,69 @@ describe('buildChip', () => {
       buildChip('intentTopic', FILTER_FIELDS.intentTopic, inputs({ topic: ' t ', keyword: '' })),
     ).toEqual({ type: 'menukw', field: 'intentTopic', topic: 't', keyword: undefined });
   });
+});
+
+describe('popoverSeed', () => {
+  const empty = {
+    include: '',
+    exclude: '',
+    minText: '',
+    maxText: '',
+    selected: [],
+    topic: '',
+    keyword: '',
+  };
+
+  it('no current chip → all inputs empty', () => expect(popoverSeed(undefined)).toEqual(empty));
+
+  it('inex chip → seeds include + exclude from the chip', () =>
+    expect(
+      popoverSeed({ type: 'inex', field: 'keyword', include: 'shoe', exclude: '二手' }),
+    ).toEqual({ ...empty, include: 'shoe', exclude: '二手' }));
+
+  it('inex chip with an absent include/exclude → the `?? ""` fallbacks seed empty', () =>
+    // specToChips never yields this shape (q is always a string), but the defensive
+    // fallback is unit-covered here rather than left as a dead branch in the component.
+    expect(popoverSeed({ type: 'inex', field: 'keyword' })).toEqual(empty));
+
+  it('range chip with both bounds → seeds min + max as strings', () =>
+    expect(popoverSeed({ type: 'range', field: 'volume', min: 100, max: 500 })).toEqual({
+      ...empty,
+      minText: '100',
+      maxText: '500',
+    }));
+
+  it('range chip with min only → seeds min, leaves max empty', () =>
+    expect(popoverSeed({ type: 'range', field: 'volume', min: 100 })).toEqual({
+      ...empty,
+      minText: '100',
+    }));
+
+  it('range chip with max only → seeds max, leaves min empty', () =>
+    expect(popoverSeed({ type: 'range', field: 'volume', max: 500 })).toEqual({
+      ...empty,
+      maxText: '500',
+    }));
+
+  it('range chip with a zero bound → seeds "0" (0 is a real bound, not empty)', () =>
+    expect(popoverSeed({ type: 'range', field: 'volume', min: 0 })).toEqual({
+      ...empty,
+      minText: '0',
+    }));
+
+  it('range chip with neither bound → both empty', () =>
+    expect(popoverSeed({ type: 'range', field: 'volume' })).toEqual(empty));
+
+  it('options chip → seeds the selected values', () =>
+    expect(popoverSeed({ type: 'options', field: 'intent', values: ['informational'] })).toEqual({
+      ...empty,
+      selected: ['informational'],
+    }));
+
+  it('menukw chip → topic/keyword seed empty (never round-trips at M2)', () =>
+    expect(popoverSeed({ type: 'menukw', field: 'intentTopic', topic: 't', keyword: 'k' })).toEqual(
+      empty,
+    ));
 });
 
 describe('parseNum', () => {

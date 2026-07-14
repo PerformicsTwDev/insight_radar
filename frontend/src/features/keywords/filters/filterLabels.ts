@@ -63,6 +63,41 @@ export function buildChip(field: FilterFieldKey, def: FilterFieldDef, i: ChipInp
   }
 }
 
+/** The popover input values seeded when a field's chip is (re)opened. */
+export interface PopoverSeed {
+  readonly include: string;
+  readonly exclude: string;
+  readonly minText: string;
+  readonly maxText: string;
+  readonly selected: readonly string[];
+  readonly topic: string;
+  readonly keyword: string;
+}
+
+/**
+ * Seed the popover inputs from the chip currently applied to a field so an opened
+ * chip reflects live state (the reverse of {@link buildChip}). `menukw` (the topic
+ * view-router dimension) never round-trips from the flat FilterSpec at M2 —
+ * `specToChips` never yields a menukw chip — so topic/keyword seed to `''`
+ * unconditionally here; M3 (T3.x) wires the topic view-router state. Extracted from
+ * the component so every seed branch (incl. the defensive `?? ''` fallbacks for an
+ * include-absent inex chip) is exhaustively unit-testable and `FilterBar` exports
+ * only a component (react-refresh).
+ */
+export function popoverSeed(current: Chip | undefined): PopoverSeed {
+  const inex = current?.type === 'inex' ? current : undefined;
+  const range = current?.type === 'range' ? current : undefined;
+  return {
+    include: inex?.include ?? '',
+    exclude: inex?.exclude ?? '',
+    minText: range?.min !== undefined ? String(range.min) : '',
+    maxText: range?.max !== undefined ? String(range.max) : '',
+    selected: current?.type === 'options' ? current.values : [],
+    topic: '',
+    keyword: '',
+  };
+}
+
 /** Parse a numeric input: blank → undefined; non-finite → undefined (codec drops it too). */
 export function parseNum(text: string): number | undefined {
   const trimmed = text.trim();

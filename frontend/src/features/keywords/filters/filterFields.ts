@@ -21,15 +21,35 @@ export interface FilterOption {
   readonly label: string;
 }
 
-export interface FilterFieldDef {
-  readonly type: FilterFieldType;
+interface FilterFieldDefBase {
   readonly label: string;
-  readonly options?: readonly FilterOption[];
   /** range fields: render bounds as money (NT$) vs plain numbers. */
   readonly money?: boolean;
   readonly includePlaceholder?: string;
   readonly excludePlaceholder?: string;
 }
+
+/**
+ * `options` / `menukw` fields ALWAYS carry an options list (empty for menukw at M2
+ * until T3.x wires the topic dimensions). Making it required on this variant lets
+ * the popover render `def.options` without a defensive `?? []` fallback.
+ */
+export interface OptionsFieldDef extends FilterFieldDefBase {
+  readonly type: 'options' | 'menukw';
+  readonly options: readonly FilterOption[];
+}
+
+/** `inex` / `range` fields never carry an options list. */
+export interface PlainFieldDef extends FilterFieldDefBase {
+  readonly type: 'inex' | 'range';
+  readonly options?: undefined;
+}
+
+/**
+ * Discriminated on `type`: `def.type === 'options'` narrows to {@link OptionsFieldDef}
+ * (options guaranteed), so the chip popover never needs a dead `options ?? []` fallback.
+ */
+export type FilterFieldDef = OptionsFieldDef | PlainFieldDef;
 
 // Intent options derive their zh from the intentMap SSOT (C2) — no zh drift.
 const INTENT_OPTIONS: readonly FilterOption[] = (

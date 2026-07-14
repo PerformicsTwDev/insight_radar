@@ -219,6 +219,43 @@ describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
     expect(screen.getByRole('button', { name: /資訊型、交易型/ })).toBeInTheDocument();
   });
 
+  it('edits the UI-only 不包含 (exclude) input without touching the base spec', () => {
+    render(<Harness />);
+    const pop = openChip('搜尋詞');
+    const exclude = pop.getByLabelText<HTMLInputElement>('不包含');
+    fireEvent.change(exclude, { target: { value: '二手' } });
+    // the controlled input reflects the typed value...
+    expect(exclude.value).toBe('二手');
+    // ...but exclude has no backend field, so applying it leaves the spec empty.
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+    expect(readSpec()).toEqual({});
+  });
+
+  it('seeds a reopened range popover from a min-only bound', () => {
+    render(<Harness />);
+    let pop = openChip('搜尋量');
+    fireEvent.change(pop.getByLabelText('最低'), { target: { value: '100' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+
+    // min-only range → the chip shows a + label; reopening seeds 最低 and leaves 最高 blank.
+    expect(screen.getByRole('button', { name: /100\+/ })).toBeInTheDocument();
+    pop = openChip('搜尋量');
+    expect(pop.getByLabelText<HTMLInputElement>('最低').value).toBe('100');
+    expect(pop.getByLabelText<HTMLInputElement>('最高').value).toBe('');
+  });
+
+  it('seeds a reopened range popover from both bounds', () => {
+    render(<Harness />);
+    let pop = openChip('搜尋量');
+    fireEvent.change(pop.getByLabelText('最低'), { target: { value: '100' } });
+    fireEvent.change(pop.getByLabelText('最高'), { target: { value: '500' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+
+    pop = openChip('搜尋量');
+    expect(pop.getByLabelText<HTMLInputElement>('最低').value).toBe('100');
+    expect(pop.getByLabelText<HTMLInputElement>('最高').value).toBe('500');
+  });
+
   it('unchecks an already-selected option (toggle off)', () => {
     render(<Harness />);
     let pop = openChip('意圖類別');

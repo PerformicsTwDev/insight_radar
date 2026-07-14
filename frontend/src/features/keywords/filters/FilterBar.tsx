@@ -8,7 +8,7 @@ import {
   type FilterSpec,
 } from '../../../lib/filterSpec';
 import { FILTER_FIELDS, type FilterFieldDef } from './filterFields';
-import { buildChip, parseNum, toggleValue, valueLabel } from './filterLabels';
+import { buildChip, parseNum, popoverSeed, toggleValue, valueLabel } from './filterLabels';
 
 /**
  * Filter chips bar (T2.5, FR-6, Design §6 C4). A controlled component: it renders
@@ -75,14 +75,16 @@ function FilterChip({
       setOpen(false);
       return;
     }
-    // Seed the popover inputs from the current spec so an open chip reflects state.
-    setInclude(current?.type === 'inex' ? (current.include ?? '') : '');
-    setExclude(current?.type === 'inex' ? (current.exclude ?? '') : '');
-    setMinText(current?.type === 'range' && current.min !== undefined ? String(current.min) : '');
-    setMaxText(current?.type === 'range' && current.max !== undefined ? String(current.max) : '');
-    setSelected(current?.type === 'options' ? current.values : []);
-    setTopic(current?.type === 'menukw' ? (current.topic ?? '') : '');
-    setKeyword(current?.type === 'menukw' ? (current.keyword ?? '') : '');
+    // Seed the popover inputs from the current spec so an open chip reflects state
+    // (the single reverse of buildChip; menukw seeds to '' — it never round-trips).
+    const seed = popoverSeed(current);
+    setInclude(seed.include);
+    setExclude(seed.exclude);
+    setMinText(seed.minText);
+    setMaxText(seed.maxText);
+    setSelected(seed.selected);
+    setTopic(seed.topic);
+    setKeyword(seed.keyword);
     setOpen(true);
   }
 
@@ -243,7 +245,7 @@ function ChipBody(props: ChipBodyProps): ReactElement {
   if (def.type === 'options') {
     return (
       <div className="flex flex-col gap-1.5">
-        {(def.options ?? []).map((opt) => (
+        {def.options.map((opt) => (
           <label key={opt.value} className="flex items-center gap-2 text-sm text-white/80">
             <input
               type="checkbox"
