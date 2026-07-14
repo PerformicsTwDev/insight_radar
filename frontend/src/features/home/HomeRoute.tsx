@@ -208,6 +208,7 @@ export function HomeRoute() {
       </form>
 
       <AiIdeationCard
+        seeds={parseSeeds(seedsRaw)}
         onGenerated={(keywords) =>
           setSeedsRaw((prev) => appendDedupedSeeds(parseSeeds(prev), keywords).join('\n'))
         }
