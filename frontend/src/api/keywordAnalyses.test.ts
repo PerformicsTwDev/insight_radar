@@ -1,5 +1,9 @@
 import { http, HttpResponse } from 'msw';
-import { createKeywordAnalysis } from './keywordAnalyses';
+import {
+  cancelKeywordAnalysis,
+  createKeywordAnalysis,
+  getKeywordAnalysisStatus,
+} from './keywordAnalyses';
 import type { paths } from './schema';
 import { server } from './msw/server';
 
@@ -83,5 +87,58 @@ describe('TC-13 · createKeywordAnalysis error body (ErrorResponse.fields)', () 
       expect(result.status).toBe(500);
       expect(result.error).toBeUndefined();
     }
+  });
+});
+
+describe('TC-35 · getKeywordAnalysisStatus (GET :id DB-truth egress)', () => {
+  it('validates + returns a status body (C3: strict status enum)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () =>
+        HttpResponse.json(
+          { status: 'partial', progress: { percent: 90 }, result: { count: 8 } },
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const status = await getKeywordAnalysisStatus(ANALYSIS_ID);
+
+    expect(status).toEqual({
+      status: 'partial',
+      progress: { percent: 90 },
+      result: { count: 8 },
+    });
+  });
+
+  it('returns null on a non-2xx response', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 500 })),
+    );
+    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toBeNull();
+  });
+
+  it('returns null when the body fails validation (unknown status value)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id', () =>
+        HttpResponse.json({ status: 'bogus' }, { status: 200 }),
+      ),
+    );
+    expect(await getKeywordAnalysisStatus(ANALYSIS_ID)).toBeNull();
+  });
+});
+
+describe('TC-35 · cancelKeywordAnalysis (DELETE :id egress)', () => {
+  it('returns true when the backend accepts the cancel', async () => {
+    server.use(
+      http.delete('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 200 })),
+    );
+    expect(await cancelKeywordAnalysis(ANALYSIS_ID)).toBe(true);
+  });
+
+  it('returns false when the cancel is rejected', async () => {
+    server.use(
+      http.delete('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 409 })),
+    );
+    expect(await cancelKeywordAnalysis(ANALYSIS_ID)).toBe(false);
   });
 });

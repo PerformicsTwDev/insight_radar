@@ -26,6 +26,7 @@
     "verify": "pnpm lint && pnpm format:check && pnpm openapi:check && pnpm typecheck && pnpm build && pnpm test:cov"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.18",
     "openapi-fetch": "^0.17.0",
     "react": "^19.1.0",
