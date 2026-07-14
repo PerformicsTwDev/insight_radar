@@ -120,6 +120,62 @@ describe('TC-33 · getKeywords (GET :id/keywords egress + contract)', () => {
     }
   });
 
+  it('parses monthlyVolumes, keeping a missing month null (never 0 — C12)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', () =>
+        HttpResponse.json(
+          {
+            data: [
+              {
+                text: 'running shoes',
+                intentLabels: ['commercial'],
+                avgMonthlySearches: 12000,
+                competition: 'HIGH',
+                competitionIndex: 88,
+                cpcLow: 1.2,
+                cpcHigh: 3.4,
+                monthlyVolumes: [
+                  { year: 2026, month: 1, searches: 100 },
+                  { year: 2026, month: 2, searches: null },
+                  { year: 2026, month: 3, searches: 140 },
+                ],
+              },
+            ],
+            meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+          },
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await getKeywords(ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // the whole series round-trips verbatim, and the missing month stays null (never 0).
+      expect(result.rows[0].monthlyVolumes).toEqual([
+        { year: 2026, month: 1, searches: 100 },
+        { year: 2026, month: 2, searches: null },
+        { year: 2026, month: 3, searches: 140 },
+      ]);
+      expect(result.rows[0].monthlyVolumes[1].searches).toBeNull();
+    }
+  });
+
+  it('defaults monthlyVolumes to [] when the backend list row omits it (forward-compat)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', () =>
+        HttpResponse.json(okBody, { status: 200 }),
+      ),
+    );
+
+    const result = await getKeywords(ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // okBody carries no monthlyVolumes → defaults to [] (row later renders the no-data sparkline).
+      expect(result.rows[0].monthlyVolumes).toEqual([]);
+    }
+  });
+
   it('degrades to ok:false when the 200 body fails schema validation', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id/keywords', () =>

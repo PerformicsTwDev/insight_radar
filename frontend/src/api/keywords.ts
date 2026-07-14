@@ -17,6 +17,17 @@ import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
  * backend `FilterKeywordsQueryDto`, mirrored in {@link GetKeywordsParams}.
  */
 
+/**
+ * One month of the trailing search-volume series (backend `MonthlySearchVolume`,
+ * Design §9.2): `month` already mapped 1–12, `searches` kept null for a missing
+ * month (斷點，never 0 — C12). Feeds the `搜尋趨勢` sparkline (FR-4 → FR-21).
+ */
+const MonthlyVolumeSchema = z.object({
+  year: z.number(),
+  month: z.number(),
+  searches: z.number().nullable(),
+});
+
 /** Result row (backend `KeywordListRow`, Design §6.4 / AC-6.1; nulls kept — 缺值≠0). */
 const KeywordRowSchema = z.object({
   text: z.string(),
@@ -26,6 +37,12 @@ const KeywordRowSchema = z.object({
   competitionIndex: z.number().nullable(),
   cpcLow: z.number().nullable(),
   cpcHigh: z.number().nullable(),
+  // 逐月搜量序列（drives 搜尋趨勢 sparkline, FR-4/FR-21）。缺月 searches=null 保留斷點（C12）。
+  // NOTE (documented cross-spec gap): the current backend list DTO (`KeywordListRow`) does not
+  // yet emit `monthlyVolumes`; it defaults to `[]` here so such a row renders the sparkline's
+  // no-data state (never a fabricated 0 line). When backend:FR-6 adds it to the list row, no
+  // frontend change is needed — the field simply starts arriving.
+  monthlyVolumes: z.array(MonthlyVolumeSchema).default([]),
 });
 
 /** Pagination meta (backend `{ total, page, pageSize, cursor }`). */
@@ -44,6 +61,7 @@ const KeywordsListSchema = z.object({
 
 export type KeywordRow = z.infer<typeof KeywordRowSchema>;
 export type KeywordsMeta = z.infer<typeof KeywordsMetaSchema>;
+export type MonthlyVolume = z.infer<typeof MonthlyVolumeSchema>;
 
 /**
  * Query params for `GET :id/keywords`. Mirrors the backend `FilterKeywordsQueryDto`

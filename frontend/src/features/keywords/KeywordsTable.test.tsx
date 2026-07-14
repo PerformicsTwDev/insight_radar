@@ -12,6 +12,13 @@ const rows: KeywordRow[] = [
     competitionIndex: 88,
     cpcLow: 1.2,
     cpcHigh: 3.4,
+    // a real series with a missing month → sparkline draws (with a null break, never a 0 dip).
+    monthlyVolumes: [
+      { year: 2026, month: 1, searches: 1000 },
+      { year: 2026, month: 2, searches: null },
+      { year: 2026, month: 3, searches: 1400 },
+      { year: 2026, month: 4, searches: 1800 },
+    ],
   },
   {
     text: '缺值列',
@@ -21,6 +28,8 @@ const rows: KeywordRow[] = [
     competitionIndex: null,
     cpcLow: null,
     cpcHigh: null,
+    // no monthly data → sparkline renders the no-data marker (—), never a 0 line.
+    monthlyVolumes: [],
   },
   {
     text: 'mystery intent',
@@ -30,11 +39,15 @@ const rows: KeywordRow[] = [
     competitionIndex: 10,
     cpcLow: 2,
     cpcHigh: 2,
+    monthlyVolumes: [
+      { year: 2026, month: 1, searches: 3 },
+      { year: 2026, month: 2, searches: 7 },
+    ],
   },
 ];
 
-/** Column order in the DOM (search 詞 frozen first, ✦ on-demand last). */
-const COL = { text: 0, intent: 1, volume: 2, competition: 3, cpc: 4, ai: 5 } as const;
+/** Column order in the DOM (search 詞 frozen first, 搜尋趨勢 sparkline, ✦ on-demand last). */
+const COL = { text: 0, intent: 1, volume: 2, competition: 3, cpc: 4, trend: 5, ai: 6 } as const;
 
 function missingRowCells() {
   const missingRow = screen.getByRole('row', { name: /缺值列/ });
@@ -89,6 +102,25 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
     // an empty intent list renders — (not an empty cell).
     expect(missingRowCells()[COL.intent]).toHaveTextContent(EM_DASH);
   });
+
+  it('renders the 搜尋趨勢 sparkline column (FR-4 → FR-21) between CPC and the ✦ column', () => {
+    render(<KeywordsTable rows={rows} />);
+    expect(screen.getByRole('columnheader', { name: '搜尋趨勢' })).toBeInTheDocument();
+    // column order: 搜尋趨勢 sits at index 5, ✦ at 6.
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers[COL.trend]).toBe('搜尋趨勢');
+    expect(headers[COL.ai]).toBe('✦');
+  });
+
+  it('draws a sparkline for rows with monthlyVolumes and 無趨勢資料 (never a 0 line) for empty months (TC-7)', () => {
+    render(<KeywordsTable rows={rows} />);
+    // rows with a real series render an accessible SVG trend graphic.
+    expect(screen.getAllByRole('img', { name: '搜尋趨勢走勢' }).length).toBe(2);
+    // the empty-series row shows the no-data marker in its 搜尋趨勢 cell, not a fabricated 0 line.
+    const trendCell = missingRowCells()[COL.trend];
+    expect(within(trendCell).getByRole('img', { name: '無趨勢資料' })).toBeInTheDocument();
+    expect(trendCell.querySelector('polyline')).toBeNull();
+  });
 });
 
 describe('TC-15 · KeywordsTable virtualization (windows a large page)', () => {
@@ -118,6 +150,7 @@ describe('TC-15 · KeywordsTable virtualization (windows a large page)', () => {
     competitionIndex: i,
     cpcLow: 1,
     cpcHigh: 2,
+    monthlyVolumes: [],
   }));
 
   it('renders only a window of the 150 rows (not all of them) yet the first row is present', async () => {
@@ -142,6 +175,7 @@ describe('TC-15 · KeywordsTable virtualization (windows a large page)', () => {
       competitionIndex: i,
       cpcLow: 1,
       cpcHigh: 2,
+      monthlyVolumes: [],
     }));
     render(<KeywordsTable rows={manyThousands} />);
     await screen.findByText('kw-0'); // initial window at the top
