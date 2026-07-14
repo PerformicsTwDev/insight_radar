@@ -1,0 +1,171 @@
+import { http, HttpResponse } from 'msw';
+import { buildKeywordsQuery, getKeywords } from './keywords';
+import { server } from './msw/server';
+
+const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+const okBody = {
+  data: [
+    {
+      text: 'running shoes',
+      intentLabels: ['commercial'],
+      avgMonthlySearches: 12000,
+      competition: 'HIGH',
+      competitionIndex: 88,
+      cpcLow: 1.2,
+      cpcHigh: 3.4,
+    },
+  ],
+  meta: { total: 3686, page: 2, pageSize: 25, cursor: null },
+};
+
+describe('TC-33 · buildKeywordsQuery (pagination / sort / filter → query string)', () => {
+  it('serializes pagination + sort + scalar filters, omitting undefined', () => {
+    const sp = new URLSearchParams(
+      buildKeywordsQuery({
+        page: 2,
+        pageSize: 25,
+        sortBy: 'avgMonthlySearches',
+        sortDir: 'desc',
+        q: 'shoes',
+        volumeMin: 100,
+        cursor: undefined,
+      }),
+    );
+    expect(sp.get('page')).toBe('2');
+    expect(sp.get('pageSize')).toBe('25');
+    expect(sp.get('sortBy')).toBe('avgMonthlySearches');
+    expect(sp.get('sortDir')).toBe('desc');
+    expect(sp.get('q')).toBe('shoes');
+    expect(sp.get('volumeMin')).toBe('100');
+    expect(sp.has('cursor')).toBe(false);
+  });
+
+  it('serializes array filters as repeated params and drops empty entries', () => {
+    const sp = new URLSearchParams(
+      buildKeywordsQuery({ intent: ['informational', '', 'commercial'], competition: [] }),
+    );
+    expect(sp.getAll('intent')).toEqual(['informational', 'commercial']);
+    expect(sp.has('competition')).toBe(false);
+  });
+
+  it('drops empty-string scalar values (empty ≠ 0 — 缺值不轉 0 界，M5-R1 parity)', () => {
+    expect(buildKeywordsQuery({ q: '', volumeMax: undefined })).toBe('');
+  });
+});
+
+describe('TC-33 · getKeywords (GET :id/keywords egress + contract)', () => {
+  it('sends the id path + query params and parses the { data, meta } body', async () => {
+    let receivedUrl: string | undefined;
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json(okBody, { status: 200 });
+      }),
+    );
+
+    const result = await getKeywords(ID, {
+      page: 2,
+      pageSize: 25,
+      sortBy: 'avgMonthlySearches',
+      sortDir: 'desc',
+      q: 'shoes',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0].text).toBe('running shoes');
+      expect(result.meta.total).toBe(3686);
+      expect(result.meta.cursor).toBeNull();
+    }
+
+    expect(receivedUrl).toBeDefined();
+    const url = new URL(receivedUrl ?? '');
+    expect(url.pathname).toBe(`/api/v1/keyword-analyses/${ID}/keywords`);
+    expect(url.searchParams.get('page')).toBe('2');
+    expect(url.searchParams.get('sortBy')).toBe('avgMonthlySearches');
+    expect(url.searchParams.get('q')).toBe('shoes');
+  });
+
+  it('preserves null metric cells verbatim (null, never 0 — C12)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', () =>
+        HttpResponse.json(
+          {
+            data: [
+              {
+                text: '缺值列',
+                intentLabels: [],
+                avgMonthlySearches: null,
+                competition: 'LOW',
+                competitionIndex: null,
+                cpcLow: null,
+                cpcHigh: null,
+              },
+            ],
+            meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+          },
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await getKeywords(ID);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows[0].avgMonthlySearches).toBeNull();
+      expect(result.rows[0].cpcLow).toBeNull();
+      expect(result.rows[0].competitionIndex).toBeNull();
+    }
+  });
+
+  it('degrades to ok:false when the 200 body fails schema validation', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', () =>
+        HttpResponse.json({ data: 'nope' }, { status: 200 }),
+      ),
+    );
+    expect(await getKeywords(ID)).toEqual({ ok: false, status: 200 });
+  });
+
+  it('maps a 400 ErrorResponse cleanly (fields surfaced)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', () =>
+        HttpResponse.json(
+          {
+            statusCode: 400,
+            code: 'VALIDATION',
+            message: 'Validation failed',
+            fields: { pageSize: ['pageSize is too large'] },
+            path: '/api/v1/keyword-analyses/x/keywords',
+            timestamp: '2026-07-14T00:00:00.000Z',
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const result = await getKeywords(ID, { pageSize: 9999 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error?.fields).toEqual({ pageSize: ['pageSize is too large'] });
+    }
+  });
+
+  it('leaves error undefined for a non-ErrorResponse error body (5xx)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/keywords', () =>
+        HttpResponse.json({ nope: true }, { status: 500 }),
+      ),
+    );
+
+    const result = await getKeywords(ID);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBeUndefined();
+    }
+  });
+});
