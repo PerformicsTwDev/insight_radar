@@ -1,6 +1,16 @@
-// TDD red stub (T1.1 / TC-11) — typed not-implemented shell so the test file
-// compiles (assertion-red, not compile-red; see .claude/rules/test-authoring.md #1).
-// Real implementation lands in the green commit.
+import { z } from 'zod';
+
+/**
+ * URL-is-state serialization (Design §5 「URL 即狀態」; FR-1 / TC-11). Pure `core`
+ * lib — **no React / no IO** — so it is exhaustively unit-testable and hits the
+ * ≥90% core coverage gate. The authoritative UI state (analysisId / view /
+ * pagination / filters) lives in the URL search params; this module is the
+ * single serialize ↔ deserialize codec between the raw params and a typed,
+ * validated `AppSearch`. It is also the router's `validateSearch` (see
+ * `src/router.tsx`), so an unknown `view` / malformed `analysisId` in a shared
+ * or refreshed URL normalises to a not-found (undefined) state instead of
+ * crashing the app.
+ */
 
 /**
  * Known dashboard views (T1.1 placeholder allowlist). The authoritative set is
@@ -12,9 +22,10 @@ export const KNOWN_VIEWS = ['keywords', 'trend', 'intent', 'journey', 'history']
 export type KnownView = (typeof KNOWN_VIEWS)[number];
 
 /**
- * Authoritative UI state carried in the URL search params (Design §5 — URL is
- * state). `filters` is an opaque passthrough string for T1.1; the full
- * FilterSpec chips↔spec codec is M2/T2.5 (Design §6 C4).
+ * Authoritative UI state carried in the URL search params. `filters` is an
+ * opaque passthrough string for T1.1 — the full FilterSpec chips↔spec↔URL codec
+ * is M2/T2.5 (Design §6 C4), which is the one place that bidirectional mapping
+ * may live. Here we only round-trip the raw serialized value untouched.
  */
 export interface AppSearch {
   readonly analysisId?: string;
@@ -25,10 +36,57 @@ export interface AppSearch {
   readonly filters?: string;
 }
 
-export function serialize(_state: AppSearch): Record<string, string> {
-  return { __stub: 'not-implemented' };
+/** 1-based, positive integer pagination fields; anything else → undefined (dropped). */
+const pageNumber = z.coerce.number().int().positive().optional().catch(undefined);
+
+/**
+ * Per-field `.catch(undefined)` makes every field self-normalising: a present
+ * but invalid value (bad uuid, unknown view, non-numeric page) resolves to
+ * `undefined` rather than throwing, and unknown keys are stripped by the object
+ * schema. Deserializing therefore never throws (Design §5 / TC-11).
+ */
+const AppSearchSchema = z.object({
+  analysisId: z.uuid().optional().catch(undefined),
+  view: z.enum(KNOWN_VIEWS).optional().catch(undefined),
+  page: pageNumber,
+  pageSize: pageNumber,
+  cursor: z.string().min(1).optional().catch(undefined),
+  filters: z.string().min(1).optional().catch(undefined),
+});
+
+type MutableAppSearch = { -readonly [K in keyof AppSearch]: AppSearch[K] };
+
+/**
+ * Typed `AppSearch` → URL search-param record. Undefined fields are omitted so
+ * they never appear as empty params, and numbers are stringified. The result is
+ * a valid input to {@link deserialize}, giving `deserialize(serialize(s)) === s`
+ * (deep-equal) for any valid state.
+ */
+export function serialize(state: AppSearch): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (state.analysisId !== undefined) out.analysisId = state.analysisId;
+  if (state.view !== undefined) out.view = state.view;
+  if (state.page !== undefined) out.page = String(state.page);
+  if (state.pageSize !== undefined) out.pageSize = String(state.pageSize);
+  if (state.cursor !== undefined) out.cursor = state.cursor;
+  if (state.filters !== undefined) out.filters = state.filters;
+  return out;
 }
 
-export function deserialize(_raw: Record<string, unknown>): AppSearch {
-  return { analysisId: 'STUB', view: 'keywords', page: 999 };
+/**
+ * Raw URL search params → validated, normalised `AppSearch`. Coerces
+ * string-number params back to numbers, drops unknown keys and undefined
+ * fields, and normalises malformed values to a not-found (undefined) state.
+ * Never throws — safe as the router's `validateSearch`.
+ */
+export function deserialize(raw: Record<string, unknown>): AppSearch {
+  const parsed = AppSearchSchema.parse(raw);
+  const out: MutableAppSearch = {};
+  if (parsed.analysisId !== undefined) out.analysisId = parsed.analysisId;
+  if (parsed.view !== undefined) out.view = parsed.view;
+  if (parsed.page !== undefined) out.page = parsed.page;
+  if (parsed.pageSize !== undefined) out.pageSize = parsed.pageSize;
+  if (parsed.cursor !== undefined) out.cursor = parsed.cursor;
+  if (parsed.filters !== undefined) out.filters = parsed.filters;
+  return out;
 }

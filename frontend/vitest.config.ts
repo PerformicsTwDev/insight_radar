@@ -28,12 +28,20 @@ export default defineConfig({
         // 未來（M1+）：route tree（TanStack Router 產生檔）、純容器薄層 *.tsx（由 component/e2e 驗）。
       ],
       thresholds: {
-        // M0：global 85。core（`src/lib/**`、`src/api/serialization/**`）90 per-glob gate 於 M2/T2.3
-        // 第一個 core 檔存在時再加（無匹配 glob 會讓 vitest 報錯，故 M0 只設 global）。
+        // global 85。
         lines: 85,
         functions: 85,
         branches: 85,
         statements: 85,
+        // core（`src/lib/**` 純函式）≥90 per-glob gate（Design §13.4）。T1.1 起 `src/lib/**`
+        // 已有 `intentMap.ts` + `urlState.ts` 匹配（vitest 對「零匹配 glob」會報錯，故此前只設 global）。
+        // `src/api/serialization/**` 暫不加（尚無檔案，零匹配會報錯）——待 T2.5 首個序列化檔落地再補。
+        'src/lib/**': {
+          lines: 90,
+          functions: 90,
+          branches: 90,
+          statements: 90,
+        },
       },
     },
   },

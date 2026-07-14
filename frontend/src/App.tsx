@@ -1,8 +1,11 @@
-// Boot-smoke app shell. Real routing / layout arrives with M1 (T1.1).
+import { RouterProvider } from '@tanstack/react-router';
+import { router } from './router';
+
+/**
+ * App root: mounts the TanStack Router shell (T1.1). Route tree, app-shell
+ * layout and the URL-is-state search schema live in `src/router.tsx` /
+ * `src/lib/urlState.ts`.
+ */
 export default function App() {
-  return (
-    <main>
-      <h1>Insight Radar</h1>
-    </main>
-  );
+  return <RouterProvider router={router} />;
 }
