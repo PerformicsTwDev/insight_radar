@@ -51,8 +51,7 @@ describe('TC-18 · KeywordsPagination (footer: meta.total + pageSize clamp)', ()
       // pageSize=500 in the URL must clamp to 100 → 1000/100 = 10 offset pages,
       // NOT 1000/500 = 2. Proves the request never asks for an un-capped page.
       renderFooter(meta({ total: 1000 }), '/?pageSize=500');
-      const size = (await screen.findByLabelText('每頁筆數')) as HTMLSelectElement;
-      expect(size.value).toBe('100');
+      expect(await screen.findByLabelText('每頁筆數')).toHaveValue('100');
       expect(screen.getByRole('button', { name: '第 10 頁' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '第 11 頁' })).not.toBeInTheDocument();
     });

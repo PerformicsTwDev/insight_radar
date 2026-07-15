@@ -87,38 +87,125 @@ export type PaginationAction =
       readonly offsetMaxPage: number;
     };
 
+/** Default sort — mirrors the backend (`avgMonthlySearches desc`, tie-broken by normalizedText). */
+const DEFAULT_SORT_BY: SortBy = 'avgMonthlySearches';
+const DEFAULT_SORT_DIR: SortDir = 'desc';
+
 /** Clamp a requested page size to `[1, max]` (mirrors backend `QUERY_MAX_PAGE_SIZE`). */
-export function clampPageSize(_requested: number, _max: number): number {
-  throw new Error('pagination: not implemented');
+export function clampPageSize(requested: number, max: number): number {
+  return Math.min(Math.max(1, requested), max);
 }
 
 /** Page count for offset mode (≥ 1, so an empty list still reads as "1 of 1"). */
-export function totalPages(_total: number, _pageSize: number): number {
-  throw new Error('pagination: not implemented');
+export function totalPages(total: number, pageSize: number): number {
+  // `Math.max(1, pageSize)` guards a 0 page size against a divide-by-zero (Infinity).
+  return Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
 }
 
 /** C5 switch: keyset iff the sort is stable **and** the page is strictly deeper than the offset cap. */
-export function resolveMode(_page: number, _offsetMaxPage: number, _sortStable: boolean): PageMode {
-  throw new Error('pagination: not implemented');
+export function resolveMode(page: number, offsetMaxPage: number, sortStable: boolean): PageMode {
+  return sortStable && page > offsetMaxPage ? 'keyset' : 'offset';
 }
 
-/** Project state onto the `getKeywords` params for the given mode (offset → `page`; keyset → `cursor`). */
-export function buildPageParams(_mode: PageMode, _state: PaginationState): PageParams {
-  throw new Error('pagination: not implemented');
+/**
+ * Project state onto the `getKeywords` params for the given mode. Offset sends
+ * `page` (backend runs offset); keyset sends `cursor` and NO `page` (backend keys
+ * off cursor presence). Both carry `pageSize` + the sort.
+ */
+export function buildPageParams(mode: PageMode, state: PaginationState): PageParams {
+  const base = { pageSize: state.pageSize, sortBy: state.sortBy, sortDir: state.sortDir };
+  return mode === 'keyset' ? { ...base, cursor: state.cursor } : { ...base, page: state.page };
 }
 
 /** Normalise raw URL pagination params into a defaulted, clamped {@link PaginationState}. */
 export function toPaginationState(
-  _raw: PaginationSearch,
-  _defaults: { readonly pageSize: number; readonly maxPageSize: number },
+  raw: PaginationSearch,
+  defaults: { readonly pageSize: number; readonly maxPageSize: number },
 ): PaginationState {
-  throw new Error('pagination: not implemented');
+  return {
+    page: raw.page ?? 1,
+    pageSize: clampPageSize(raw.pageSize ?? defaults.pageSize, defaults.maxPageSize),
+    cursor: raw.cursor,
+    sortBy: raw.sortBy ?? DEFAULT_SORT_BY,
+    sortDir: raw.sortDir ?? DEFAULT_SORT_DIR,
+  };
 }
 
-/** Pure transition that enforces the C5 "never mix cursor styles in a session" rule. */
+/** Reset to offset page 1 (drops the cursor), keeping the current page size + sort. */
+function offsetFirstPage(state: PaginationState): PaginationState {
+  return { page: 1, pageSize: state.pageSize, sortBy: state.sortBy, sortDir: state.sortDir };
+}
+
+/** An offset position at `page` (no cursor), keeping the current page size + sort. */
+function offsetAt(state: PaginationState, page: number): PaginationState {
+  return { page, pageSize: state.pageSize, sortBy: state.sortBy, sortDir: state.sortDir };
+}
+
+/**
+ * Pure transition enforcing C5 "never mix cursor styles in one session":
+ * - `sort` / `pageSize` / `reset` (filter change) → offset page 1, cursor dropped.
+ * - `goto` → an offset page-number jump (cursor dropped).
+ * - `next` → advances; crosses offset→keyset once strictly past the cap with a
+ *   stable sort (seeding the response cursor), and **stays keyset once engaged**.
+ * - `prev` → steps back; a keyset step that falls back within the cap re-enters
+ *   offset, otherwise it uses the caller's session-history cursor.
+ */
 export function paginationReducer(
-  _state: PaginationState,
-  _action: PaginationAction,
+  state: PaginationState,
+  action: PaginationAction,
 ): PaginationState {
-  throw new Error('pagination: not implemented');
+  switch (action.type) {
+    case 'sort':
+      return { page: 1, pageSize: state.pageSize, sortBy: action.sortBy, sortDir: action.sortDir };
+    case 'pageSize':
+      return {
+        page: 1,
+        pageSize: clampPageSize(action.requested, action.max),
+        sortBy: state.sortBy,
+        sortDir: state.sortDir,
+      };
+    case 'reset':
+      return offsetFirstPage(state);
+    case 'goto':
+      return offsetAt(state, action.page);
+    case 'next': {
+      const target = state.page + 1;
+      // Once keyset (cursor present) stay keyset; otherwise the C5 rule decides.
+      const keyset =
+        state.cursor !== undefined ||
+        resolveMode(target, action.offsetMaxPage, action.sortStable) === 'keyset';
+      if (!keyset) {
+        return offsetAt(state, target);
+      }
+      if (action.nextCursor === null) {
+        return state; // already on the last page — nothing to advance to
+      }
+      return {
+        page: target,
+        pageSize: state.pageSize,
+        cursor: action.nextCursor,
+        sortBy: state.sortBy,
+        sortDir: state.sortDir,
+      };
+    }
+    case 'prev': {
+      const target = state.page - 1;
+      if (target < 1) {
+        return state; // already on the first page
+      }
+      if (target <= action.offsetMaxPage) {
+        return offsetAt(state, target); // back inside the offset zone
+      }
+      if (action.prevCursor === undefined) {
+        return state; // deep keyset prev with no session history (e.g. cold-loaded link)
+      }
+      return {
+        page: target,
+        pageSize: state.pageSize,
+        cursor: action.prevCursor,
+        sortBy: state.sortBy,
+        sortDir: state.sortDir,
+      };
+    }
+  }
 }
