@@ -191,5 +191,15 @@ export type ListAnalysesResult =
 export async function listKeywordAnalyses(
   params: ListAnalysesParams = {},
 ): Promise<ListAnalysesResult> {
-  throw new Error(`not implemented (${params.status ?? 'all'})`); // red — green in the next commit
+  const { data, response } = await api.GET('/api/v1/keyword-analyses', {
+    params: { query: { page: params.page, pageSize: params.pageSize, status: params.status } },
+  });
+  if (response.ok) {
+    const parsed = AnalysesListResponseSchema.safeParse(data);
+    if (parsed.success) {
+      return { ok: true, data: parsed.data.data, meta: parsed.data.meta };
+    }
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
 }

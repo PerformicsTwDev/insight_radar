@@ -114,3 +114,54 @@ describe('TC-21 · HistoryView (分析歷史清單 + reopen)', () => {
     expect(statuses[0]).toBeNull();
   });
 });
+
+describe('TC-21 · HistoryView (error / pagination / null cells)', () => {
+  it('shows an error note (not a misleading empty) when the list fails to load', async () => {
+    server.use(http.get('/api/v1/keyword-analyses', () => new HttpResponse(null, { status: 500 })));
+    renderHistory();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/無法載入分析歷史/);
+  });
+
+  it('paginates (FR-7): 下一頁 refetches page 2, 上一頁 returns to page 1', async () => {
+    const pages: (string | null)[] = [];
+    server.use(
+      http.get('/api/v1/keyword-analyses', ({ request }) => {
+        pages.push(new URL(request.url).searchParams.get('page'));
+        return HttpResponse.json({ data: [ROW], meta: { total: 50, page: 1, pageSize: 25 } });
+      }),
+    );
+    renderHistory();
+
+    await screen.findByText(/running shoes/);
+    fireEvent.click(screen.getByRole('button', { name: '下一頁' }));
+    await waitFor(() => expect(pages).toContain('2'));
+    fireEvent.click(screen.getByRole('button', { name: '上一頁' }));
+    await waitFor(() => expect(pages.filter((p) => p === '1').length).toBeGreaterThan(1));
+  });
+
+  it('renders — for a sparse row (empty seeds / no params / null finishedAt / null count) — C12', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses', () =>
+        HttpResponse.json({
+          data: [
+            {
+              ...ROW,
+              seeds: [],
+              params: {},
+              finishedAt: null,
+              count: null,
+              resultSnapshotId: null,
+            },
+          ],
+          meta: { total: 1, page: 1, pageSize: 25 },
+        }),
+      ),
+    );
+    renderHistory();
+
+    await screen.findByRole('button', { name: /開啟/ }); // row rendered
+    // empty seeds + all-absent params + null finishedAt + null count → four em-dashes.
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(4);
+  });
+});

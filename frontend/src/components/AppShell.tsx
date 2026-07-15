@@ -18,6 +18,12 @@ export interface AppShellProps {
   readonly activeView?: string;
   /** True when `dimensions` is the built-in fallback (`GET /views` failed) → show a notice (FR-1). */
   readonly degraded?: boolean;
+  /**
+   * Optional right-aligned header slot (e.g. the 分析歷史 entry, T3.5). A container
+   * fills it with router-aware nodes; the presentational shell just renders it, so
+   * standalone shell renders stay router-free.
+   */
+  readonly headerExtra?: ReactNode;
 }
 
 /** Top-level product areas. Only Search is active for the shell; the rest are disabled. */
@@ -32,6 +38,7 @@ export function AppShell({
   dimensions = FALLBACK_REGISTRY.navItems,
   activeView,
   degraded = false,
+  headerExtra,
 }: AppShellProps) {
   return (
     <div className="min-h-screen bg-bg-body text-white">
@@ -55,6 +62,7 @@ export function AppShell({
               </button>
             ))}
           </nav>
+          {headerExtra ? <div className="ml-auto">{headerExtra}</div> : null}
         </div>
       </header>
       <div className="flex">
