@@ -1,4 +1,4 @@
-import { Outlet, useSearch } from '@tanstack/react-router';
+import { Link, Outlet, useSearch } from '@tanstack/react-router';
 import { useUnauthorizedRedirect } from '../features/auth/unauthorizedRedirect';
 import { useViews } from '../features/views/useViews';
 import { AppShell } from './AppShell';
@@ -15,7 +15,19 @@ export function RootLayout() {
   const { registry, degraded } = useViews();
   const activeView = useSearch({ strict: false, select: (search) => search.view });
   return (
-    <AppShell dimensions={registry.navItems} activeView={activeView} degraded={degraded}>
+    <AppShell
+      dimensions={registry.navItems}
+      activeView={activeView}
+      degraded={degraded}
+      headerExtra={
+        <Link
+          to="/history"
+          className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
+        >
+          分析歷史
+        </Link>
+      }
+    >
       <Outlet />
     </AppShell>
   );

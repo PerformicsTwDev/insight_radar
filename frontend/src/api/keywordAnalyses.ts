@@ -128,3 +128,78 @@ export async function cancelKeywordAnalysis(id: string): Promise<boolean> {
   });
   return response.ok;
 }
+
+/** Analysis lifecycle status (backend `AnalysisStatus`) — the closed set the history filter allows. */
+export const ANALYSIS_STATUSES = [
+  'queued',
+  'running',
+  'completed',
+  'partial',
+  'failed',
+  'canceled',
+] as const;
+export type AnalysisStatus = (typeof ANALYSIS_STATUSES)[number];
+
+/**
+ * One analysis-history row (backend `AnalysisListRow`, T9.6/FR-23). Dates are ISO
+ * strings over the wire; `finishedAt` / `count` stay nullable (a not-yet-finished
+ * or countless run → `—`, never 0 — C12).
+ */
+const AnalysisListRowSchema = z.object({
+  analysisId: z.string(),
+  status: z.enum(ANALYSIS_STATUSES),
+  seeds: z.array(z.string()),
+  params: z.object({
+    mode: z.string().optional(),
+    geo: z.string().optional(),
+    language: z.string().optional(),
+  }),
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+  resultSnapshotId: z.string().nullable(),
+  count: z.number().nullable(),
+});
+export type AnalysisListRow = z.infer<typeof AnalysisListRowSchema>;
+
+/** `GET /keyword-analyses` envelope (backend `AnalysesListResponse`). */
+const AnalysesListResponseSchema = z.object({
+  data: z.array(AnalysisListRowSchema),
+  meta: z.object({ total: z.number(), page: z.number(), pageSize: z.number() }),
+});
+export type AnalysesListMeta = z.infer<typeof AnalysesListResponseSchema>['meta'];
+
+export interface ListAnalysesParams {
+  readonly page?: number;
+  readonly pageSize?: number;
+  readonly status?: AnalysisStatus;
+}
+export type ListAnalysesResult =
+  | {
+      readonly ok: true;
+      readonly data: readonly AnalysisListRow[];
+      readonly meta: AnalysesListMeta;
+    }
+  | { readonly ok: false; readonly status: number };
+
+/**
+ * List analysis history (`GET /keyword-analyses`; T3.5, FR-10 / AC-10.1). The
+ * query params (page/pageSize/status) are bound to the generated op (request
+ * drift → compile error); the 200 body is openapi-untyped (#392) so it is
+ * zod-validated here against the backend `AnalysesListResponse` (`{ data, meta }`).
+ * Never throws — any non-2xx or a schema-invalid body maps to `ok:false`.
+ */
+export async function listKeywordAnalyses(
+  params: ListAnalysesParams = {},
+): Promise<ListAnalysesResult> {
+  const { data, response } = await api.GET('/api/v1/keyword-analyses', {
+    params: { query: { page: params.page, pageSize: params.pageSize, status: params.status } },
+  });
+  if (response.ok) {
+    const parsed = AnalysesListResponseSchema.safeParse(data);
+    if (parsed.success) {
+      return { ok: true, data: parsed.data.data, meta: parsed.data.meta };
+    }
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
+}

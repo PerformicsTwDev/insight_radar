@@ -3,6 +3,7 @@ import {
   cancelKeywordAnalysis,
   createKeywordAnalysis,
   getKeywordAnalysisStatus,
+  listKeywordAnalyses,
 } from './keywordAnalyses';
 import type { paths } from './schema';
 import { server } from './msw/server';
@@ -144,5 +145,80 @@ describe('TC-35 · cancelKeywordAnalysis (DELETE :id egress)', () => {
       http.delete('/api/v1/keyword-analyses/:id', () => new HttpResponse(null, { status: 409 })),
     );
     expect(await cancelKeywordAnalysis(ANALYSIS_ID)).toBe(false);
+  });
+});
+
+const LIST_ROW = {
+  analysisId: ANALYSIS_ID,
+  status: 'completed',
+  seeds: ['running shoes'],
+  params: { mode: 'expand', geo: 'TW', language: 'zh-TW' },
+  createdAt: '2026-07-10T08:00:00.000Z',
+  finishedAt: '2026-07-10T08:05:00.000Z',
+  resultSnapshotId: 'snap-1',
+  count: 3686,
+};
+
+describe('TC-21 · listKeywordAnalyses (GET /keyword-analyses history contract)', () => {
+  it('sends page/pageSize/status query and parses { data, meta } on 200', async () => {
+    let seen: URLSearchParams | undefined;
+    server.use(
+      http.get('/api/v1/keyword-analyses', ({ request }) => {
+        seen = new URL(request.url).searchParams;
+        return HttpResponse.json({
+          data: [LIST_ROW],
+          meta: { total: 1, page: 2, pageSize: 25 },
+        });
+      }),
+    );
+
+    const result = await listKeywordAnalyses({ page: 2, pageSize: 25, status: 'completed' });
+
+    expect(seen?.get('page')).toBe('2');
+    expect(seen?.get('pageSize')).toBe('25');
+    expect(seen?.get('status')).toBe('completed');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.map((r) => r.analysisId)).toEqual([ANALYSIS_ID]);
+      expect(result.data[0].count).toBe(3686);
+      expect(result.meta).toEqual({ total: 1, page: 2, pageSize: 25 });
+    }
+  });
+
+  it('parses an empty history list', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses', () =>
+        HttpResponse.json({ data: [], meta: { total: 0, page: 1, pageSize: 25 } }),
+      ),
+    );
+    const result = await listKeywordAnalyses();
+    expect(result).toEqual({ ok: true, data: [], meta: { total: 0, page: 1, pageSize: 25 } });
+  });
+
+  it('keeps nullable finishedAt / count (never fabricated, C12)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses', () =>
+        HttpResponse.json({
+          data: [{ ...LIST_ROW, finishedAt: null, count: null, resultSnapshotId: null }],
+          meta: { total: 1, page: 1, pageSize: 25 },
+        }),
+      ),
+    );
+    const result = await listKeywordAnalyses();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data[0].finishedAt).toBeNull();
+      expect(result.data[0].count).toBeNull();
+    }
+  });
+
+  it('degrades to ok:false on a malformed body', async () => {
+    server.use(http.get('/api/v1/keyword-analyses', () => HttpResponse.json({ rows: [] })));
+    expect(await listKeywordAnalyses()).toEqual({ ok: false, status: 200 });
+  });
+
+  it('degrades to ok:false with the status on a non-2xx', async () => {
+    server.use(http.get('/api/v1/keyword-analyses', () => new HttpResponse(null, { status: 500 })));
+    expect(await listKeywordAnalyses()).toEqual({ ok: false, status: 500 });
   });
 });

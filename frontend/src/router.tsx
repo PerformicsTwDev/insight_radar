@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
 import { RootLayout } from './components/RootLayout';
 import { LoginRoute } from './features/auth/LoginRoute';
+import { HistoryView } from './features/history/HistoryView';
 import { HomeRoute } from './features/home/HomeRoute';
 import { deserialize } from './lib/urlState';
 
@@ -33,7 +34,15 @@ const loginRoute = createRoute({
   component: LoginRoute,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, loginRoute]);
+// Analysis history (T3.5, FR-10). Its own path so it is reachable/shareable; a row
+// reopen navigates back to `/` with the chosen `analysisId` (URL restore, FR-1).
+const historyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/history',
+  component: HistoryView,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, loginRoute, historyRoute]);
 
 export const router = createRouter({ routeTree });
 
