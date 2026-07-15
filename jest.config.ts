@@ -11,6 +11,11 @@ const collectCoverageFrom = [
   '!<rootDir>/src/main.ts',
   // ★ auth.controller：**純路由 shell**，比照 *.module.ts 排除（見下方 coveragePathIgnorePatterns 註記）。
   '!<rootDir>/src/auth/auth.controller.ts',
+  // ★ tracking-list.controller（T11.2）：同屬**純路由 shell**——5 個 handler 皆直線委派
+  //   `this.service.X(...)`，owner-scope / P2002→409 / 404 等真實分支全在 gate 內的
+  //   `TrackingListService`（100% 覆蓋）；剩餘缺口 100% 屬 emitDecoratorMetadata phantom
+  //   branch，比照 auth.controller 排除，對外行為由 TC-64 e2e 把關（coverage-gate rule §4）。
+  '!<rootDir>/src/tracking/tracking-list.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -28,6 +33,7 @@ const coverageIgnore = [
   'main\\.ts$',
   '\\.dto\\.ts$',
   'auth/auth\\.controller\\.ts$',
+  'tracking/tracking-list\\.controller\\.ts$', // 純路由 shell（T11.2，同 auth.controller）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。
