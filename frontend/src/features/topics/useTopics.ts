@@ -96,10 +96,11 @@ export function useTopics(
   });
   const fetched = query.data;
   const topics = fetched && fetched.ok ? fetched.topics : undefined;
-  // Partial comes from the authoritative TopicsResponse.status (the topics run's own
-  // status), not the job machine — whose C3-confirm reads the *main* analysis and so
-  // can't reflect a topics-run partial (C3 / FR-9). The job only needs to reach a
-  // terminal-ready state to unlock; which terminal (completed/partial) is read here.
+  // Partial is read from the authoritative TopicsResponse.status (the topics run's
+  // OWN status) once fetched (C3 / FR-9). Since M3-R1 the job machine is also
+  // topics-scoped (statusFetcher → GET :id/topics), so it too reaches a 'partial'
+  // terminal correctly; the gate only needs a terminal-ready to unlock (completed
+  // OR partial), and the partial notice is driven off this authoritative value.
   const partial = topics?.status === 'partial';
 
   const start = useCallback(async () => {
