@@ -164,7 +164,7 @@ const TOPICS = {
   meta: { runId: 'r', snapshotId: 's', clusterCount: null, noiseCount: null },
 };
 
-describe('M3-R1 · fetchTopicsStatus (topics-scoped DB status → StatusFetch)', () => {
+describe('TC-41 · fetchTopicsStatus (topics-scoped DB status → StatusFetch, M3-R1)', () => {
   it('maps a valid topics run status to { kind: ok }', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id/topics', () =>
