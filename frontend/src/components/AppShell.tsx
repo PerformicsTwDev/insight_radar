@@ -1,13 +1,24 @@
 import type { ReactNode } from 'react';
+import type { ViewNavItem } from '../lib/viewRegistry';
 
 /**
  * App shell layout (T1.1) — presentational only, no router/API dependency.
  * Top-tab bar (only **Search** active; AI / Social rendered disabled per Design)
- * + a left dimension-menu placeholder + a main content slot. All colours come
- * from the design tokens in `src/index.css` (Tailwind utilities / `var(--color-*)`)
- * — no hardcoded hex (single-source rule, Design §6 / FR-14). Real navigation and
- * views arrive in T1.2+.
+ * + a left dimension menu (T3.1: driven by `GET /views` metadata, passed in as
+ * `dimensions`; the fetch/fallback lives in `useViews`) + a main content slot. All
+ * colours come from the design tokens in `src/index.css` (Tailwind utilities /
+ * `var(--color-*)`) — no hardcoded hex (single-source rule, Design §6 / FR-14).
  */
+
+export interface AppShellProps {
+  readonly children: ReactNode;
+  /** Left dimension-menu items, derived from view metadata (T3.1, AC-1.2). */
+  readonly dimensions?: readonly ViewNavItem[];
+  /** The currently-selected `view` (URL state); marked with `aria-current`. */
+  readonly activeView?: string;
+  /** True when `dimensions` is the built-in fallback (`GET /views` failed) → show a notice (FR-1). */
+  readonly degraded?: boolean;
+}
 
 /** Top-level product areas. Only Search is active for the shell; the rest are disabled. */
 const TABS = [
@@ -25,7 +36,7 @@ const DIMENSIONS = [
   { id: 'history', label: '分析歷史' },
 ] as const;
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-screen bg-bg-body text-white">
       <header className="border-b border-border-topbar bg-bg-card">
