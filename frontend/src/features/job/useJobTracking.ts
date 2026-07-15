@@ -5,6 +5,7 @@ import {
   cancelKeywordAnalysis,
   getKeywordAnalysisStatus,
   type KeywordAnalysisStatus,
+  type StatusFetch,
 } from '../../api/keywordAnalyses';
 import {
   initialJobState,
@@ -80,11 +81,20 @@ function toDbStatusEvent(status: KeywordAnalysisStatus): JobEvent {
 
 export function useJobTracking(
   analysisId: string | undefined,
-  options?: { eventSourceFactory?: EventSourceFactory; streamPath?: string },
+  options?: {
+    eventSourceFactory?: EventSourceFactory;
+    streamPath?: string;
+    statusFetcher?: (id: string) => Promise<StatusFetch>;
+  },
 ): JobTracking {
   const factory = options?.eventSourceFactory ?? defaultEventSourceFactory;
   // Which analysis-scoped SSE sub-path to open (`stream` main / `topics/stream` T3.3).
   const streamPath = options?.streamPath ?? 'stream';
+  // Authoritative DB-status source for C3-confirm + poll fallback. Defaults to the
+  // MAIN analysis (`GET :id`); a sub-job (topics, T3.3) MUST pass its own scoped
+  // fetcher, else confirm/poll would settle the sub-job from the wrong resource's
+  // status (M3-R1 — the main analysis is already terminal once a topics run starts).
+  const statusFetcher = options?.statusFetcher ?? getKeywordAnalysisStatus;
   const [state, dispatch] = useReducer(jobReducer, undefined, initialJobState);
   const queryClient = useQueryClient();
 
@@ -161,7 +171,7 @@ export function useJobTracking(
     if (!analysisId) return;
     if (state.status !== 'confirming') return;
     let active = true;
-    void getKeywordAnalysisStatus(analysisId)
+    void statusFetcher(analysisId)
       .then((res) => {
         if (!active) return;
         if (res.kind === 'ok') dispatch(toDbStatusEvent(res.status));
@@ -181,14 +191,16 @@ export function useJobTracking(
     return () => {
       active = false;
     };
-  }, [analysisId, state.status]);
+  }, [analysisId, state.status, statusFetcher]);
 
   // Poll fallback: enabled ONLY while `transport === 'poll'` (§7). TanStack Query
   // owns the polling lifecycle (interval + cancellation on disable/unmount).
   const pollQuery = useQuery({
-    queryKey: ['job-poll', analysisId],
+    // `streamPath` scopes the cache entry per sub-job so the main-analysis and
+    // topics instances (same analysisId) never share a poll result (M3-R1).
+    queryKey: ['job-poll', streamPath, analysisId],
     // `enabled` guarantees a defined analysisId before this runs.
-    queryFn: () => getKeywordAnalysisStatus(analysisId!),
+    queryFn: () => statusFetcher(analysisId!),
     enabled: Boolean(analysisId) && state.transport === 'poll',
     refetchInterval: config.pollIntervalMs,
   });

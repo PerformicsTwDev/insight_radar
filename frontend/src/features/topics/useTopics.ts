@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchTopics, startTopics, type TopicsResponse } from '../../api/topics';
+import { fetchTopics, fetchTopicsStatus, startTopics, type TopicsResponse } from '../../api/topics';
 import { useJobTracking, type EventSourceFactory } from '../job/useJobTracking';
 import type { FeatureStatus } from '../../lib/featureGate';
 import type { JobState, JobStatus } from '../../lib/jobState';
@@ -76,6 +76,8 @@ export function useTopics(
   const trackingActive = status === 'running';
   const job = useJobTracking(trackingActive ? analysisId : undefined, {
     streamPath: TOPICS_STREAM_PATH,
+    // Confirm/poll the TOPICS run's own status — not the main analysis (M3-R1).
+    statusFetcher: fetchTopicsStatus,
     eventSourceFactory: options?.eventSourceFactory,
   });
 

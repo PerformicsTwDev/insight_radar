@@ -249,3 +249,34 @@ describe('TC-19 (圖表) · IntentTopicsView 表格|圖表 segmented (T3.4)', ()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 });
+
+describe('TC-19 · IntentTopicsView (M3-R1: topics job settles from the topics resource, not main)', () => {
+  it('SSE drop → poll reads the TOPICS run status (running), not the completed main analysis', async () => {
+    let topicsHits = 0;
+    server.use(
+      // The base analysis already completed — the pre-fix poll read THIS and went ready.
+      http.get('/api/v1/keyword-analyses/:id', () =>
+        HttpResponse.json({ status: 'completed', result: { count: 2 } }, { status: 200 }),
+      ),
+      // The topics run itself is still running (empty clusters so far).
+      http.get('/api/v1/keyword-analyses/:id/topics', () => {
+        topicsHits += 1;
+        return HttpResponse.json({ ...TOPICS_BODY, status: 'running', clusters: [] });
+      }),
+    );
+    renderView({ topics: { status: 'running' } });
+
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+    // The topics SSE stream drops → transport falls back to poll.
+    act(() => {
+      FakeEventSource.last().onerror?.(new Event('error'));
+    });
+
+    // Wait for the fallback to settle (a topics fetch happens either way).
+    await waitFor(() => expect(topicsHits).toBeGreaterThan(0));
+    // The gate must stay running — never flip to the ready 表格|圖表 view (which the
+    // pre-fix poll did by reading the main analysis's 'completed' status).
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByText('尚無主題資料')).not.toBeInTheDocument();
+  });
+});
