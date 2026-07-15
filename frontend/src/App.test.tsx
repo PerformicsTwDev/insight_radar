@@ -18,6 +18,8 @@ describe('App (shell render smoke)', () => {
 
     // Left dimension-menu shell + mounted home-route outlet content.
     expect(screen.getByRole('navigation', { name: '維度選單' })).toBeInTheDocument();
+    // The 分析歷史 entry (T3.5) points at the /history route.
+    expect(screen.getByRole('link', { name: '分析歷史' })).toHaveAttribute('href', '/history');
     expect(await screen.findByRole('heading', { level: 2, name: '關鍵字分析' })).toBeVisible();
   });
 });
