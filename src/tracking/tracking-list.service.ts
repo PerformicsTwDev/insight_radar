@@ -1,8 +1,14 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../common/authenticated-user';
-import { assertOwnedRow, ownerIdOf, ownerWhere } from '../common/owner-scope';
+import { assertOwnedRow, canAccess, ownerIdOf, ownerWhere } from '../common/owner-scope';
+import { trackingConfig } from '../config/tracking.config';
+import { normalizeText } from '../google-ads/normalize';
 import { PrismaService } from '../prisma/prisma.service';
+import { TopicRepository } from '../topics/topic.repository';
+import type { ExpandedTopicMember } from '../topics/topic.repository';
+import type { AddMembersDto, MemberItem } from './dto/add-members.dto';
 import type { CreateTrackingListDto } from './dto/create-tracking-list.dto';
 import type { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
 
@@ -18,6 +24,12 @@ export interface TrackingListView {
 /** 清單列表列（FR-28，AC-28.3）：基本面 + `memberCount`（Prisma `_count`）。 */
 export interface TrackingListSummary extends TrackingListView {
   memberCount: number;
+}
+
+/** 加成員回應（AC-28.4）：`added`＝實際新增數；`memberCount`＝加入後清單總成員數。 */
+export interface AddMembersResult {
+  memberCount: number;
+  added: number;
 }
 
 /** 成員基本面（FR-28；時序讀取＝FR-30/T11.7，非本任務）。 */
@@ -52,7 +64,11 @@ type ListRow = {
  */
 @Injectable()
 export class TrackingListService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly topics: TopicRepository,
+    @Inject(trackingConfig.KEY) private readonly config: ConfigType<typeof trackingConfig>,
+  ) {}
 
   /**
    * 建立清單（AC-28.1）：`ownerId` 由 actor 決定（session→id、apiKey→null）；geo/language 固定於清單層
@@ -107,6 +123,116 @@ export class TrackingListService {
         lastCheckedAt: m.lastCheckedAt,
       })),
     };
+  }
+
+  /**
+   * 加成員（AC-28.4/28.5/28.7 · NFR-16）——T11.3。流程：
+   * 0. **請求形狀守門（NFR-16 DoS）**：`items` 數 > `TRACKING_MAX_ITEMS_PER_REQUEST` → `400`。此為**第一步**、
+   *    先於任何 DB 存取——因主題列展開為「每 item 沿序 ≥1 次 DB round-trip」，無上限則單一已認證請求可挾超大
+   *    批次放大成應用層 DoS（連線池耗竭），故在觸及 DB 前即拒絕。
+   * 1. **owner 守門**：先 `assertOwnedRow`（越權/不存在 → 同一 404；owner 唯一強制點在此 service 層，FR-27）。
+   * 2. **展開攤平**：關鍵字列直接取字；主題列經 `TopicRepository.expandTopicToMembers` 展開為該分析最新
+   *    topic run 中該群的**已指派非-noise** 關鍵字（AC-28.4）。每候選帶其來源 `geo`/`language` 語境。
+   * 3. **語境守門（AC-28.5）**：任一候選來源 geo/language 與清單層不符 → `400`（不默默改寫語境）。
+   * 4. **聯集去重（AC-28.4）**：以 `normalizedText`（S4，與去重/快取同一套）對「現有成員 ∪ 本批」去重；
+   *    已存在 / 批內重複 → 不重複建立。
+   * 5. **上限（AC-28.7）**：加入後成員數超過 `TRACKING_MAX_MEMBERS_PER_LIST` → `409`（整批不落）。
+   * 回 `{ memberCount, added }`（`added`＝實際新增數、`memberCount`＝加入後總數，皆以 DB 為準）。
+   */
+  async addMembers(
+    listId: string,
+    dto: AddMembersDto,
+    actor: AuthenticatedUser,
+  ): Promise<AddMembersResult> {
+    // 請求形狀守門（NFR-16 DoS）：先於任何 DB 存取，把超大批次擋在展開放大之前（連線池保護）。
+    if (dto.items.length > this.config.maxItemsPerRequest) {
+      throw new BadRequestException(tooManyItemsMessage(this.config.maxItemsPerRequest));
+    }
+
+    const list = await this.prisma.trackingList.findUnique({
+      where: { id: listId },
+      select: { id: true, ownerId: true, geo: true, language: true },
+    });
+    assertOwnedRow(list, actor, notFoundMessage(listId));
+
+    const candidates = await this.expandItems(dto.items, actor);
+
+    // 語境守門（AC-28.5）：任一展開後關鍵字來源 geo/language 與清單層不符 → 400（不默默改寫）。
+    for (const candidate of candidates) {
+      if (candidate.geo !== list.geo || candidate.language !== list.language) {
+        throw new BadRequestException(contextMismatchMessage(list.geo, list.language));
+      }
+    }
+
+    // 聯集去重（AC-28.4）：以 normalizedText 對「現有成員 ∪ 本批」去重（已存在 / 批內重複 → 不重複建立）。
+    const existing = new Set(
+      (
+        await this.prisma.trackingListMember.findMany({
+          where: { listId },
+          select: { normalizedText: true },
+        })
+      ).map((member) => member.normalizedText),
+    );
+    const seen = new Set<string>();
+    const toAdd: Prisma.TrackingListMemberCreateManyInput[] = [];
+    for (const candidate of candidates) {
+      if (existing.has(candidate.normalizedText) || seen.has(candidate.normalizedText)) {
+        continue;
+      }
+      seen.add(candidate.normalizedText);
+      toAdd.push({ listId, normalizedText: candidate.normalizedText, text: candidate.text });
+    }
+
+    // 上限（AC-28.7）：加入後成員數超過 TRACKING_MAX_MEMBERS_PER_LIST → 409（整批不落，保護 Ads 配額）。
+    if (existing.size + toAdd.length > this.config.maxMembersPerList) {
+      throw new ConflictException(limitMessage(this.config.maxMembersPerList));
+    }
+
+    // `@@id([listId, normalizedText])` 為聯集去重最終仲裁：skipDuplicates 讓並發同字不撞 P2002。
+    const { count: added } = await this.prisma.trackingListMember.createMany({
+      data: toAdd,
+      skipDuplicates: true,
+    });
+    const memberCount = await this.prisma.trackingListMember.count({ where: { listId } });
+    return { memberCount, added };
+  }
+
+  /**
+   * 把 `items` 展開攤平為候選成員（帶來源 geo/language 語境，供語境守門）：關鍵字列 `normalizedText` 由
+   * 伺服器 `normalizeText(text)` 導出（S4，不由 client 給）；主題列經 `TopicRepository.expandTopicToMembers`
+   * 展開為該群非-noise 關鍵字（無此群 / 無 run → 空集合，AC-28.4）。**`analysisId` 受 owner-scope（FR-27）**：
+   * actor 不可存取（他人 owner）或不存在的分析 → 該 item 展開為**空集合**（與不存在不可區分，不跨 owner 讀）。
+   */
+  private async expandItems(
+    items: MemberItem[],
+    actor: AuthenticatedUser,
+  ): Promise<ExpandedTopicMember[]> {
+    const candidates: ExpandedTopicMember[] = [];
+    for (const item of items) {
+      if (item.kind === 'keyword') {
+        candidates.push({
+          normalizedText: normalizeText(item.text),
+          text: item.text,
+          geo: item.geo,
+          language: item.language,
+        });
+      } else if (await this.canAccessAnalysis(item.analysisId, actor)) {
+        candidates.push(
+          ...(await this.topics.expandTopicToMembers(item.analysisId, item.topicName)),
+        );
+      }
+      // 不可存取 / 不存在的 topic analysisId → 不展開（空集合，FR-27，不洩漏存在性）。
+    }
+    return candidates;
+  }
+
+  /** topic item 的 `analysisId` owner 守門（FR-27）：不存在 → false；apiKey→全可；session→自己或共享(null)。 */
+  private async canAccessAnalysis(analysisId: string, actor: AuthenticatedUser): Promise<boolean> {
+    const analysis = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { ownerId: true },
+    });
+    return analysis !== null && canAccess(analysis, actor);
   }
 
   /**
@@ -167,6 +293,21 @@ function toView(row: ListRow): TrackingListView {
 /** 單列越權/不存在的**同一** 404 訊息（不洩漏存在性，AC-27.3/27.4）。 */
 function notFoundMessage(listId: string): string {
   return `Tracking list ${listId} not found`;
+}
+
+/** 成員語境（geo/language）與清單層不符 → 400（AC-28.5，不默默改寫）。 */
+function contextMismatchMessage(geo: string, language: string): string {
+  return `Member geo/language must match the list context (geo=${geo}, language=${language})`;
+}
+
+/** 加入後成員數超過每清單上限 → 409（AC-28.7）。 */
+function limitMessage(max: number): string {
+  return `Tracking list member limit reached (max ${max})`;
+}
+
+/** 單批 `items` 數超過請求上限 → 400（NFR-16 DoS 前置守門，先於任何 DB 展開）。 */
+function tooManyItemsMessage(max: number): string {
+  return `Too many items in one request (max ${max})`;
 }
 
 /** Prisma 唯一鍵衝突（P2002）判定——`@@unique([ownerId,name])` 撞名（比照 keyword-analysis 慣例）。 */

@@ -1,6 +1,21 @@
 {
   "components": {
     "schemas": {
+      "AddMembersDto": {
+        "properties": {
+          "items": {
+            "description": "成員項（關鍵字列 / 主題列）",
+            "items": {
+              "$ref": "#/components/schemas/MemberItemDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "CreateKeywordAnalysisDto": {
         "properties": {
           "geo": {
@@ -96,6 +111,42 @@
         "required": [
           "email",
           "password"
+        ],
+        "type": "object"
+      },
+      "MemberItemDto": {
+        "properties": {
+          "analysisId": {
+            "description": "主題來源分析 id（kind=topic 必填）",
+            "type": "string"
+          },
+          "geo": {
+            "description": "該關鍵字來源分析的 geo 語境（kind=keyword 必填）",
+            "type": "string"
+          },
+          "kind": {
+            "description": "成員項判別：關鍵字列 / 主題列",
+            "enum": [
+              "keyword",
+              "topic"
+            ],
+            "type": "string"
+          },
+          "language": {
+            "description": "該關鍵字來源分析的 language 語境（kind=keyword 必填）",
+            "type": "string"
+          },
+          "text": {
+            "description": "關鍵字原字（kind=keyword 必填）；normalizedText 由伺服器導出",
+            "type": "string"
+          },
+          "topicName": {
+            "description": "主題名稱（kind=topic 必填）；展開為該分析最新 run 該群非-noise 關鍵字",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
         ],
         "type": "object"
       },
@@ -662,6 +713,39 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RenameTrackingListDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      }
+    },
+    "/api/v1/tracking-lists/{listId}/members": {
+      "post": {
+        "operationId": "TrackingListController_addMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMembersDto"
               }
             }
           },

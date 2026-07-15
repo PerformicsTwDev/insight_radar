@@ -12,10 +12,12 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { CurrentActor } from '../common/current-actor.decorator';
+import { AddMembersDto } from './dto/add-members.dto';
 import { CreateTrackingListDto } from './dto/create-tracking-list.dto';
 import { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
 import { TrackingListService } from './tracking-list.service';
 import type {
+  AddMembersResult,
   TrackingListDetail,
   TrackingListSummary,
   TrackingListView,
@@ -54,6 +56,20 @@ export class TrackingListController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<TrackingListDetail> {
     return this.service.getDetail(listId, actor);
+  }
+
+  /**
+   * 加成員（AC-28.4/28.5/28.7）：關鍵字列 / 主題列展開攤平、`normalizedText` 去重聯集。越權/不存在→404；
+   * 語境（geo/language）不符→400；達 `TRACKING_MAX_MEMBERS_PER_LIST`→409。回 `{ memberCount, added }`。
+   */
+  @Post(':listId/members')
+  @HttpCode(HttpStatus.OK)
+  addMembers(
+    @Param('listId') listId: string,
+    @Body() dto: AddMembersDto,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<AddMembersResult> {
+    return this.service.addMembers(listId, dto, actor);
   }
 
   /** 改名（AC-28.2）：越權/不存在→404；同 owner 重名→409。 */

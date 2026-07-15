@@ -94,6 +94,9 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.SESSION_COOKIE_NAME).toBe('sid');
       expect(value.SESSION_COOKIE_SECURE).toBe(true);
       expect(value.SESSION_COOKIE_SAMESITE).toBe('lax');
+      // M11 tracking 預設（Design §14；AC-28.7 成員上限、NFR-16 加成員請求上限）。
+      expect(value.TRACKING_MAX_MEMBERS_PER_LIST).toBe(500);
+      expect(value.TRACKING_MAX_ITEMS_PER_REQUEST).toBe(500);
     });
 
     it('fail-fasts when SESSION_SECRET is missing (M10 required secret, TC-63)', () => {

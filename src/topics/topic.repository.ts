@@ -6,6 +6,18 @@ import type { KeywordAssignment, TopicClusterRecord } from './assemble-assignmen
 import type { AssignmentRow, TopicClusterRow, TopicRunView } from './build-topics-response';
 import type { TopicRunStatus } from './topic-run.types';
 
+/**
+ * 主題列展開後的成員（T11.3，AC-28.4）：每字取 `normalizedText`/原字 `text`，並帶來源分析的 `geo`/`language`
+ * 語境（供追蹤清單語境守門 AC-28.5）。`geo`/`language` 取自 `KeywordAnalysis.params`，缺值時為 `undefined`
+ * （不猜、由呼叫端守門判定不符 → 400）。
+ */
+export interface ExpandedTopicMember {
+  normalizedText: string;
+  text: string;
+  geo: string | undefined;
+  language: string | undefined;
+}
+
 /** 建立 TopicRun 的輸入（params/progress 為已序列化 Json）。 */
 export interface CreateTopicRunInput {
   keywordAnalysisId: string;
@@ -173,6 +185,58 @@ export class TopicRepository {
       byNorm.set(data.normalizedText, data.text);
     }
     return byNorm;
+  }
+
+  /**
+   * 展開某分析**最新** topic run 中 `topicName` 群的**已指派非-noise** 關鍵字（T11.3，AC-28.4；供追蹤清單
+   * 主題列攤平）。原字取自 run 的 snapshot（缺 → fallback normalizedText）；`geo`/`language` 取該分析
+   * `params` 的語境（供語境守門 AC-28.5）。任一環節缺（分析不存在 / 無 run / 無此群 / 群無指派）→ **空集合**
+   * （不 throw、非錯誤）。
+   *
+   * 只取 `clusterId ∈ 目標群` 的指派——因 `noise ⟺ clusterId=null`（persist/assemble 不變式），故此篩選
+   * 已等同「已指派、非-noise」（spec 語意），毋須另判 `isNoise`（避免結構上不可達的 phantom 分支）。
+   */
+  async expandTopicToMembers(
+    analysisId: string,
+    topicName: string,
+  ): Promise<ExpandedTopicMember[]> {
+    const analysis = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { params: true },
+    });
+    if (!analysis) {
+      return [];
+    }
+    const params = analysis.params as { geo?: string; language?: string };
+
+    const run = await this.findLatestRunByAnalysis(analysisId);
+    if (!run) {
+      return [];
+    }
+
+    const targetClusterIds = new Set(
+      (await this.loadClusters(run.id))
+        .filter((cluster) => cluster.topicName === topicName)
+        .map((cluster) => cluster.clusterId),
+    );
+    if (targetClusterIds.size === 0) {
+      return [];
+    }
+
+    const assigned = (await this.loadAssignments(run.id)).filter(
+      (assignment) => assignment.clusterId !== null && targetClusterIds.has(assignment.clusterId),
+    );
+    if (assigned.length === 0) {
+      return [];
+    }
+
+    const textByNorm = await this.loadKeywordTexts(run.snapshotId);
+    return assigned.map((assignment) => ({
+      normalizedText: assignment.normalizedText,
+      text: textByNorm.get(assignment.normalizedText) ?? assignment.normalizedText,
+      geo: params.geo,
+      language: params.language,
+    }));
   }
 
   /** 寫入某 run 的所有群 + 每字指派（transaction 原子）。clusters 先寫以供 assignments 解析 clusterId。 */
