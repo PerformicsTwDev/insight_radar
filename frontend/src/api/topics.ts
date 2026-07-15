@@ -90,12 +90,28 @@ export type FetchTopicsResult =
  * snapshot-not-ready hint (undefined when the body is not an `ErrorResponse`). A
  * 202 without a valid `topicJobId` degrades to `ok:false`.
  */
-export async function startTopics(
-  _id: string,
-  _body?: StartTopicsBody,
-): Promise<StartTopicsResult> {
-  // RED stub (T3.3): not implemented — returns a wrong result so TC-41 fails.
-  return { ok: false, status: 0 };
+export async function startTopics(id: string, body?: StartTopicsBody): Promise<StartTopicsResult> {
+  const { data, error, response } = await api.POST('/api/v1/keyword-analyses/{id}/topics', {
+    params: { path: { id } },
+    // Body is under-documented in openapi (typed `Record<string, never>`); send the
+    // real (optional) payload cast-free via the serializer, which openapi-fetch calls
+    // whenever `body` is not undefined (`{}` satisfies the empty-record type).
+    body: {},
+    bodySerializer: () => JSON.stringify(body ?? {}),
+  });
+
+  if (response.ok) {
+    const parsed = StartTopicsResponseSchema.safeParse(data);
+    if (parsed.success) return { ok: true, topicJobId: parsed.data.topicJobId };
+    return { ok: false, status: response.status };
+  }
+
+  const parsedError = ErrorResponseSchema.safeParse(error);
+  return {
+    ok: false,
+    status: response.status,
+    error: parsedError.success ? parsedError.data : undefined,
+  };
 }
 
 /**
@@ -103,7 +119,14 @@ export async function startTopics(
  * On 2xx the (openapi-untyped) body is zod-validated as `TopicsResponse` →
  * `{ ok:true, topics }`; a parse failure or any non-2xx degrades to `ok:false`.
  */
-export async function fetchTopics(_id: string): Promise<FetchTopicsResult> {
-  // RED stub (T3.3): not implemented — returns a wrong result so TC-41 fails.
-  return { ok: false, status: 0 };
+export async function fetchTopics(id: string): Promise<FetchTopicsResult> {
+  const { data, response } = await api.GET('/api/v1/keyword-analyses/{id}/topics', {
+    params: { path: { id } },
+  });
+  if (response.ok) {
+    const parsed = TopicsResponseSchema.safeParse(data);
+    if (parsed.success) return { ok: true, topics: parsed.data };
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
 }

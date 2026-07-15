@@ -45,10 +45,20 @@ export interface JobTracking {
   readonly cancel: () => Promise<void>;
 }
 
-/** Pure SSE stream URL builder (`apiBaseUrl` empty → same-origin). */
-export function buildStreamUrl(analysisId: string, apiBaseUrl: string, origin: string): string {
+/**
+ * Pure SSE stream URL builder (`apiBaseUrl` empty → same-origin). `streamPath` is
+ * the analysis-scoped sub-path and defaults to the main-analysis stream (`stream`);
+ * the topics view reuses this machine by passing `topics/stream` (T3.3), so all
+ * existing callers stay unchanged.
+ */
+export function buildStreamUrl(
+  analysisId: string,
+  apiBaseUrl: string,
+  origin: string,
+  streamPath = 'stream',
+): string {
   const base = apiBaseUrl || origin;
-  return `${base}/api/v1/keyword-analyses/${encodeURIComponent(analysisId)}/stream`;
+  return `${base}/api/v1/keyword-analyses/${encodeURIComponent(analysisId)}/${streamPath}`;
 }
 
 /** Default factory: real `EventSource` (with credentials) when the platform has one, else `null`. */
@@ -70,9 +80,11 @@ function toDbStatusEvent(status: KeywordAnalysisStatus): JobEvent {
 
 export function useJobTracking(
   analysisId: string | undefined,
-  options?: { eventSourceFactory?: EventSourceFactory },
+  options?: { eventSourceFactory?: EventSourceFactory; streamPath?: string },
 ): JobTracking {
   const factory = options?.eventSourceFactory ?? defaultEventSourceFactory;
+  // Which analysis-scoped SSE sub-path to open (`stream` main / `topics/stream` T3.3).
+  const streamPath = options?.streamPath ?? 'stream';
   const [state, dispatch] = useReducer(jobReducer, undefined, initialJobState);
   const queryClient = useQueryClient();
 
@@ -104,7 +116,9 @@ export function useJobTracking(
     if (!analysisId) return;
     if (state.transport !== 'sse') return;
 
-    const source = factory(buildStreamUrl(analysisId, config.apiBaseUrl, window.location.origin));
+    const source = factory(
+      buildStreamUrl(analysisId, config.apiBaseUrl, window.location.origin, streamPath),
+    );
     if (!source) {
       dispatch({ type: 'sse_error' }); // no EventSource on this platform → poll fallback
       return;
@@ -140,7 +154,7 @@ export function useJobTracking(
       source.close();
       clearInterval(heartbeat);
     };
-  }, [analysisId, state.transport, factory]);
+  }, [analysisId, state.transport, factory, streamPath]);
 
   // C3 confirmation: SSE `completed` → confirming → fetch DB truth → completed | partial.
   useEffect(() => {
