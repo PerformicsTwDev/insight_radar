@@ -23,6 +23,16 @@ describe('TC-20 · FeatureGate (feature-gate 覆層四態)', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
+  it('not_generated → renders a custom notice in place of the default message when provided', () => {
+    render(
+      <FeatureGate status="not_generated" notice="請先完成關鍵字分析" onStart={() => {}}>
+        {CONTENT}
+      </FeatureGate>,
+    );
+    expect(screen.getByText('請先完成關鍵字分析')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /開始分析/ })).toBeInTheDocument();
+  });
+
   it('running → renders the provided progress node, not the content', () => {
     render(
       <FeatureGate status="running" progress={<span>分析中 42%</span>}>

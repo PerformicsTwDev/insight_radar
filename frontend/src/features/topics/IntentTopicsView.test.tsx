@@ -141,7 +141,7 @@ describe('TC-19 · IntentTopicsView (gate 四態 → 主題表)', () => {
     await waitFor(() => expect(posted).toBe(true));
   });
 
-  it('start failure (409 snapshot not ready) → settles into the failed state', async () => {
+  it('start failure (409 snapshot not ready) → shows the finish-analysis-first hint, NOT a generic failure/retry (FR-8 boundary)', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/topics', () =>
         HttpResponse.json({ statusCode: 409, code: 'snapshot_not_ready' }, { status: 409 }),
@@ -150,7 +150,34 @@ describe('TC-19 · IntentTopicsView (gate 四態 → 主題表)', () => {
     renderView({});
 
     fireEvent.click(screen.getByRole('button', { name: /開始分析/ }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /重試/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/先完成關鍵字分析/)).toBeInTheDocument());
+    // Not a failed run — no "分析失敗/重試"; the CTA stays available for after the base analysis finishes.
+    expect(screen.queryByRole('button', { name: /重試/ })).not.toBeInTheDocument();
+  });
+
+  it('start failure (425 snapshot not ready) → same finish-analysis-first hint', async () => {
+    server.use(
+      http.post(
+        '/api/v1/keyword-analyses/:id/topics',
+        () => new HttpResponse(null, { status: 425 }),
+      ),
+    );
+    renderView({});
+
+    fireEvent.click(screen.getByRole('button', { name: /開始分析/ }));
+    await waitFor(() => expect(screen.getByText(/先完成關鍵字分析/)).toBeInTheDocument());
+  });
+
+  it('ready + topics.status=partial → shows the 主題表 AND a partial notice (C3; authoritative TopicsResponse.status)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/topics', () =>
+        HttpResponse.json({ ...TOPICS_BODY, status: 'partial' }),
+      ),
+    );
+    renderView({ topics: { status: 'ready' } });
+
+    await waitFor(() => expect(screen.getByText('線上課程比較')).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent(/部分/);
   });
 
   it('running → SSE failed → settles into the failed state', async () => {
