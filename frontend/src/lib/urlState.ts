@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SORT_DIRS, SORT_FIELDS, type SortBy, type SortDir } from './pagination';
 
 /**
  * URL-is-state serialization (Design §5 「URL 即狀態」; FR-1 / TC-11). Pure `core`
@@ -34,6 +35,8 @@ export interface AppSearch {
   readonly page?: number;
   readonly pageSize?: number;
   readonly cursor?: string;
+  readonly sortBy?: SortBy;
+  readonly sortDir?: SortDir;
   readonly filters?: string;
 }
 
@@ -52,6 +55,10 @@ const AppSearchSchema = z.object({
   page: pageNumber,
   pageSize: pageNumber,
   cursor: z.string().min(1).optional().catch(undefined),
+  // Sort is part of the shared search schema (T2.6); an unknown column / direction
+  // normalises to undefined (server default sort) rather than throwing (TC-11).
+  sortBy: z.enum(SORT_FIELDS).optional().catch(undefined),
+  sortDir: z.enum(SORT_DIRS).optional().catch(undefined),
   filters: z.string().min(1).optional().catch(undefined),
 });
 
@@ -70,6 +77,8 @@ export function serialize(state: AppSearch): Record<string, string> {
   if (state.page !== undefined) out.page = String(state.page);
   if (state.pageSize !== undefined) out.pageSize = String(state.pageSize);
   if (state.cursor !== undefined) out.cursor = state.cursor;
+  if (state.sortBy !== undefined) out.sortBy = state.sortBy;
+  if (state.sortDir !== undefined) out.sortDir = state.sortDir;
   if (state.filters !== undefined) out.filters = state.filters;
   return out;
 }
@@ -91,6 +100,8 @@ export function deserialize(raw: unknown): AppSearch {
   if (parsed.page !== undefined) out.page = parsed.page;
   if (parsed.pageSize !== undefined) out.pageSize = parsed.pageSize;
   if (parsed.cursor !== undefined) out.cursor = parsed.cursor;
+  if (parsed.sortBy !== undefined) out.sortBy = parsed.sortBy;
+  if (parsed.sortDir !== undefined) out.sortDir = parsed.sortDir;
   if (parsed.filters !== undefined) out.filters = parsed.filters;
   return out;
 }

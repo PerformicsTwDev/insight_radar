@@ -61,4 +61,24 @@ describe('TC-17 · KeywordsFilters (router-bound URL sync)', () => {
     fireEvent.click(screen.getByRole('button', { name: '清除全部' }));
     await waitFor(() => expect(router.state.location.search.filters).toBeUndefined());
   });
+
+  it('resets pagination (drops page + cursor) on a filter change (C5 — stale cursor)', async () => {
+    // Start deep-paged in keyset mode; a filter change must not carry the stale cursor.
+    const router = renderInRouter('/?page=45&cursor=abc');
+    expect(router.state.location.search.page).toBe(45);
+    expect(router.state.location.search.cursor).toBe('abc');
+
+    const chip = await screen.findByRole('button', { name: /搜尋詞/ });
+    fireEvent.click(chip);
+    const pop = within(screen.getByRole('group', { name: '搜尋詞 篩選' }));
+    fireEvent.change(pop.getByLabelText('包含'), { target: { value: 'x' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+
+    await waitFor(() =>
+      expect(router.state.location.search.filters).toBe(serializeFiltersToUrl({ q: 'x' })),
+    );
+    // C5: the old page position + the cursor minted against the old row set are gone.
+    expect(router.state.location.search.page).toBeUndefined();
+    expect(router.state.location.search.cursor).toBeUndefined();
+  });
 });
