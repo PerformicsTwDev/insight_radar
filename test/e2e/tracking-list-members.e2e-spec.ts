@@ -94,6 +94,11 @@ function makeFakeDb(users: UserRow[]) {
       findUnique: ({ where }: { where: { id?: string } }): Promise<UserRow | null> =>
         Promise.resolve(where.id ? (userMap.get(where.id) ?? null) : null),
     },
+    // topic item 的 analysisId owner 守門（M3-review 安全修）：e2e 視所有分析為 null-owner（共享、可存取）
+    // → 主題展開照常；**跨 owner / 不存在的守門於 integration（真 DB）驗**（此處只需讓存取判定通過）。
+    keywordAnalysis: {
+      findUnique: (): Promise<{ ownerId: string | null }> => Promise.resolve({ ownerId: null }),
+    },
     trackingList: {
       create: ({
         data,

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable } from '@nes
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../common/authenticated-user';
-import { assertOwnedRow, ownerIdOf, ownerWhere } from '../common/owner-scope';
+import { assertOwnedRow, canAccess, ownerIdOf, ownerWhere } from '../common/owner-scope';
 import { trackingConfig } from '../config/tracking.config';
 import { normalizeText } from '../google-ads/normalize';
 import { PrismaService } from '../prisma/prisma.service';
@@ -147,7 +147,7 @@ export class TrackingListService {
     });
     assertOwnedRow(list, actor, notFoundMessage(listId));
 
-    const candidates = await this.expandItems(dto.items);
+    const candidates = await this.expandItems(dto.items, actor);
 
     // 語境守門（AC-28.5）：任一展開後關鍵字來源 geo/language 與清單層不符 → 400（不默默改寫）。
     for (const candidate of candidates) {
@@ -192,9 +192,13 @@ export class TrackingListService {
   /**
    * 把 `items` 展開攤平為候選成員（帶來源 geo/language 語境，供語境守門）：關鍵字列 `normalizedText` 由
    * 伺服器 `normalizeText(text)` 導出（S4，不由 client 給）；主題列經 `TopicRepository.expandTopicToMembers`
-   * 展開為該群非-noise 關鍵字（無此群 / 無 run → 空集合，AC-28.4）。
+   * 展開為該群非-noise 關鍵字（無此群 / 無 run → 空集合，AC-28.4）。**`analysisId` 受 owner-scope（FR-27）**：
+   * actor 不可存取（他人 owner）或不存在的分析 → 該 item 展開為**空集合**（與不存在不可區分，不跨 owner 讀）。
    */
-  private async expandItems(items: MemberItem[]): Promise<ExpandedTopicMember[]> {
+  private async expandItems(
+    items: MemberItem[],
+    actor: AuthenticatedUser,
+  ): Promise<ExpandedTopicMember[]> {
     const candidates: ExpandedTopicMember[] = [];
     for (const item of items) {
       if (item.kind === 'keyword') {
@@ -204,13 +208,23 @@ export class TrackingListService {
           geo: item.geo,
           language: item.language,
         });
-      } else {
+      } else if (await this.canAccessAnalysis(item.analysisId, actor)) {
         candidates.push(
           ...(await this.topics.expandTopicToMembers(item.analysisId, item.topicName)),
         );
       }
+      // 不可存取 / 不存在的 topic analysisId → 不展開（空集合，FR-27，不洩漏存在性）。
     }
     return candidates;
+  }
+
+  /** topic item 的 `analysisId` owner 守門（FR-27）：不存在 → false；apiKey→全可；session→自己或共享(null)。 */
+  private async canAccessAnalysis(analysisId: string, actor: AuthenticatedUser): Promise<boolean> {
+    const analysis = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { ownerId: true },
+    });
+    return analysis !== null && canAccess(analysis, actor);
   }
 
   /**

@@ -83,6 +83,7 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
   /** 建父分析（params 帶 geo/language 語境），回 analysisId。 */
   async function seedAnalysis(
     params: Prisma.InputJsonObject = { geo: 'TW', language: 'zh-TW', mode: 'expand' },
+    ownerId: string | null = null,
   ): Promise<string> {
     const analysisId = randomUUID();
     await prisma.keywordAnalysis.create({
@@ -93,7 +94,7 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
         params,
         progress: {},
         idempotencyKey: `idem-${analysisId}`,
-        ownerId: null,
+        ownerId,
       },
     });
     return analysisId;
@@ -106,8 +107,9 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
    */
   async function seedRun(
     params: Prisma.InputJsonObject = { geo: 'TW', language: 'zh-TW', mode: 'expand' },
+    ownerId: string | null = null,
   ): Promise<string> {
-    const analysisId = await seedAnalysis(params);
+    const analysisId = await seedAnalysis(params, ownerId);
     const snapshotId = randomUUID();
     await prisma.resultSnapshot.create({
       data: { id: snapshotId, analysisId, keywordCount: 4, checksum: 'chk' },
@@ -266,6 +268,31 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
       const res = await svc.addMembers(
         list.listId,
         { items: [{ kind: 'topic', analysisId, topicName: 'Nonexistent' }] },
+        SESSION_A,
+      );
+      expect(res).toEqual({ memberCount: 0, added: 0 });
+    });
+
+    it('topic analysisId 屬他人 owner → 不展開（空集合，不跨 owner 讀，FR-27）', async () => {
+      // B 擁有的分析（非 null 共享）；A 不可存取 → 主題展開為空、無 B 的關鍵字外洩。
+      const analysisId = await seedRun({ geo: 'TW', language: 'zh-TW', mode: 'expand' }, OWNER_B);
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      const res = await svc.addMembers(
+        list.listId,
+        { items: [{ kind: 'topic', analysisId, topicName: 'Coffee' }] },
+        SESSION_A,
+      );
+      expect(res).toEqual({ memberCount: 0, added: 0 });
+      expect(await memberNorms(list.listId)).toEqual([]);
+    });
+
+    it('topic analysisId 不存在 → 不展開（空集合，與越權不可區分）', async () => {
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      const res = await svc.addMembers(
+        list.listId,
+        { items: [{ kind: 'topic', analysisId: randomUUID(), topicName: 'Coffee' }] },
         SESSION_A,
       );
       expect(res).toEqual({ memberCount: 0, added: 0 });
