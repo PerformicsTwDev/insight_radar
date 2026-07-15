@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { api } from './client';
-import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
+import {
+  ANALYSIS_STATUSES,
+  ErrorResponseSchema,
+  type ErrorResponse,
+  type StatusFetch,
+} from './keywordAnalyses';
 
 /**
  * Typed egress for the intent-topics job (T3.3, FR-8; TC-41). Business code calls
@@ -129,4 +134,23 @@ export async function fetchTopics(id: string): Promise<FetchTopicsResult> {
     return { ok: false, status: response.status };
   }
   return { ok: false, status: response.status };
+}
+
+/**
+ * Topics-scoped DB-status source for `useJobTracking` (T3.3 / M3-R1). Reads the
+ * topics run's **own** `status` from `GET :id/topics` and maps it to the shared
+ * {@link StatusFetch}, so the topics job's C3-confirm + poll fallback never settle
+ * off the (already-terminal) MAIN analysis's status. 404 → not-found terminal; any
+ * other non-2xx, or an unrecognised status string, → `unavailable` (keep polling).
+ */
+export async function fetchTopicsStatus(id: string): Promise<StatusFetch> {
+  const res = await fetchTopics(id);
+  if (!res.ok) {
+    return res.status === 404 ? { kind: 'not_found' } : { kind: 'unavailable' };
+  }
+  const status = ANALYSIS_STATUSES.find((s) => s === res.topics.status);
+  if (!status) {
+    return { kind: 'unavailable' };
+  }
+  return { kind: 'ok', status: { status } };
 }

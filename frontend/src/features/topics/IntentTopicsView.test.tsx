@@ -268,7 +268,9 @@ describe('TC-19 · IntentTopicsView (M3-R1: topics job settles from the topics r
 
     await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
     // The topics SSE stream drops → transport falls back to poll.
-    act(() => FakeEventSource.last().onerror?.(new Event('error')));
+    act(() => {
+      FakeEventSource.last().onerror?.(new Event('error'));
+    });
 
     // Wait for the fallback to settle (a topics fetch happens either way).
     await waitFor(() => expect(topicsHits).toBeGreaterThan(0));

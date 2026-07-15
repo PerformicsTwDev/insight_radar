@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from './msw/server';
-import { fetchTopics, startTopics } from './topics';
+import { fetchTopics, fetchTopicsStatus, startTopics } from './topics';
 
 /**
  * TC-41 (FR-8) — the intent-topics job egress contract. `POST :id/topics` returns
@@ -153,5 +153,53 @@ describe('TC-41 · fetchTopics (GET :id/topics)', () => {
     server.use(http.get(GET_PATH, () => new HttpResponse(null, { status: 404 })));
 
     expect(await fetchTopics(ID)).toEqual({ ok: false, status: 404 });
+  });
+});
+
+const TOPICS = {
+  status: 'running',
+  progress: null,
+  clusters: [],
+  keywords: [],
+  meta: { runId: 'r', snapshotId: 's', clusterCount: null, noiseCount: null },
+};
+
+describe('M3-R1 · fetchTopicsStatus (topics-scoped DB status → StatusFetch)', () => {
+  it('maps a valid topics run status to { kind: ok }', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/topics', () =>
+        HttpResponse.json({ ...TOPICS, status: 'partial' }),
+      ),
+    );
+    expect(await fetchTopicsStatus('id')).toEqual({ kind: 'ok', status: { status: 'partial' } });
+  });
+
+  it('maps a 404 (no topics run) to not_found', async () => {
+    server.use(
+      http.get(
+        '/api/v1/keyword-analyses/:id/topics',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+    expect(await fetchTopicsStatus('id')).toEqual({ kind: 'not_found' });
+  });
+
+  it('maps any other non-2xx to unavailable (keep polling)', async () => {
+    server.use(
+      http.get(
+        '/api/v1/keyword-analyses/:id/topics',
+        () => new HttpResponse(null, { status: 503 }),
+      ),
+    );
+    expect(await fetchTopicsStatus('id')).toEqual({ kind: 'unavailable' });
+  });
+
+  it('maps an unrecognised status string to unavailable', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/topics', () =>
+        HttpResponse.json({ ...TOPICS, status: 'weird' }),
+      ),
+    );
+    expect(await fetchTopicsStatus('id')).toEqual({ kind: 'unavailable' });
   });
 });
