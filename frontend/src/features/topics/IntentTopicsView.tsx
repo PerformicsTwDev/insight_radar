@@ -1,10 +1,42 @@
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { FeatureGate } from '../../components/FeatureGate';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { featureStatusOf } from '../../lib/featureGate';
 import { JobProgress } from '../job/JobProgress';
 import { TopicsTable } from './TopicsTable';
+import { TopicsTreemap } from './TopicsTreemap';
 import { useTopics } from './useTopics';
+import type { TopicsResponse } from '../../api/topics';
 import type { EventSourceFactory } from '../job/useJobTracking';
+
+/** 表格|圖表 toggle options (T3.4); `table` is the default so T3.3 behaviour is unchanged. */
+const TOPIC_VIEW_OPTIONS = [
+  { value: 'table', label: '表格' },
+  { value: 'chart', label: '圖表' },
+] as const;
+
+type TopicView = (typeof TOPIC_VIEW_OPTIONS)[number]['value'];
+
+/**
+ * Ready-state content (T3.4): a 表格|圖表 segmented switching between the 主題表 and
+ * the treemap. Local UI state only — this mounts solely inside the FeatureGate
+ * `ready` branch (its `children`), so the segmented never shows in the CTA / running
+ * / failed states. Default 表格 keeps the T3.3 "ready → 主題表" behaviour intact.
+ */
+function TopicsReadyContent({ topics }: { topics: TopicsResponse | undefined }): ReactElement {
+  const [view, setView] = useState<TopicView>('table');
+  return (
+    <div className="flex flex-col gap-3">
+      <SegmentedControl
+        options={TOPIC_VIEW_OPTIONS}
+        value={view}
+        onChange={setView}
+        ariaLabel="主題檢視方式"
+      />
+      {view === 'table' ? <TopicsTable topics={topics} /> : <TopicsTreemap topics={topics} />}
+    </div>
+  );
+}
 
 /**
  * 意圖主題視圖 container (T3.3, FR-8; TC-19). Reads the `topics` gate status from
@@ -42,7 +74,7 @@ export function IntentTopicsView({
       onRetry={() => void start()}
       progress={<JobProgress state={jobState} />}
     >
-      <TopicsTable topics={topics} />
+      <TopicsReadyContent topics={topics} />
     </FeatureGate>
   );
 }
