@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifySeries, classifyTrend, trendPercent, type TrendType } from './trend';
+import { classifySeries, classifyTrend, trendPercent, trendTooltip, type TrendType } from './trend';
 import type { MonthlyVolumePoint } from './sparkline';
 
 /**
@@ -82,5 +82,32 @@ describe('TC-1+2 · classifySeries (series → { type, percent } | no_data)', ()
 
   it('returns no_data for an all-null series', () => {
     expect(classifySeries(vol([null, null]), STABLE_MAX, SURGE_MIN)).toEqual({ kind: 'no_data' });
+  });
+});
+
+describe('TC-1+21 · trendTooltip (FR-21 sparkline hover text: 型別 + %)', () => {
+  it('formats a growth trend with a + sign', () => {
+    expect(trendTooltip(vol([1000, 1125]), STABLE_MAX, SURGE_MIN)).toBe('成長型 +12.5%');
+  });
+
+  it('formats a surge trend with a + sign', () => {
+    expect(trendTooltip(vol([100, 200]), STABLE_MAX, SURGE_MIN)).toBe('爆發型 +100.0%');
+  });
+
+  it('formats a decline trend (already negative — no extra +)', () => {
+    expect(trendTooltip(vol([200, 100]), STABLE_MAX, SURGE_MIN)).toBe('回落型 -50.0%');
+  });
+
+  it('formats a stable trend', () => {
+    expect(trendTooltip(vol([100, 103]), STABLE_MAX, SURGE_MIN)).toBe('穩定型 +3.0%');
+  });
+
+  it('returns null when the series has no classifiable trend (first non-null 0)', () => {
+    expect(trendTooltip(vol([0, 100]), STABLE_MAX, SURGE_MIN)).toBeNull();
+  });
+
+  it('returns null for a < 2-point / all-null series', () => {
+    expect(trendTooltip(vol([100]), STABLE_MAX, SURGE_MIN)).toBeNull();
+    expect(trendTooltip(vol([null, null]), STABLE_MAX, SURGE_MIN)).toBeNull();
   });
 });

@@ -1,6 +1,8 @@
 import type { ReactElement } from 'react';
 import { buildSparkline, type MonthlyVolumePoint } from '../../lib/sparkline';
 import { EM_DASH } from '../../lib/keywordsTable';
+import { trendTooltip } from '../../lib/trend';
+import { config } from '../../config/env';
 
 /**
  * Self-drawn SVG sparkline cell for the 搜尋趨勢 column (T2.2, FR-4). The pure
@@ -33,6 +35,9 @@ export function SparklineCell({ volumes }: SparklineCellProps): ReactElement {
   }
 
   const { width, height, segments } = result.geometry;
+  // FR-21: the hover tooltip shows the trend 型別 + %. Null when the series can't be
+  // classified (e.g. first non-null is 0) → draw the sparkline without a trend label.
+  const tooltip = trendTooltip(volumes, config.trendStableMax, config.trendSurgeMin);
   return (
     <svg
       role="img"
@@ -42,6 +47,7 @@ export function SparklineCell({ volumes }: SparklineCellProps): ReactElement {
       viewBox={`0 0 ${width} ${height}`}
       className="overflow-visible"
     >
+      {tooltip ? <title>{tooltip}</title> : null}
       {segments.map((segment, index) =>
         segment.length === 1 ? (
           // 斷點兩側的孤立單點以圓點呈現（polyline 需 >=2 點才可見），仍是真實資料而非 0。
