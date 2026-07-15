@@ -24,6 +24,12 @@ export interface FeatureGateProps {
   readonly progress?: ReactNode;
   /** `ready` but the data is partial → show a partial notice alongside the content (FR-9). */
   readonly partial?: boolean;
+  /**
+   * Overrides the `not_generated` message. Used for a prerequisite hint (e.g. a
+   * gate whose base data is not ready yet — "請先完成…") instead of the default
+   * "尚未進行…分析", while keeping the CTA available.
+   */
+  readonly notice?: ReactNode;
 }
 
 export function FeatureGate({
@@ -34,12 +40,13 @@ export function FeatureGate({
   onRetry,
   progress,
   partial = false,
+  notice,
 }: FeatureGateProps): ReactElement {
   switch (status) {
     case 'not_generated':
       return (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-white/10 bg-bg-card p-8 text-center">
-          <p className="text-sm text-white/60">尚未進行{featureLabel}分析</p>
+          <p className="text-sm text-white/60">{notice ?? `尚未進行${featureLabel}分析`}</p>
           <button
             type="button"
             onClick={onStart}
