@@ -126,6 +126,11 @@ describe('TC-35 · buildStreamUrl', () => {
       'https://api.example.com/api/v1/keyword-analyses/id1/stream',
     );
   });
+  it('appends a custom stream sub-path when provided (topics stream reuse, T3.3)', () => {
+    expect(buildStreamUrl('id1', '', 'http://localhost:3000', 'topics/stream')).toBe(
+      'http://localhost:3000/api/v1/keyword-analyses/id1/topics/stream',
+    );
+  });
 });
 
 describe('TC-35 · useJobTracking SSE parsing (progress / completed / failed / comment)', () => {
