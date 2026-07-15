@@ -147,4 +147,8 @@ export const validationSchema = Joi.object({
     .pattern(/^v\d+$/)
     .default('v1'),
   TOPICS_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3), // topics BullMQ worker 並發
+
+  // —— Tracking（M11，FR-28/29；Design §14/§17.3）——
+  // 每清單成員數上限（AC-28.7）；達上限再加入 → 409（保護每月 Ads 配額，NFR-16）。其餘 TRACKING_* 由 T11.8 補齊。
+  TRACKING_MAX_MEMBERS_PER_LIST: Joi.number().integer().min(1).default(500),
 });

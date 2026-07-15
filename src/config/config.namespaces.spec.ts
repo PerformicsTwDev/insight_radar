@@ -6,6 +6,7 @@ import { clusteringConfig } from './clustering.config';
 import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
 import { topicsConfig } from './topics.config';
+import { trackingConfig } from './tracking.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
 import { queryConfig } from './query.config';
@@ -89,6 +90,7 @@ const ENV: Record<string, string> = {
   TOPIC_PROMPT_VERSION: 'v1',
   TOPIC_SCHEMA_VERSION: 'v1',
   TOPICS_QUEUE_CONCURRENCY: '3',
+  TRACKING_MAX_MEMBERS_PER_LIST: '500',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -240,6 +242,12 @@ describe('config namespaces (registerAs, typed)', () => {
       maxPageSize: 200,
       aggMaxBuckets: 200,
       aggMaxGroups: 1000,
+    });
+  });
+
+  it('trackingConfig maps member-limit env (coerced to number; M11)', () => {
+    expect(trackingConfig()).toEqual({
+      maxMembersPerList: 500,
     });
   });
 });

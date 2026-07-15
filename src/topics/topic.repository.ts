@@ -1,10 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotImplementedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma';
 import type { KeywordAssignment, TopicClusterRecord } from './assemble-assignments';
 import type { AssignmentRow, TopicClusterRow, TopicRunView } from './build-topics-response';
 import type { TopicRunStatus } from './topic-run.types';
+
+/**
+ * 主題列展開後的成員（T11.3，AC-28.4）：每字取 `normalizedText`/原字 `text`，並帶來源分析的 `geo`/`language`
+ * 語境（供追蹤清單語境守門 AC-28.5）。`geo`/`language` 取自 `KeywordAnalysis.params`，缺值時為 `undefined`
+ * （不猜、由呼叫端守門判定不符 → 400）。
+ */
+export interface ExpandedTopicMember {
+  normalizedText: string;
+  text: string;
+  geo: string | undefined;
+  language: string | undefined;
+}
 
 /** 建立 TopicRun 的輸入（params/progress 為已序列化 Json）。 */
 export interface CreateTopicRunInput {
@@ -173,6 +185,14 @@ export class TopicRepository {
       byNorm.set(data.normalizedText, data.text);
     }
     return byNorm;
+  }
+
+  /**
+   * 展開某分析最新 topic run 中 `topicName` 群的**已指派非-noise** 關鍵字（T11.3，AC-28.4）——**RED shell**：
+   * typed not-implemented 空殼；GREEN 於下一 commit 實作。
+   */
+  expandTopicToMembers(_analysisId: string, _topicName: string): Promise<ExpandedTopicMember[]> {
+    throw new NotImplementedException('T11.3 expandTopicToMembers not implemented (RED shell)');
   }
 
   /** 寫入某 run 的所有群 + 每字指派（transaction 原子）。clusters 先寫以供 assignments 解析 clusterId。 */

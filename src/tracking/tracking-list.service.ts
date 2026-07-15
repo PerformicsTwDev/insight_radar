@@ -1,8 +1,12 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotImplementedException } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { assertOwnedRow, ownerIdOf, ownerWhere } from '../common/owner-scope';
+import { trackingConfig } from '../config/tracking.config';
 import { PrismaService } from '../prisma/prisma.service';
+import { TopicRepository } from '../topics/topic.repository';
+import type { AddMembersDto } from './dto/add-members.dto';
 import type { CreateTrackingListDto } from './dto/create-tracking-list.dto';
 import type { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
 
@@ -18,6 +22,12 @@ export interface TrackingListView {
 /** 清單列表列（FR-28，AC-28.3）：基本面 + `memberCount`（Prisma `_count`）。 */
 export interface TrackingListSummary extends TrackingListView {
   memberCount: number;
+}
+
+/** 加成員回應（AC-28.4）：`added`＝實際新增數；`memberCount`＝加入後清單總成員數。 */
+export interface AddMembersResult {
+  memberCount: number;
+  added: number;
 }
 
 /** 成員基本面（FR-28；時序讀取＝FR-30/T11.7，非本任務）。 */
@@ -52,7 +62,11 @@ type ListRow = {
  */
 @Injectable()
 export class TrackingListService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly topics: TopicRepository,
+    @Inject(trackingConfig.KEY) private readonly config: ConfigType<typeof trackingConfig>,
+  ) {}
 
   /**
    * 建立清單（AC-28.1）：`ownerId` 由 actor 決定（session→id、apiKey→null）；geo/language 固定於清單層
@@ -107,6 +121,23 @@ export class TrackingListService {
         lastCheckedAt: m.lastCheckedAt,
       })),
     };
+  }
+
+  /**
+   * 加成員（AC-28.4/28.5/28.7）——T11.3。**RED shell**：typed not-implemented 空殼（`.claude/rules/
+   * test-authoring.md` §1），供 TC-64 member 測試斷言紅；GREEN 於下一 commit 實作。
+   */
+  addMembers(
+    _listId: string,
+    _dto: AddMembersDto,
+    _actor: AuthenticatedUser,
+  ): Promise<AddMembersResult> {
+    // GREEN 以 `this.topics`（主題展開）+ `this.config`（成員上限）實作；此處引用注入依賴以通過
+    // noUnusedLocals（下一 commit 取代整個方法本體）。
+    throw new NotImplementedException(
+      `T11.3 addMembers not implemented (RED shell): topics=${this.topics.constructor.name}` +
+        ` max=${this.config.maxMembersPerList}`,
+    );
   }
 
   /**
