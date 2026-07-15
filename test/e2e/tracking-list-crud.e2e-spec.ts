@@ -76,6 +76,7 @@ function makeFakeTrackingDb(users: UserRow[]) {
   const members: MemberRow[] = [];
   const userMap = new Map(users.map((u) => [u.id, u]));
   let nextCreateError: Error | null = null;
+  let nextUpdateError: Error | null = null;
 
   const memberCount = (listId: string): number => members.filter((m) => m.listId === listId).length;
 
@@ -98,9 +99,13 @@ function makeFakeTrackingDb(users: UserRow[]) {
       lists.clear();
       members.length = 0;
       nextCreateError = null;
+      nextUpdateError = null;
     },
     failNextCreate(error: Error): void {
       nextCreateError = error;
+    },
+    failNextUpdate(error: Error): void {
+      nextUpdateError = error;
     },
     seedMember(listId: string, normalizedText: string, text: string): void {
       members.push({ listId, normalizedText, text, addedAt: new Date(), lastCheckedAt: null });
@@ -198,6 +203,11 @@ function makeFakeTrackingDb(users: UserRow[]) {
         where: { id: string };
         data: { name?: string };
       }): Promise<ListRow> => {
+        if (nextUpdateError) {
+          const err = nextUpdateError;
+          nextUpdateError = null;
+          return Promise.reject(err);
+        }
         const row = lists.get(where.id);
         if (!row) {
           return Promise.reject(p2002(['id'])); // service 已先 assertOwnedRow，此路徑不預期
@@ -469,6 +479,13 @@ describe('TrackingList CRUD (e2e · TC-64 · FR-28/27)', () => {
       const second = (await createAs(cookieA, { ...validBody, name: 'second' })).body as ListView;
       const res = await rename(cookieA, second.listId, 'first');
       expect(res.status).toBe(409);
+    });
+
+    it('非 P2002 的 DB 錯誤（改名）→ 不吞、原樣上拋（500，非 409）', async () => {
+      const a = (await createAs(cookieA, validBody)).body as ListView;
+      db.failNextUpdate(new Error('connection reset'));
+      const res = await rename(cookieA, a.listId, 'Trail shoes');
+      expect(res.status).toBe(500);
     });
 
     it('缺 name → 400', async () => {
