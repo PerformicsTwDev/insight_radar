@@ -214,3 +214,38 @@ describe('TC-19 · IntentTopicsView (gate 四態 → 主題表)', () => {
     await waitFor(() => expect(screen.getByText(/尚無主題資料/)).toBeInTheDocument());
   });
 });
+
+describe('TC-19 (圖表) · IntentTopicsView 表格|圖表 segmented (T3.4)', () => {
+  it('ready → shows the 表格|圖表 segmented, defaulting to the 主題表 (not the treemap)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/topics', () => HttpResponse.json(TOPICS_BODY)),
+    );
+    renderView({ topics: { status: 'ready' } });
+
+    await waitFor(() => expect(screen.getByText('線上課程比較')).toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: '表格' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '圖表' })).toHaveAttribute('aria-selected', 'false');
+    // default view is the table, not the treemap
+    expect(screen.getByRole('table', { name: '意圖主題表' })).toBeInTheDocument();
+    expect(screen.queryByTestId('tm-cell')).not.toBeInTheDocument();
+  });
+
+  it('clicking 圖表 swaps the 主題表 for the treemap surface', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/topics', () => HttpResponse.json(TOPICS_BODY)),
+    );
+    renderView({ topics: { status: 'ready' } });
+
+    await waitFor(() => expect(screen.getByText('線上課程比較')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('tab', { name: '圖表' }));
+
+    expect(screen.getByTestId('tm-cell')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: '意圖主題表' })).not.toBeInTheDocument();
+  });
+
+  it('does NOT show the segmented outside the ready state (e.g. not_generated)', () => {
+    renderView({});
+    expect(screen.getByText(/尚未進行意圖主題分析/)).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  });
+});
