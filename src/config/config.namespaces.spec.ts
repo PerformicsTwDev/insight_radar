@@ -91,6 +91,7 @@ const ENV: Record<string, string> = {
   TOPIC_SCHEMA_VERSION: 'v1',
   TOPICS_QUEUE_CONCURRENCY: '3',
   TRACKING_MAX_MEMBERS_PER_LIST: '500',
+  TRACKING_MAX_ITEMS_PER_REQUEST: '500',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -245,9 +246,10 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('trackingConfig maps member-limit env (coerced to number; M11)', () => {
+  it('trackingConfig maps member-limit + request-size env (coerced to number; M11)', () => {
     expect(trackingConfig()).toEqual({
       maxMembersPerList: 500,
+      maxItemsPerRequest: 500,
     });
   });
 });

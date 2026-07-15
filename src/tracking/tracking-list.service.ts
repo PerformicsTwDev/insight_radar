@@ -126,7 +126,10 @@ export class TrackingListService {
   }
 
   /**
-   * 加成員（AC-28.4/28.5/28.7）——T11.3。流程：
+   * 加成員（AC-28.4/28.5/28.7 · NFR-16）——T11.3。流程：
+   * 0. **請求形狀守門（NFR-16 DoS）**：`items` 數 > `TRACKING_MAX_ITEMS_PER_REQUEST` → `400`。此為**第一步**、
+   *    先於任何 DB 存取——因主題列展開為「每 item 沿序 ≥1 次 DB round-trip」，無上限則單一已認證請求可挾超大
+   *    批次放大成應用層 DoS（連線池耗竭），故在觸及 DB 前即拒絕。
    * 1. **owner 守門**：先 `assertOwnedRow`（越權/不存在 → 同一 404；owner 唯一強制點在此 service 層，FR-27）。
    * 2. **展開攤平**：關鍵字列直接取字；主題列經 `TopicRepository.expandTopicToMembers` 展開為該分析最新
    *    topic run 中該群的**已指派非-noise** 關鍵字（AC-28.4）。每候選帶其來源 `geo`/`language` 語境。
@@ -141,6 +144,11 @@ export class TrackingListService {
     dto: AddMembersDto,
     actor: AuthenticatedUser,
   ): Promise<AddMembersResult> {
+    // 請求形狀守門（NFR-16 DoS）：先於任何 DB 存取，把超大批次擋在展開放大之前（連線池保護）。
+    if (dto.items.length > this.config.maxItemsPerRequest) {
+      throw new BadRequestException(tooManyItemsMessage(this.config.maxItemsPerRequest));
+    }
+
     const list = await this.prisma.trackingList.findUnique({
       where: { id: listId },
       select: { id: true, ownerId: true, geo: true, language: true },
@@ -295,6 +303,11 @@ function contextMismatchMessage(geo: string, language: string): string {
 /** 加入後成員數超過每清單上限 → 409（AC-28.7）。 */
 function limitMessage(max: number): string {
   return `Tracking list member limit reached (max ${max})`;
+}
+
+/** 單批 `items` 數超過請求上限 → 400（NFR-16 DoS 前置守門，先於任何 DB 展開）。 */
+function tooManyItemsMessage(max: number): string {
+  return `Too many items in one request (max ${max})`;
 }
 
 /** Prisma 唯一鍵衝突（P2002）判定——`@@unique([ownerId,name])` 撞名（比照 keyword-analysis 慣例）。 */

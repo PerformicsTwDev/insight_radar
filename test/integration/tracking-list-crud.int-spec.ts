@@ -29,10 +29,11 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
 
   beforeAll(async () => {
     ({ app, prisma } = await createPrismaTestApp());
-    // T11.3：service 建構子加入 TopicRepository（主題展開）+ trackingConfig（成員上限）。CRUD（本檔）
-    // 不觸及加成員路徑，maxMembersPerList 任意；直接構造與 T11.2 慣例一致（HTTP 層由 e2e 覆蓋）。
+    // T11.3：service 建構子加入 TopicRepository（主題展開）+ trackingConfig（成員上限 + 加成員請求上限）。
+    // CRUD（本檔）不觸及加成員路徑，兩上限任意；直接構造與 T11.2 慣例一致（HTTP 層由 e2e 覆蓋）。
     service = new TrackingListService(prisma, new TopicRepository(prisma), {
       maxMembersPerList: 500,
+      maxItemsPerRequest: 500,
     });
   });
 

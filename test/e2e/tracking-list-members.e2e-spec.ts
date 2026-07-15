@@ -360,6 +360,23 @@ describe('TrackingList add members (e2e · TC-64 · FR-28/27 · AC-28.4/28.5/28.
     });
   });
 
+  describe('request-size guard (NFR-16 · items 上限 · DoS 前置守門)', () => {
+    // 超量批次：主題列展開為「每 item 沿序 ≥1 次 DB round-trip」，無上限則單一已認證請求可放大成應用層 DoS。
+    // 守門置於 addMembers 第一步、先於任何 DB 存取；default TRACKING_MAX_ITEMS_PER_REQUEST=500。
+    const oversized = Array.from({ length: 501 }, (_, i) => kw(`bulk-${i}`));
+
+    it('items 數 > TRACKING_MAX_ITEMS_PER_REQUEST（500）→ 400（先於展開/上限 409）', async () => {
+      const list = await createList();
+      const res = await addMembers(cookieA, list.listId, oversized);
+      expect(res.status).toBe(400); // 非 409：形狀守門先於「展開後成員數超上限」檢查
+    });
+
+    it('超量 items + 不存在 listId → 仍 400（守門先於 DB 清單解析，不 404）', async () => {
+      const res = await addMembers(cookieA, randomUUID(), oversized);
+      expect(res.status).toBe(400); // 非 404：證明守門在清單 findUnique 之前
+    });
+  });
+
   describe('owner scope + validation', () => {
     it('非 owner 加成員 → 404（不洩漏存在性）', async () => {
       const list = await createList();

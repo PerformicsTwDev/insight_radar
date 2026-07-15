@@ -77,8 +77,8 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
     await prisma.trackingList.deleteMany(); // cascade removes members
   });
 
-  const makeService = (maxMembersPerList = 500): TrackingListService =>
-    new TrackingListService(prisma, repo, { maxMembersPerList });
+  const makeService = (maxMembersPerList = 500, maxItemsPerRequest = 500): TrackingListService =>
+    new TrackingListService(prisma, repo, { maxMembersPerList, maxItemsPerRequest });
 
   /** 建父分析（params 帶 geo/language 語境），回 analysisId。 */
   async function seedAnalysis(
@@ -363,6 +363,33 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
         SESSION_A,
       );
       expect(res).toEqual({ memberCount: 3, added: 3 });
+    });
+  });
+
+  describe('request-size guard (NFR-16 · items 上限 · DoS 前置守門)', () => {
+    const bulk = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        kind: 'keyword' as const,
+        text: `bulk-${i}`,
+        geo: 'TW',
+        language: 'zh-TW',
+      }));
+
+    it('items 數 > maxItemsPerRequest → 400（BadRequestException）', async () => {
+      const svc = makeService(500, 2); // 成員上限寬鬆、請求上限=2 → 隔離請求形狀守門
+      const list = await svc.create(TW_LIST, SESSION_A);
+      await expect(
+        svc.addMembers(list.listId, { items: bulk(3) }, SESSION_A),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(await memberNorms(list.listId)).toEqual([]); // 觸 DB 前即拒 → 不落任何成員
+    });
+
+    it('超量 items + 不存在 listId → 400（守門先於 DB 清單解析，非 404）', async () => {
+      const svc = makeService(500, 2);
+      // 若守門在 findUnique 之後，不存在清單會先拋 NotFoundException(404)；此處證明守門在其之前。
+      await expect(
+        svc.addMembers(randomUUID(), { items: bulk(3) }, SESSION_A),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
