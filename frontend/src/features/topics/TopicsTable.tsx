@@ -16,7 +16,9 @@ import type { TopicsResponse } from '../../api/topics';
  * T3.4).
  */
 export function TopicsTable({ topics }: { topics: TopicsResponse | undefined }): ReactElement {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Expanded state keyed by row index — `topicName` is not guaranteed unique across
+  // clusters, so keying by it would collide (one toggle opening two rows).
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const clusters = topics?.clusters ?? [];
   const keywords = topics?.keywords ?? [];
 
@@ -31,8 +33,8 @@ export function TopicsTable({ topics }: { topics: TopicsResponse | undefined }):
     );
   }
 
-  const toggle = (topicName: string): void =>
-    setExpanded((prev) => ({ ...prev, [topicName]: !prev[topicName] }));
+  const toggle = (index: number): void =>
+    setExpanded((prev) => ({ ...prev, [index]: !prev[index] }));
 
   return (
     <div className="overflow-x-auto rounded-xl bg-bg-card ring-1 ring-white/10">
@@ -58,11 +60,11 @@ export function TopicsTable({ topics }: { topics: TopicsResponse | undefined }):
         </thead>
         <tbody>
           {clusters.map((cluster, index) => {
-            const isOpen = Boolean(expanded[cluster.topicName]);
+            const isOpen = Boolean(expanded[index]);
             const related = keywords.filter((k) => k.topicName === cluster.topicName);
             const detailId = `topic-detail-${index}`;
             return (
-              <Fragment key={cluster.topicName}>
+              <Fragment key={index}>
                 <tr className="border-t border-white/5">
                   <td className="px-3 py-2 font-medium text-white">{cluster.topicName}</td>
                   <td className="px-3 py-2">
@@ -79,7 +81,7 @@ export function TopicsTable({ topics }: { topics: TopicsResponse | undefined }):
                       type="button"
                       aria-expanded={isOpen}
                       aria-controls={detailId}
-                      onClick={() => toggle(cluster.topicName)}
+                      onClick={() => toggle(index)}
                       className="rounded px-2 py-1 text-xs text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
                     >
                       相關搜尋詞 {isOpen ? '▲' : '▼'}

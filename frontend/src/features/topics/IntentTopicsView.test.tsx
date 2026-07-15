@@ -168,6 +168,19 @@ describe('TC-19 · IntentTopicsView (gate 四態 → 主題表)', () => {
     await waitFor(() => expect(screen.getByText(/先完成關鍵字分析/)).toBeInTheDocument());
   });
 
+  it('start failure (non-not-ready, e.g. 500) → settles into the generic failed/retry state', async () => {
+    server.use(
+      http.post(
+        '/api/v1/keyword-analyses/:id/topics',
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    );
+    renderView({});
+
+    fireEvent.click(screen.getByRole('button', { name: /開始分析/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /重試/ })).toBeInTheDocument());
+  });
+
   it('ready + topics.status=partial → shows the 主題表 AND a partial notice (C3; authoritative TopicsResponse.status)', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id/topics', () =>

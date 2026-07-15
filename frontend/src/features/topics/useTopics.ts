@@ -28,6 +28,8 @@ const TOPICS_STREAM_PATH = 'topics/stream';
 const READY_JOB_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>(['completed', 'partial']);
 /** Job terminal statuses that surface the retry state (the run could not produce content). */
 const FAILED_JOB_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>(['failed', 'not_found']);
+/** POST-topics statuses meaning the base analysis snapshot isn't ready yet (FR-8 boundary). */
+const SNAPSHOT_NOT_READY_STATUSES: ReadonlySet<number> = new Set<number>([409, 425]);
 
 /** Map a tracked-job status onto the gate phase it should drive (or null → no change yet). */
 function jobPhase(status: JobStatus): FeatureStatus | null {
@@ -43,6 +45,17 @@ export interface UseTopics {
   readonly jobState: JobState;
   /** Parsed topics result once ready (undefined while gated / on a fetch failure). */
   readonly topics: TopicsResponse | undefined;
+  /**
+   * The base analysis snapshot isn't ready (last start returned 409/425) — surface
+   * a "finish the analysis first" hint instead of a failed/retry state (FR-8).
+   */
+  readonly blocked: boolean;
+  /**
+   * The topics run completed only partially — read from the **authoritative**
+   * `TopicsResponse.status` (GET :id/topics), not the job machine (C3 / FR-9). Drives
+   * the FeatureGate partial notice so a partial run is never shown as complete.
+   */
+  readonly partial: boolean;
   /** Start (or retry) the topics run — POST :id/topics, then track the job. */
   readonly start: () => Promise<void>;
 }
@@ -54,6 +67,9 @@ export function useTopics(
 ): UseTopics {
   // Local phase override; null → follow the server-reported featureStatus.
   const [override, setOverride] = useState<FeatureStatus | null>(null);
+  // Set when the last start hit a not-ready snapshot (409/425) — a prerequisite hint,
+  // not a failed run (FR-8); the gate stays at not_generated with a distinct notice.
+  const [blocked, setBlocked] = useState(false);
   const status = override ?? featureStatus;
 
   // Track the topics SSE only while running (analysisId undefined → the hook idles).
@@ -78,11 +94,26 @@ export function useTopics(
   });
   const fetched = query.data;
   const topics = fetched && fetched.ok ? fetched.topics : undefined;
+  // Partial comes from the authoritative TopicsResponse.status (the topics run's own
+  // status), not the job machine — whose C3-confirm reads the *main* analysis and so
+  // can't reflect a topics-run partial (C3 / FR-9). The job only needs to reach a
+  // terminal-ready state to unlock; which terminal (completed/partial) is read here.
+  const partial = topics?.status === 'partial';
 
   const start = useCallback(async () => {
+    setBlocked(false);
     const res = await startTopics(analysisId);
-    setOverride(res.ok ? 'running' : 'failed');
+    if (res.ok) {
+      setOverride('running');
+    } else if (SNAPSHOT_NOT_READY_STATUSES.has(res.status)) {
+      // FR-8 boundary: the base analysis snapshot isn't ready — not a failed run. Stay
+      // gated (CTA remains) and let the view show a "finish the analysis first" hint.
+      setOverride(null);
+      setBlocked(true);
+    } else {
+      setOverride('failed');
+    }
   }, [analysisId]);
 
-  return { status, jobState: job.state, topics, start };
+  return { status, jobState: job.state, topics, blocked, partial, start };
 }

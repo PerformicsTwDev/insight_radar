@@ -26,14 +26,18 @@ export function IntentTopicsView({
   eventSourceFactory,
 }: IntentTopicsViewProps): ReactElement {
   const featureStatus = featureStatusOf(features, 'topics');
-  const { status, jobState, topics, start } = useTopics(analysisId, featureStatus, {
-    eventSourceFactory,
-  });
+  const { status, jobState, topics, blocked, partial, start } = useTopics(
+    analysisId,
+    featureStatus,
+    { eventSourceFactory },
+  );
 
   return (
     <FeatureGate
       status={status}
       featureLabel="意圖主題"
+      notice={blocked ? '請先完成關鍵字分析，才能進行意圖主題分析' : undefined}
+      partial={partial}
       onStart={() => void start()}
       onRetry={() => void start()}
       progress={<JobProgress state={jobState} />}
