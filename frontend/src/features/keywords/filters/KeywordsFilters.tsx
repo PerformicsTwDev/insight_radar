@@ -31,7 +31,17 @@ export function KeywordsFilters({
     const serialized = serializeFiltersToUrl(next);
     void navigate({
       to: '.',
-      search: (prev) => ({ ...prev, filters: serialized === '' ? undefined : serialized }),
+      // A filter change produces a different row set, so the current page position
+      // and any keyset `cursor` (minted against the OLD filtered set) are invalid →
+      // reset to offset page 1 and drop the cursor. C5: never pair a stale cursor
+      // with a different filter set (backend would silently return an empty page).
+      // Sort (sortBy/sortDir) is preserved — it re-applies to the new filtered set.
+      search: (prev) => ({
+        ...prev,
+        filters: serialized === '' ? undefined : serialized,
+        page: undefined,
+        cursor: undefined,
+      }),
     });
   }
 
