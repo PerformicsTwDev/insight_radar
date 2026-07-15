@@ -58,3 +58,24 @@ export function classifySeries(
   if (percent === null) return { kind: 'no_data' };
   return { kind: 'data', type: classifyTrend(percent, stableMax, surgeMin), percent };
 }
+
+/** zh display label per trend type — the single wording source for the FR-21 tooltip. */
+export const TREND_TYPE_ZH: Record<TrendType, string> = {
+  decline: '回落型',
+  stable: '穩定型',
+  growth: '成長型',
+  surge: '爆發型',
+};
+
+/**
+ * FR-21 hover-tooltip text for a monthly series: `"<型別> <±%>"` (e.g. `成長型
+ * +12.5%`), or `null` when the series has no classifiable trend (< 2 non-null /
+ * all-null / first non-null is 0). — RED STUB —
+ */
+export function trendTooltip(
+  _volumes: readonly MonthlyVolumePoint[],
+  _stableMax: number,
+  _surgeMin: number,
+): string | null {
+  throw new Error('not implemented');
+}

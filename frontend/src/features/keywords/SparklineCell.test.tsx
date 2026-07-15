@@ -59,3 +59,18 @@ describe('TC-7 · SparklineCell (polyline segments, null-gap breaks, no 0 line)'
     expect(screen.getByRole('img', { name: '無趨勢資料' })).toBeInTheDocument();
   });
 });
+
+describe('TC-7+21 · SparklineCell FR-21 trend hover tooltip (型別 + %)', () => {
+  it('shows the trend type + % as an SVG <title> for a classifiable series', () => {
+    // 100 → 200 = +100% → surge (爆發型); classifySeries uses config thresholds.
+    const { container } = render(<SparklineCell volumes={[vol(100), vol(200)]} />);
+    expect(container.querySelector('title')?.textContent).toBe('爆發型 +100.0%');
+  });
+
+  it('omits the trend <title> when the series has no classifiable trend (first non-null 0)', () => {
+    // [0, 100] draws a sparkline but the % is undefined (÷0) → no fabricated trend label.
+    const { container } = render(<SparklineCell volumes={[vol(0), vol(100)]} />);
+    expect(container.querySelector('svg')).toBeInTheDocument();
+    expect(container.querySelector('title')).toBeNull();
+  });
+});
