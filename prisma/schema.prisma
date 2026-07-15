@@ -218,3 +218,48 @@ model User {
 
   @@map("users")
 }
+
+// M11 追蹤清單與搜量時序（FR-28~30、NFR-16；Design §17.3）。第一天綁 ownerId（FR-27）。
+model TrackingList {
+  id        String               @id @default(uuid()) @db.Uuid
+  ownerId   String?              @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  name      String
+  geo       String // 固定清單層（語境一致，AC-28.5）
+  language  String
+  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  members   TrackingListMember[]
+
+  @@unique([ownerId, name]) // 同 owner 名稱唯一
+  @@map("tracking_lists")
+}
+
+model TrackingListMember {
+  listId         String       @map("list_id") @db.Uuid
+  normalizedText String       @map("normalized_text") // 成員 key = 去重/快取同一套（S4）
+  text           String // 原字（保留）
+  addedAt        DateTime     @default(now()) @map("added_at") @db.Timestamptz
+  lastCheckedAt  DateTime?    @map("last_checked_at") @db.Timestamptz // store-on-change 用
+  list           TrackingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@id([listId, normalizedText]) // 聯集去重
+  @@map("tracking_list_members")
+}
+
+// 搜量時序（append-only、store-on-change，AC-29.4）。fetchedAt = 觀測時點（非每日搜量，S1 月粒度）。
+model VolumeSnapshot {
+  id                 String   @id @default(uuid()) @db.Uuid
+  listId             String   @map("list_id") @db.Uuid
+  normalizedText     String   @map("normalized_text")
+  geo                String
+  language           String
+  avgMonthlySearches Int?     @map("avg_monthly_searches") // null ≠ 0
+  monthlyVolumes     Json     @default("[]") @map("monthly_volumes")
+  competition        String?
+  competitionIndex   Int?     @map("competition_index")
+  cpcLowMicros       BigInt?  @map("cpc_low_micros")
+  cpcHighMicros      BigInt?  @map("cpc_high_micros")
+  fetchedAt          DateTime @default(now()) @map("fetched_at") @db.Timestamptz
+
+  @@index([listId, normalizedText, fetchedAt])
+  @@map("volume_snapshots")
+}
