@@ -70,7 +70,8 @@ describe('tracking schema (integration · Testcontainers, T11.1 / FR-28)', () =>
 
   it('enforces @@unique([ownerId, name]) — same owner cannot reuse a list name', async () => {
     await makeList({ name: 'dup' });
-    await expect(makeList({ name: 'dup' })).rejects.toThrow();
+    // Prisma unique-constraint violation → P2002 (explicit intent, not just any throw).
+    await expect(makeList({ name: 'dup' })).rejects.toMatchObject({ code: 'P2002' });
   });
 
   it('allows the same list name for a different owner', async () => {
@@ -91,7 +92,7 @@ describe('tracking schema (integration · Testcontainers, T11.1 / FR-28)', () =>
       prisma.trackingListMember.create({
         data: { listId: list.id, normalizedText: 'kw', text: 'kw again' },
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'P2002' });
   });
 
   it('cascade-deletes members when the list is deleted (onDelete: Cascade)', async () => {
