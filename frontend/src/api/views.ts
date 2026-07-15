@@ -61,5 +61,13 @@ export type FetchViewsResult =
  * On any non-2xx returns `{ ok:false, status }`.
  */
 export async function fetchViews(): Promise<FetchViewsResult> {
-  throw new Error('not implemented'); // red — implemented in the green commit
+  const { data, response } = await api.GET('/api/v1/views');
+  if (response.ok) {
+    const parsed = ViewsResponseSchema.safeParse(data);
+    if (parsed.success) {
+      return { ok: true, views: parsed.data.views };
+    }
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
 }

@@ -59,23 +59,89 @@ export interface ResolvedRegistry {
 
 /** Known view name → zh label; unknown (newly-registered) name → the name itself (AC-1.2). */
 export function labelForView(name: string): string {
-  throw new Error(`not implemented: ${name}`); // red — implemented in the green commit
+  return VIEW_LABELS[name] ?? name;
 }
 
 /** Derive the registry (nav list + per-view config) from view metadata. */
 export function buildViewRegistry(views: readonly ViewMetadata[]): ViewRegistry {
-  throw new Error(`not implemented: ${views.length}`); // red
+  const configs: ViewConfig[] = views.map((view) => ({
+    name: view.name,
+    label: labelForView(view.name),
+    responseShape: view.responseShape,
+    requiresFeature: view.requiresFeature,
+    columns: view.allowedSelect.map((field) => ({ key: field.key, type: field.type })),
+    allowedFilters: view.allowedFilters,
+    allowedSort: view.allowedSort,
+  }));
+  return {
+    navItems: configs.map(({ name, label, responseShape, requiresFeature }) => ({
+      name,
+      label,
+      responseShape,
+      requiresFeature,
+    })),
+    byName: new Map(configs.map((config) => [config.name, config])),
+  };
 }
 
 /**
  * Built-in fallback view list used when `GET /views` is unreachable/invalid
  * (FR-1). Best-effort mirror of the shipped backend views so the dashboard stays
- * usable (the primary keywords table keeps its columns) in degraded mode.
+ * usable (the primary keywords table keeps its real columns) in degraded mode.
  */
-export const FALLBACK_VIEWS: readonly ViewMetadata[] = []; // red — filled in the green commit
+export const FALLBACK_VIEWS: readonly ViewMetadata[] = [
+  {
+    name: 'keywords',
+    grain: 'keyword',
+    responseShape: 'table',
+    requiresFeature: 'keyword_metrics',
+    allowedSelect: [
+      { key: 'text', type: 'text' },
+      { key: 'avgMonthlySearches', type: 'number' },
+      { key: 'competition', type: 'text' },
+      { key: 'competitionIndex', type: 'number' },
+      { key: 'cpcLow', type: 'number' },
+      { key: 'cpcHigh', type: 'number' },
+      { key: 'intent', type: 'array' },
+      { key: 'monthlyVolumes', type: 'array' },
+    ],
+    // backend FILTER_KEYS / SORT_FIELDS (keywords view) — best-effort for degraded mode.
+    allowedFilters: [
+      'q',
+      'volumeMin',
+      'volumeMax',
+      'cpcMin',
+      'cpcMax',
+      'competition',
+      'competitionIndexMin',
+      'competitionIndexMax',
+      'intent',
+      'intentMode',
+    ],
+    allowedSort: ['avgMonthlySearches', 'competitionIndex', 'cpcLow', 'cpcHigh', 'text'],
+  },
+  {
+    name: 'trend',
+    grain: 'month',
+    responseShape: 'trend',
+    requiresFeature: 'keyword_metrics',
+    allowedSelect: [],
+    allowedFilters: ['q', 'volumeMin', 'volumeMax', 'intent', 'intentMode'],
+    allowedSort: [],
+  },
+  {
+    name: 'intent_topics',
+    grain: 'topic',
+    responseShape: 'table',
+    requiresFeature: 'topics',
+    allowedSelect: [],
+    allowedFilters: [],
+    allowedSort: [],
+  },
+];
 
 /** The fallback registry (built once from {@link FALLBACK_VIEWS}). */
-export const FALLBACK_REGISTRY: ViewRegistry = { navItems: [], byName: new Map() }; // red
+export const FALLBACK_REGISTRY: ViewRegistry = buildViewRegistry(FALLBACK_VIEWS);
 
 /**
  * Resolve a fetch result to a registry + degraded flag: success → the fetched
@@ -85,5 +151,8 @@ export const FALLBACK_REGISTRY: ViewRegistry = { navItems: [], byName: new Map()
  * used as-is rather than forced to fallback.
  */
 export function resolveViewRegistry(result: FetchViewsResult): ResolvedRegistry {
-  throw new Error(`not implemented: ${result.ok}`); // red
+  if (result.ok) {
+    return { registry: buildViewRegistry(result.views), degraded: false };
+  }
+  return { registry: FALLBACK_REGISTRY, degraded: true };
 }
