@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  classifySeries,
-  classifyTrend,
-  trendPercent,
-  trendTooltip,
-  type TrendType,
-} from './trend';
+import { classifySeries, classifyTrend, trendPercent, trendTooltip, type TrendType } from './trend';
 import type { MonthlyVolumePoint } from './sparkline';
 
 /**

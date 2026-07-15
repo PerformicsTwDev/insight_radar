@@ -70,12 +70,18 @@ export const TREND_TYPE_ZH: Record<TrendType, string> = {
 /**
  * FR-21 hover-tooltip text for a monthly series: `"<型別> <±%>"` (e.g. `成長型
  * +12.5%`), or `null` when the series has no classifiable trend (< 2 non-null /
- * all-null / first non-null is 0). — RED STUB —
+ * all-null / first non-null is 0). The % is 1-dp with an explicit sign so a flat
+ * or growing trend reads `+`; a declining one already carries its `-`.
  */
 export function trendTooltip(
-  _volumes: readonly MonthlyVolumePoint[],
-  _stableMax: number,
-  _surgeMin: number,
+  volumes: readonly MonthlyVolumePoint[],
+  stableMax: number,
+  surgeMin: number,
 ): string | null {
-  throw new Error('not implemented');
+  const classification = classifySeries(volumes, stableMax, surgeMin);
+  if (classification.kind === 'no_data') {
+    return null;
+  }
+  const sign = classification.percent >= 0 ? '+' : '';
+  return `${TREND_TYPE_ZH[classification.type]} ${sign}${classification.percent.toFixed(1)}%`;
 }
