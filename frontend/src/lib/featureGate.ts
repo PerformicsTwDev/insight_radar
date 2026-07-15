@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * Feature-gate status model (T3.2, FR-9). Pure `core` lib — no React / no IO — so
  * the defensive extraction is exhaustively unit-testable (≥90% core gate). The
@@ -14,6 +16,9 @@
 export const FEATURE_STATUSES = ['not_generated', 'running', 'ready', 'failed'] as const;
 export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
 
+/** One feature entry in the `GET :id` features map (backend `{ status }`). */
+const FeatureEntrySchema = z.object({ status: z.enum(FEATURE_STATUSES) });
+
 /**
  * Defensively extract a feature's status from the opaque `GET :id` `features` map
  * (the job-status parse types it `unknown` — job tracking doesn't decode it, M4
@@ -22,5 +27,10 @@ export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
  * throwing — a missing gate is "not generated", never a crash.
  */
 export function featureStatusOf(features: unknown, key: string): FeatureStatus {
-  throw new Error(`not implemented: ${key} ${typeof features}`); // red — green in the next commit
+  if (typeof features !== 'object' || features === null) {
+    return 'not_generated';
+  }
+  const entry = (features as Record<string, unknown>)[key];
+  const parsed = FeatureEntrySchema.safeParse(entry);
+  return parsed.success ? parsed.data.status : 'not_generated';
 }
