@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma';
 import type { KeywordAssignment, TopicClusterRecord } from './assemble-assignments';
@@ -188,11 +188,55 @@ export class TopicRepository {
   }
 
   /**
-   * 展開某分析最新 topic run 中 `topicName` 群的**已指派非-noise** 關鍵字（T11.3，AC-28.4）——**RED shell**：
-   * typed not-implemented 空殼；GREEN 於下一 commit 實作。
+   * 展開某分析**最新** topic run 中 `topicName` 群的**已指派非-noise** 關鍵字（T11.3，AC-28.4；供追蹤清單
+   * 主題列攤平）。原字取自 run 的 snapshot（缺 → fallback normalizedText）；`geo`/`language` 取該分析
+   * `params` 的語境（供語境守門 AC-28.5）。任一環節缺（分析不存在 / 無 run / 無此群 / 群無指派）→ **空集合**
+   * （不 throw、非錯誤）。
+   *
+   * 只取 `clusterId ∈ 目標群` 的指派——因 `noise ⟺ clusterId=null`（persist/assemble 不變式），故此篩選
+   * 已等同「已指派、非-noise」（spec 語意），毋須另判 `isNoise`（避免結構上不可達的 phantom 分支）。
    */
-  expandTopicToMembers(_analysisId: string, _topicName: string): Promise<ExpandedTopicMember[]> {
-    throw new NotImplementedException('T11.3 expandTopicToMembers not implemented (RED shell)');
+  async expandTopicToMembers(
+    analysisId: string,
+    topicName: string,
+  ): Promise<ExpandedTopicMember[]> {
+    const analysis = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { params: true },
+    });
+    if (!analysis) {
+      return [];
+    }
+    const params = analysis.params as { geo?: string; language?: string };
+
+    const run = await this.findLatestRunByAnalysis(analysisId);
+    if (!run) {
+      return [];
+    }
+
+    const targetClusterIds = new Set(
+      (await this.loadClusters(run.id))
+        .filter((cluster) => cluster.topicName === topicName)
+        .map((cluster) => cluster.clusterId),
+    );
+    if (targetClusterIds.size === 0) {
+      return [];
+    }
+
+    const assigned = (await this.loadAssignments(run.id)).filter(
+      (assignment) => assignment.clusterId !== null && targetClusterIds.has(assignment.clusterId),
+    );
+    if (assigned.length === 0) {
+      return [];
+    }
+
+    const textByNorm = await this.loadKeywordTexts(run.snapshotId);
+    return assigned.map((assignment) => ({
+      normalizedText: assignment.normalizedText,
+      text: textByNorm.get(assignment.normalizedText) ?? assignment.normalizedText,
+      geo: params.geo,
+      language: params.language,
+    }));
   }
 
   /** 寫入某 run 的所有群 + 每字指派（transaction 原子）。clusters 先寫以供 assignments 解析 clusterId。 */
