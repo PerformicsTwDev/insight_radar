@@ -39,6 +39,11 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
       expect(deserialize(serialize(s))).toEqual(s);
     });
 
+    it('preserves a sort state (shared T2.6 schema)', () => {
+      const s: AppSearch = { view: 'keywords', sortBy: 'text', sortDir: 'asc' };
+      expect(deserialize(serialize(s))).toEqual(s);
+    });
+
     it('round-trips the empty state', () => {
       expect(deserialize(serialize({}))).toEqual({});
     });
@@ -81,6 +86,13 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
 
     it('coerces string-number params back to numbers', () => {
       expect(deserialize({ page: '2', pageSize: '25' })).toEqual({ page: 2, pageSize: 25 });
+    });
+
+    it('normalises an unknown sortBy / sortDir to undefined (server default sort)', () => {
+      const result = deserialize({ sortBy: 'bogusCol', sortDir: 'sideways', page: '2' });
+      expect(result.sortBy).toBeUndefined();
+      expect(result.sortDir).toBeUndefined();
+      expect(result.page).toBe(2);
     });
 
     it('returns an empty state for empty / junk-only input without throwing', () => {
