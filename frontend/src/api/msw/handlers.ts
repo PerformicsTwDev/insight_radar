@@ -82,6 +82,15 @@ export const handlers = [
           requiresFeature: 'keyword_metrics',
         },
         {
+          name: 'serp_questions',
+          grain: 'entity',
+          allowedSelect: [],
+          allowedFilters: [],
+          allowedSort: [],
+          responseShape: 'table',
+          requiresFeature: 'serp',
+        },
+        {
           name: 'intent_topics',
           grain: 'topic',
           allowedSelect: [],

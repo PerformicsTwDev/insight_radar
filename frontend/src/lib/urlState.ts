@@ -8,19 +8,17 @@ import { SORT_DIRS, SORT_FIELDS, type SortBy, type SortDir } from './pagination'
  * pagination / filters) lives in the URL search params; this module is the
  * single serialize ↔ deserialize codec between the raw params and a typed,
  * validated `AppSearch`. It is also the router's `validateSearch` (see
- * `src/router.tsx`), so an unknown `view` / malformed `analysisId` in a shared
- * or refreshed URL normalises to a not-found (undefined) state instead of
- * crashing the app.
+ * `src/router.tsx`), so a malformed `analysisId` / empty `view` in a shared or
+ * refreshed URL normalises to a not-found (undefined) state instead of crashing.
+ *
+ * `view` is any **non-empty string**, not a static allowlist: the authoritative
+ * view set is backend view-metadata driven (T3.1, `GET /views` — AC-1.2), and
+ * dynamic `custom:{cid}` views arrive at M5, so hardcoding view names here would
+ * both go stale and contradict "new backend view → zero frontend change". Whether
+ * a (syntactically valid) `view` actually exists is a **registry/runtime** concern
+ * — an unknown view resolves to a not-found state once view content is routed
+ * (T3.3); the codec only rejects a malformed (empty / non-string) value.
  */
-
-/**
- * Known dashboard views (T1.1 placeholder allowlist). The authoritative set is
- * ultimately backend view-metadata driven (T3.1, `GET /views`) and dynamic
- * `custom:{cid}` views arrive at M5; for the shell we validate against a static
- * allowlist so an unknown `view` in the URL normalises to a not-found state.
- */
-export const KNOWN_VIEWS = ['keywords', 'trend', 'intent', 'journey', 'history'] as const;
-export type KnownView = (typeof KNOWN_VIEWS)[number];
 
 /**
  * Authoritative UI state carried in the URL search params. `filters` is the
@@ -31,7 +29,8 @@ export type KnownView = (typeof KNOWN_VIEWS)[number];
  */
 export interface AppSearch {
   readonly analysisId?: string;
-  readonly view?: KnownView;
+  /** Any non-empty view name (registry-resolved, AC-1.2) — not a static enum. */
+  readonly view?: string;
   readonly page?: number;
   readonly pageSize?: number;
   readonly cursor?: string;
@@ -51,7 +50,10 @@ const pageNumber = z.coerce.number().int().positive().optional().catch(undefined
  */
 const AppSearchSchema = z.object({
   analysisId: z.uuid().optional().catch(undefined),
-  view: z.enum(KNOWN_VIEWS).optional().catch(undefined),
+  // Any non-empty string — the registry (GET /views) is the authoritative view set
+  // (AC-1.2); a static enum here would go stale and block new backend views. An
+  // empty / non-string value is malformed → undefined (not-found).
+  view: z.string().min(1).optional().catch(undefined),
   page: pageNumber,
   pageSize: pageNumber,
   cursor: z.string().min(1).optional().catch(undefined),

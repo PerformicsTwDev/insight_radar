@@ -1,8 +1,11 @@
-import { deserialize, serialize, KNOWN_VIEWS, type AppSearch } from './urlState';
+import { deserialize, serialize, type AppSearch } from './urlState';
 
-// TC-11 (FR-1, Design §5 "URL 即狀態"): URL search-params ↔ typed AppSearch
-// serialization round-trip; unknown view / malformed analysisId normalise to a
-// not-found (undefined) state instead of throwing.
+// TC-11 / TC-37 (FR-1, AC-1.2, Design §5 "URL 即狀態"): URL search-params ↔ typed
+// AppSearch round-trip. `view` is any non-empty string — the authoritative set is
+// backend view-metadata driven (T3.1, GET /views), so the URL codec must NOT
+// hardcode a view allowlist; unknown-view→not-found is a runtime/registry concern
+// (T3.3). Only a malformed (empty / non-string) view, or a malformed analysisId,
+// normalises to undefined. Never throws.
 describe('TC-11 · urlState (URL 即狀態序列化)', () => {
   const UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
@@ -48,8 +51,16 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
       expect(deserialize(serialize({}))).toEqual({});
     });
 
-    it('round-trips every known view', () => {
-      for (const view of KNOWN_VIEWS) {
+    it('round-trips real metadata-driven view names, incl. ones the retired static allowlist dropped (AC-1.2)', () => {
+      for (const view of [
+        'keywords',
+        'trend',
+        'intent_distribution',
+        'cpc_histogram',
+        'intent_topics', // AC-1.1 example — the retired KNOWN_VIEWS wrongly dropped this
+        'serp_questions',
+        'custom:42', // dynamic custom-classification view (M5)
+      ]) {
         expect(deserialize(serialize({ view }))).toEqual({ view });
       }
     });
@@ -66,10 +77,17 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
   });
 
   describe('deserialize normalises invalid input (never throws)', () => {
-    it('normalises an unknown view to undefined, keeping the rest', () => {
-      const result = deserialize({ view: 'bogus-view', analysisId: UUID });
-      expect(result.view).toBeUndefined();
-      expect(result.analysisId).toBe(UUID);
+    it('preserves any non-empty view string for the registry to resolve (AC-1.2); only malformed → undefined', () => {
+      // A real, currently-registered view the retired static allowlist wrongly dropped
+      // (AC-1.1 uses `view=intent_topics`) is now kept — the registry resolves validity.
+      expect(deserialize({ view: 'intent_topics', analysisId: UUID })).toEqual({
+        view: 'intent_topics',
+        analysisId: UUID,
+      });
+      // The URL layer no longer hardcodes a view allowlist; it only rejects a
+      // malformed (empty / non-string) value.
+      expect(deserialize({ view: '' }).view).toBeUndefined();
+      expect(deserialize({ view: 42 }).view).toBeUndefined();
     });
 
     it('normalises a malformed analysisId to undefined (not-found), keeping the rest', () => {

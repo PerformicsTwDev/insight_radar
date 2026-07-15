@@ -15,6 +15,13 @@ import { api } from './client';
  * allowedSort, responseShape, requiresFeature }] }`. A body that fails the
  * contract degrades to `ok:false` so the caller can fall back (FR-1) rather than
  * render a half-parsed registry.
+ *
+ * The parse is **whole-envelope**: any single malformed view (a genuinely new
+ * `responseShape`/`requiresFeature` enum value the codegen drift-check (NFR-2 /
+ * TC-38) hasn't yet surfaced, or an incidental backend bug) degrades the *entire*
+ * registry to the built-in fallback, not just that entry. That is deliberate — a
+ * clearly-flagged degraded state beats silently serving a whitelist that is
+ * missing entries — but note the blast radius is broader than "unknown enum only".
  */
 
 /** `allowedSelect` element — a selectable column key + its type (backend `SelectField`, AC-22.2). */
