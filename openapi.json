@@ -56,6 +56,31 @@
         "properties": {},
         "type": "object"
       },
+      "CreateTrackingListDto": {
+        "properties": {
+          "geo": {
+            "description": "Google Ads geo target（清單層固定）",
+            "example": "TW",
+            "type": "string"
+          },
+          "language": {
+            "description": "語言（清單層固定）",
+            "example": "zh-TW",
+            "type": "string"
+          },
+          "name": {
+            "description": "追蹤清單名稱（同 owner 內唯一）",
+            "example": "Running shoes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "geo",
+          "language"
+        ],
+        "type": "object"
+      },
       "LoginDto": {
         "properties": {
           "email": {
@@ -94,6 +119,19 @@
         "required": [
           "email",
           "password"
+        ],
+        "type": "object"
+      },
+      "RenameTrackingListDto": {
+        "properties": {
+          "name": {
+            "description": "新清單名稱（同 owner 內唯一）",
+            "example": "Trail shoes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -525,6 +563,117 @@
         },
         "tags": [
           "topics"
+        ]
+      }
+    },
+    "/api/v1/tracking-lists": {
+      "get": {
+        "operationId": "TrackingListController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      },
+      "post": {
+        "operationId": "TrackingListController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrackingListDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      }
+    },
+    "/api/v1/tracking-lists/{listId}": {
+      "delete": {
+        "operationId": "TrackingListController_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      },
+      "get": {
+        "operationId": "TrackingListController_getDetail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      },
+      "patch": {
+        "operationId": "TrackingListController_rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameTrackingListDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
         ]
       }
     },

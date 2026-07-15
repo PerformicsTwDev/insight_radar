@@ -338,6 +338,11 @@ describe('TrackingList CRUD (e2e · TC-64 · FR-28/27)', () => {
       expect(res.status).toBe(400);
     });
 
+    it('空字串 name → 400（@IsNotEmpty，唯一鍵欄位）', async () => {
+      const res = await createAs(cookieA, { name: '', geo: 'TW', language: 'zh-TW' });
+      expect(res.status).toBe(400);
+    });
+
     it('缺 geo → 400', async () => {
       const res = await createAs(cookieA, { name: 'x', language: 'zh-TW' });
       expect(res.status).toBe(400);

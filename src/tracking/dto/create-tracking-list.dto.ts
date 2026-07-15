@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 /**
  * `POST /tracking-lists` 入參（FR-28，AC-28.1）。全域 ValidationPipe（whitelist +
@@ -10,6 +10,7 @@ import { IsString } from 'class-validator';
 export class CreateTrackingListDto {
   @ApiProperty({ example: 'Running shoes', description: '追蹤清單名稱（同 owner 內唯一）' })
   @IsString()
+  @IsNotEmpty() // 唯一鍵欄位：空字串亦視為缺 name → 400（AC-28.1）
   name!: string;
 
   @ApiProperty({ example: 'TW', description: 'Google Ads geo target（清單層固定）' })
