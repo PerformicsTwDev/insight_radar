@@ -10,6 +10,7 @@ import { LoggerModule } from './logger';
 import { ObservabilityModule } from './observability/observability.module';
 import { PrismaModule } from './prisma';
 import { TopicsModule } from './topics/topics.module';
+import { TrackingListModule } from './tracking';
 import { configNamespaces, validationSchema } from './config';
 
 /**
@@ -38,6 +39,7 @@ import { configNamespaces, validationSchema } from './config';
     KeywordAnalysisModule,
     KeywordsModule,
     TopicsModule,
+    TrackingListModule,
   ],
 })
 export class AppModule {}
