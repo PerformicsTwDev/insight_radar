@@ -116,6 +116,9 @@ function makeFakeDb(users: UserRow[]) {
         lists.set(row.id, row);
         return Promise.resolve({ ...row });
       },
+      // create 的清單上限把關（AC-28.7）：本檔不驗上限（default 50 寬鬆），僅需回真實 count 讓 create 通過。
+      count: ({ where }: { where: { ownerId: string | null } }): Promise<number> =>
+        Promise.resolve([...lists.values()].filter((l) => l.ownerId === where.ownerId).length),
       findUnique: ({
         where,
         select,
@@ -177,6 +180,23 @@ function makeFakeDb(users: UserRow[]) {
       },
       count: ({ where }: { where: { listId: string } }): Promise<number> =>
         Promise.resolve(members.filter((m) => m.listId === where.listId).length),
+      deleteMany: ({
+        where,
+      }: {
+        where: { listId: string; normalizedText: string };
+      }): Promise<{ count: number }> => {
+        let count = 0;
+        for (let i = members.length - 1; i >= 0; i--) {
+          if (
+            members[i].listId === where.listId &&
+            members[i].normalizedText === where.normalizedText
+          ) {
+            members.splice(i, 1);
+            count += 1;
+          }
+        }
+        return Promise.resolve({ count });
+      },
     },
   };
 }
@@ -374,6 +394,57 @@ describe('TrackingList add members (e2e · TC-64 · FR-28/27 · AC-28.4/28.5/28.
     it('超量 items + 不存在 listId → 仍 400（守門先於 DB 清單解析，不 404）', async () => {
       const res = await addMembers(cookieA, randomUUID(), oversized);
       expect(res.status).toBe(400); // 非 404：證明守門在清單 findUnique 之前
+    });
+  });
+
+  describe('removeMember (AC-28.6)', () => {
+    const removeMember = (cookie: string, listId: string, normalizedText: string) =>
+      request(server())
+        .delete(`${base}/${listId}/members/${encodeURIComponent(normalizedText)}`)
+        .set('Cookie', cookie)
+        .set('Origin', ORIGIN);
+
+    it('移除存在成員 → 200 { listId, normalizedText } 且成員消失', async () => {
+      const list = await createList();
+      await addMembers(cookieA, list.listId, [kw('Running Shoes'), kw('Trail Shoes')]);
+      const res = await removeMember(cookieA, list.listId, 'running shoes');
+      expect(res.status).toBe(200);
+      expect(res.body as { listId: string; normalizedText: string }).toEqual({
+        listId: list.listId,
+        normalizedText: 'running shoes',
+      });
+
+      const detail = await request(server()).get(`${base}/${list.listId}`).set('Cookie', cookieA);
+      const norms = (detail.body as { members: Array<{ normalizedText: string }> }).members.map(
+        (m) => m.normalizedText,
+      );
+      expect(norms).toEqual(['trail shoes']);
+    });
+
+    it('normalizedText 大小寫/空白 → 伺服器 normalize 後命中同一成員', async () => {
+      const list = await createList();
+      await addMembers(cookieA, list.listId, [kw('Running Shoes')]);
+      const res = await removeMember(cookieA, list.listId, 'Running SHOES');
+      expect(res.status).toBe(200);
+      expect((res.body as { normalizedText: string }).normalizedText).toBe('running shoes');
+    });
+
+    it('不存在成員 → 404', async () => {
+      const list = await createList();
+      const res = await removeMember(cookieA, list.listId, 'ghost');
+      expect(res.status).toBe(404);
+    });
+
+    it('非 owner 移除 → 404（不洩漏存在性、不誤刪）', async () => {
+      const list = await createList();
+      await addMembers(cookieA, list.listId, [kw('Running Shoes')]);
+      const res = await removeMember(cookieB, list.listId, 'running shoes');
+      expect(res.status).toBe(404);
+    });
+
+    it('不存在的 listId → 404', async () => {
+      const res = await removeMember(cookieA, randomUUID(), 'x');
+      expect(res.status).toBe(404);
     });
   });
 

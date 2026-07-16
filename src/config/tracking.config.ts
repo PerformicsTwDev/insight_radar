@@ -4,10 +4,12 @@ import { registerAs } from '@nestjs/config';
  * 追蹤清單設定（M11，FR-28/29；Design §14/§17.3）。值已由 env.validation Joi schema 驗證/補預設。
  *
  * T11.3 需 `maxMembersPerList`（加成員上限守門，AC-28.7）＋ `maxItemsPerRequest`（加成員請求形狀守門，
- * NFR-16 DoS）；其餘 `TRACKING_*`（refresh cron / backfill months / keep-series-on-delete 等）由 T11.8
- * 一併補齊，故此處**只**登記本任務所需項。
+ * NFR-16 DoS）；T11.4 加 `maxLists`（每 owner 清單數上限，AC-28.7）；其餘 `TRACKING_*`（refresh cron /
+ * backfill months / keep-series-on-delete 等）由 T11.8 一併補齊，故此處**只**登記本里程碑已需項。
  */
 export interface TrackingConfig {
+  /** 每 owner 清單數上限（AC-28.7；建立時達上限 → 409，保護每月 Ads 配額，NFR-16）。 */
+  maxLists: number;
   /** 每清單成員數上限（AC-28.7；達上限再加入 → 409，保護每月 Ads 配額，NFR-16）。 */
   maxMembersPerList: number;
   /**
@@ -19,6 +21,7 @@ export interface TrackingConfig {
 }
 
 export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
+  maxLists: Number(process.env.TRACKING_MAX_LISTS),
   maxMembersPerList: Number(process.env.TRACKING_MAX_MEMBERS_PER_LIST),
   maxItemsPerRequest: Number(process.env.TRACKING_MAX_ITEMS_PER_REQUEST),
 }));

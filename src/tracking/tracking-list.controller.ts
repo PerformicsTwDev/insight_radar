@@ -18,6 +18,7 @@ import { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
 import { TrackingListService } from './tracking-list.service';
 import type {
   AddMembersResult,
+  RemoveMemberResult,
   TrackingListDetail,
   TrackingListSummary,
   TrackingListView,
@@ -70,6 +71,20 @@ export class TrackingListController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<AddMembersResult> {
     return this.service.addMembers(listId, dto, actor);
+  }
+
+  /**
+   * 移除成員（AC-28.6）：越權/清單不存在→404；無此成員→404。`:normalizedText` 伺服器端再 `normalizeText`
+   * （S4）後比對。回 `{ listId, normalizedText }`。
+   */
+  @Delete(':listId/members/:normalizedText')
+  @HttpCode(HttpStatus.OK)
+  removeMember(
+    @Param('listId') listId: string,
+    @Param('normalizedText') normalizedText: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<RemoveMemberResult> {
+    return this.service.removeMember(listId, normalizedText, actor);
   }
 
   /** 改名（AC-28.2）：越權/不存在→404；同 owner 重名→409。 */

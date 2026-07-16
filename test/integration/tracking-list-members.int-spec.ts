@@ -77,8 +77,12 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
     await prisma.trackingList.deleteMany(); // cascade removes members
   });
 
-  const makeService = (maxMembersPerList = 500, maxItemsPerRequest = 500): TrackingListService =>
-    new TrackingListService(prisma, repo, { maxMembersPerList, maxItemsPerRequest });
+  const makeService = (
+    maxMembersPerList = 500,
+    maxItemsPerRequest = 500,
+    maxLists = 50,
+  ): TrackingListService =>
+    new TrackingListService(prisma, repo, { maxLists, maxMembersPerList, maxItemsPerRequest });
 
   /** 建父分析（params 帶 geo/language 語境），回 analysisId。 */
   async function seedAnalysis(
@@ -390,6 +394,55 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
       await expect(
         svc.addMembers(randomUUID(), { items: bulk(3) }, SESSION_A),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('removeMember (AC-28.6)', () => {
+    const seedKw = (listId: string, normalizedText: string, text: string) =>
+      prisma.trackingListMember.create({ data: { listId, normalizedText, text } });
+
+    it('移除存在成員 → 回 { listId, normalizedText } 且該成員消失', async () => {
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      await seedKw(list.listId, 'running shoes', 'Running Shoes');
+      await seedKw(list.listId, 'trail shoes', 'Trail Shoes');
+      const res = await svc.removeMember(list.listId, 'running shoes', SESSION_A);
+      expect(res).toEqual({ listId: list.listId, normalizedText: 'running shoes' });
+      expect(await memberNorms(list.listId)).toEqual(['trail shoes']);
+    });
+
+    it('normalizedText 參數伺服器端再 normalize（大小寫/空白）→ 命中同一成員', async () => {
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      await seedKw(list.listId, 'running shoes', 'Running Shoes');
+      const res = await svc.removeMember(list.listId, '  Running   SHOES ', SESSION_A);
+      expect(res.normalizedText).toBe('running shoes');
+      expect(await memberNorms(list.listId)).toEqual([]);
+    });
+
+    it('不存在成員 → 404（NotFoundException）', async () => {
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      await expect(svc.removeMember(list.listId, 'ghost', SESSION_A)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('非 owner 移除 → 404（owner 守門先於成員查找，不洩漏存在性、不誤刪）', async () => {
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      await seedKw(list.listId, 'running shoes', 'Running Shoes');
+      await expect(
+        svc.removeMember(list.listId, 'running shoes', SESSION_B),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(await memberNorms(list.listId)).toEqual(['running shoes']); // 未被刪
+    });
+
+    it('清單不存在 → 404', async () => {
+      const svc = makeService();
+      await expect(svc.removeMember(randomUUID(), 'x', SESSION_A)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 

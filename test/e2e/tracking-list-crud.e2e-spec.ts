@@ -110,6 +110,10 @@ function makeFakeTrackingDb(users: UserRow[]) {
     seedMember(listId: string, normalizedText: string, text: string): void {
       members.push({ listId, normalizedText, text, addedAt: new Date(), lastCheckedAt: null });
     },
+    seedList(ownerId: string | null, name: string): void {
+      const id = randomUUID();
+      lists.set(id, { id, ownerId, name, geo: 'TW', language: 'zh-TW', createdAt: new Date() });
+    },
     memberCount,
     user: {
       findUnique: ({
@@ -145,6 +149,8 @@ function makeFakeTrackingDb(users: UserRow[]) {
         lists.set(row.id, row);
         return Promise.resolve({ ...row });
       },
+      count: ({ where }: { where: { ownerId: string | null } }): Promise<number> =>
+        Promise.resolve([...lists.values()].filter((l) => l.ownerId === where.ownerId).length),
       findMany: ({
         where,
         include,
@@ -382,6 +388,14 @@ describe('TrackingList CRUD (e2e · TC-64 · FR-28/27)', () => {
         .set('x-api-key', API_KEY)
         .send({ ...validBody, name: 'machine list' });
       expect(res.status).toBe(201); // x-api-key 免 CSRF（AC-26.3）
+    });
+
+    it('達 TRACKING_MAX_LISTS（每 owner 預設 50）→ 建立回 409（AC-28.7）', async () => {
+      for (let i = 0; i < 50; i++) {
+        db.seedList(OWNER_A, `seeded-${i}`);
+      }
+      const res = await createAs(cookieA, { ...validBody, name: 'overflow' });
+      expect(res.status).toBe(409); // 保護 Ads 配額（NFR-16）
     });
   });
 
