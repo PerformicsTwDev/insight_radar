@@ -110,6 +110,14 @@ export const validationSchema = Joi.object({
     .default('v1'),
   // per-view AI 洞察快取 TTL（毫秒，預設 60 天）；快取內容綁不可變 snapshot + 固定 filters，TTL 僅為記憶體逐出。
   CACHE_TTL_AI_INSIGHT_MS: Joi.number().integer().min(0).default(5184000000),
+  // 購買歷程分類快取 namespace 版本（bump 整批失效，AC-33.3；schema 或 prompt 變更皆 bump；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
+  JOURNEY_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
+  // 購買歷程分類 Redis 快取 TTL（毫秒，預設 60 天）；快取綁 normalizedText + 版本，TTL 僅記憶體逐出。
+  CACHE_TTL_JOURNEY_MS: Joi.number().integer().min(0).default(5184000000),
+  // 購買歷程每 prompt 關鍵字數（沿用 intent 批量慣例，預設 30；並發沿用 LLM_CONCURRENCY，AC-33.1）。
+  JOURNEY_LLM_BATCH_SIZE: Joi.number().integer().min(1).default(30),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

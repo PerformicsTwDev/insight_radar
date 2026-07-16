@@ -45,6 +45,8 @@ import { IntentService } from './intent.service';
       inject: [azureConfig.KEY],
     },
   ],
-  exports: [AzureOpenAiService, IntentService],
+  // 也 export LLM 基礎 primitives（`INTENT_LABELER` port + 部署名 token），供 JourneyModule（T12.5）等
+  // 複用 Azure 分類骨架的模組直接注入，避免各自重建 client/部署 factory。
+  exports: [AzureOpenAiService, IntentService, INTENT_LABELER, AZURE_OPENAI_DEPLOYMENT],
 })
 export class IntentModule {}

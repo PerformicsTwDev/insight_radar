@@ -1,13 +1,9 @@
 import { AsyncResource } from 'node:async_hooks';
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import {
-  BadRequestError,
-  ContentFilterFinishReasonError,
-  LengthFinishReasonError,
-} from 'openai/core/error';
 import pLimit from 'p-limit';
 import { IntentCache } from './intent-cache';
 import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
+import { type ChunkOutcome as ResilientChunkOutcome, resilientChunk } from './resilient-batch';
 import { type IntentBatch, intentResponseFormat } from './intent.schema';
 import { buildIntentMessages } from './intent.prompt';
 import { type LabeledKeyword, postProcessIntent } from './intent-postprocess';
@@ -31,11 +27,8 @@ export interface LabelResult {
   needsReview: string[];
 }
 
-/** 單批韌性貼標的原始累積（postProcess 前）。 */
-interface ChunkOutcome {
-  collected: { keyword: string; labels: string[] }[];
-  needsReview: string[];
-}
+/** 單批韌性貼標的原始累積（postProcess 前）；共用 skeleton 的 `R = {keyword, labels}`（T12.5 抽 resilient-batch）。 */
+type ChunkOutcome = ResilientChunkOutcome<{ keyword: string; labels: string[] }>;
 
 /** 把單一關鍵字陣列包成單批 iterable（非串流呼叫者沿用；`for await` 同時接受 sync iterable）。 */
 function* singleBatch(keywords: string[]): Generator<string[]> {
@@ -147,52 +140,18 @@ export class IntentService {
     return { labeled: postProcessIntent(allInputs, { results: collected }), needsReview };
   }
 
-  /** 貼標單批（cache-miss）並回寫成功貼標者（needsReview fallback 為不確定、不快取）。 */
+  /**
+   * 貼標單批（cache-miss）並回寫成功貼標者（needsReview fallback 為不確定、不快取）。韌性遞迴
+   * （length 對半拆 / content_filter·refusal fallback）由共用 {@link resilientChunk} 承擔（T12.5 抽出、FR-4/FR-33 共用）。
+   */
   private async labelChunkAndCache(chunk: string[]): Promise<ChunkOutcome> {
-    const outcome = await this.labelChunkResilient(chunk);
+    const outcome = await resilientChunk<{ keyword: string; labels: string[] }>(chunk, (c) =>
+      this.callBatch(c),
+    );
     if (this.intentCache && outcome.collected.length > 0) {
       await this.intentCache.mset(outcome.collected);
     }
     return outcome;
-  }
-
-  /**
-   * 對單批做韌性呼叫並**回傳**累積結果：length → 對半遞迴（序列、不超 p-limit 並發）；
-   * content_filter/refusal/malformed → 整批 fallback + 覆核（postProcess 補 informational）。
-   */
-  private async labelChunkResilient(chunk: string[]): Promise<ChunkOutcome> {
-    // chunk 永遠非空：外層只送非空批，遞迴只在 length ≥2 時對半（兩半皆非空）。
-    try {
-      const result = await this.callBatch(chunk);
-      // refusal 或 malformed（strict 為 server-only 保證，client 端不驗；缺 results 仍可能）→
-      // 整批 fallback（postProcess 補 informational）+ 覆核；不得 spread undefined 而崩（M2-R2）。
-      if (result.refusal !== null || !Array.isArray(result.parsed?.results)) {
-        return { collected: [], needsReview: [...chunk] };
-      }
-      return { collected: result.parsed.results, needsReview: [] };
-    } catch (error) {
-      if (error instanceof LengthFinishReasonError) {
-        if (chunk.length === 1) {
-          return { collected: [], needsReview: [] }; // 拆到底仍 length → postProcess 補 fallback。
-        }
-        const mid = Math.ceil(chunk.length / 2);
-        const left = await this.labelChunkResilient(chunk.slice(0, mid));
-        const right = await this.labelChunkResilient(chunk.slice(mid));
-        return {
-          collected: [...left.collected, ...right.collected],
-          needsReview: [...left.needsReview, ...right.needsReview],
-        };
-      }
-      if (
-        error instanceof ContentFilterFinishReasonError ||
-        (error instanceof BadRequestError && error.code === 'content_filter')
-      ) {
-        // completion-side（200 finish_reason）或 prompt-side（HTTP 400 code=content_filter）內容過濾
-        // → 整批 fallback + 覆核（M2-R1：prompt-side 400 原會落到下方 throw 使整 job 崩）。
-        return { collected: [], needsReview: [...chunk] };
-      }
-      throw error; // 其餘錯誤（429/5xx 已由 SDK maxRetries 處理；非預期/非 content_filter 400 則上拋）。
-    }
   }
 
   /** 單批 LLM 呼叫（固定 strict schema、temperature=0、max tokens）。 */
