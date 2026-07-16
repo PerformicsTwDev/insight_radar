@@ -17,6 +17,13 @@ export interface CacheConfig {
   aiInsightSchemaVersion: string;
   /** per-view AI 洞察快取 TTL（毫秒；env `CACHE_TTL_AI_INSIGHT_MS`，預設 60 天）。 */
   aiInsightTtlMs: number;
+  /**
+   * 購買歷程分類快取 namespace 版本（key `journey:v{ver}:{dep}:sha256(nt)` 的 `v{ver}` 段；
+   * env `JOURNEY_SCHEMA_VERSION`，預設 `v1`；**schema 或 prompt 變更皆 bump**→整批失效，FR-33/AC-33.3）。
+   */
+  journeySchemaVersion: string;
+  /** 購買歷程分類 Redis 快取 TTL（毫秒；env `CACHE_TTL_JOURNEY_MS`，預設 60 天）。 */
+  journeyTtlMs: number;
 }
 
 /** 快取設定（值已由 env.validation Joi schema 驗證/補預設；TTL 一律毫秒，FR-10）。 */
@@ -26,4 +33,6 @@ export const cacheConfig = registerAs('cache', (): CacheConfig => ({
   intentSchemaVersion: process.env.INTENT_SCHEMA_VERSION as string,
   aiInsightSchemaVersion: process.env.AI_INSIGHT_SCHEMA_VERSION as string,
   aiInsightTtlMs: Number(process.env.CACHE_TTL_AI_INSIGHT_MS),
+  journeySchemaVersion: process.env.JOURNEY_SCHEMA_VERSION as string,
+  journeyTtlMs: Number(process.env.CACHE_TTL_JOURNEY_MS),
 }));

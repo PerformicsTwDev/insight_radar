@@ -49,6 +49,7 @@ const ENV: Record<string, string> = {
   AZURE_OPENAI_API_VERSION: '2024-10-21',
   LLM_BATCH_SIZE: '30',
   LLM_CONCURRENCY: '6',
+  JOURNEY_LLM_BATCH_SIZE: '30',
   AZURE_OPENAI_MAX_RETRIES: '5',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
@@ -63,6 +64,8 @@ const ENV: Record<string, string> = {
   INTENT_SCHEMA_VERSION: 'v1',
   AI_INSIGHT_SCHEMA_VERSION: 'v1',
   CACHE_TTL_AI_INSIGHT_MS: '5184000000',
+  JOURNEY_SCHEMA_VERSION: 'v1',
+  CACHE_TTL_JOURNEY_MS: '5184000000',
   QUERY_MAX_PAGE_SIZE: '200',
   AGG_MAX_BUCKETS: '200',
   AGG_MAX_GROUPS: '1000',
@@ -169,6 +172,7 @@ describe('config namespaces (registerAs, typed)', () => {
       apiVersion: '2024-10-21',
       llmBatchSize: 30,
       llmConcurrency: 6,
+      journeyLlmBatchSize: 30,
       maxRetries: 5,
     });
   });
@@ -196,6 +200,8 @@ describe('config namespaces (registerAs, typed)', () => {
       intentSchemaVersion: 'v1',
       aiInsightSchemaVersion: 'v1',
       aiInsightTtlMs: 5184000000,
+      journeySchemaVersion: 'v1',
+      journeyTtlMs: 5184000000,
     });
   });
 

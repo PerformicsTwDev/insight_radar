@@ -1,3 +1,8 @@
+import {
+  BadRequestError,
+  ContentFilterFinishReasonError,
+  LengthFinishReasonError,
+} from 'openai/core/error';
 import type { ParseChatResult } from './intent-labeler.port';
 
 /**
@@ -21,9 +26,39 @@ export interface ChunkOutcome<R> {
  *
  * 純函式（僅依賴傳入的 `callBatch`）；`chunk` 永遠非空（外層只送非空批、遞迴只在 length ≥2 時對半）。
  */
-export function resilientChunk<R>(
-  _chunk: string[],
-  _callBatch: (chunk: string[]) => Promise<ParseChatResult<{ results: R[] }>>,
+export async function resilientChunk<R>(
+  chunk: string[],
+  callBatch: (chunk: string[]) => Promise<ParseChatResult<{ results: R[] }>>,
 ): Promise<ChunkOutcome<R>> {
-  return Promise.reject(new Error('not implemented'));
+  try {
+    const result = await callBatch(chunk);
+    // refusal 或 malformed（strict 為 server-only 保證，client 端不驗；缺 results 仍可能）→ 整批 fallback
+    // + 覆核；不得 spread undefined 而崩（M2-R2）。
+    if (result.refusal !== null || !Array.isArray(result.parsed?.results)) {
+      return { collected: [], needsReview: [...chunk] };
+    }
+    return { collected: result.parsed.results, needsReview: [] };
+  } catch (error) {
+    if (error instanceof LengthFinishReasonError) {
+      if (chunk.length === 1) {
+        return { collected: [], needsReview: [] }; // 拆到底仍 length → postProcess 補 fallback。
+      }
+      const mid = Math.ceil(chunk.length / 2);
+      const left = await resilientChunk(chunk.slice(0, mid), callBatch);
+      const right = await resilientChunk(chunk.slice(mid), callBatch);
+      return {
+        collected: [...left.collected, ...right.collected],
+        needsReview: [...left.needsReview, ...right.needsReview],
+      };
+    }
+    if (
+      error instanceof ContentFilterFinishReasonError ||
+      (error instanceof BadRequestError && error.code === 'content_filter')
+    ) {
+      // completion-side（200 finish_reason）或 prompt-side（HTTP 400 code=content_filter）內容過濾
+      // → 整批 fallback + 覆核（M2-R1）。
+      return { collected: [], needsReview: [...chunk] };
+    }
+    throw error; // 其餘錯誤（429/5xx 已由 SDK maxRetries 處理；非預期/非 content_filter 400 則上拋）。
+  }
 }

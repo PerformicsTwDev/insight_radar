@@ -8,6 +8,7 @@ const CONFIG: AzureConfig = {
   apiVersion: '2024-10-21',
   llmBatchSize: 30,
   llmConcurrency: 6,
+  journeyLlmBatchSize: 30,
   maxRetries: 5,
 };
 

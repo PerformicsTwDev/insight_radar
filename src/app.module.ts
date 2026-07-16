@@ -5,6 +5,7 @@ import { AuthModule } from './auth';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { HealthModule } from './health';
+import { JourneyModule } from './journey/journey.module';
 import { KeywordAnalysisModule } from './keyword-analysis';
 import { KeywordsModule } from './keywords/keywords.module';
 import { LoggerModule } from './logger';
@@ -42,6 +43,7 @@ import { configNamespaces, validationSchema } from './config';
     TopicsModule,
     TrackingListModule,
     AiInsightModule,
+    JourneyModule,
   ],
 })
 export class AppModule {}

@@ -1,4 +1,5 @@
-import type { JourneyStage } from './journey.schema';
+import { normalizeText } from '../google-ads/normalize';
+import { JOURNEY_STAGES, type JourneyStage } from './journey.schema';
 
 /**
  * 後處理的暫態 DTO（非 canonical 實體）。下游 service / repository 才組裝成 snapshot-scoped assignment。
@@ -21,8 +22,11 @@ export interface RawJourneyBatch {
  * 清洗單一 stage：合法（在 `JOURNEY_STAGES` 內）→ 原值；否則 → `null`。**驗證邊界單點**：後處理（TC-69）
  * 與 journey 快取回寫共用此函式，確保「raw LLM stage 視為不可信」在兩條路徑上一致清洗（不污染下游）。
  */
-export function cleanStage(_stage: string): JourneyStage | null {
-  throw new Error('not implemented');
+const FALLBACK_STAGE: JourneyStage = 'need_definition';
+const VALID_STAGES = new Set<string>(JOURNEY_STAGES);
+
+export function cleanStage(stage: string): JourneyStage | null {
+  return VALID_STAGES.has(stage) ? (stage as JourneyStage) : null;
 }
 
 /**
@@ -33,6 +37,17 @@ export function cleanStage(_stage: string): JourneyStage | null {
  * - 輸出恰好每個輸入一列、依輸入順序；不產生使用者未輸入的列（drop 幻覺）。
  * - 同 key 多筆結果以**最後一筆**為準（含最後一筆非法時 → fallback）。
  */
-export function postProcessJourney(_inputs: string[], _parsed: RawJourneyBatch): StagedKeyword[] {
-  throw new Error('not implemented');
+export function postProcessJourney(inputs: string[], parsed: RawJourneyBatch): StagedKeyword[] {
+  // 建 normalizedText → cleaned stage 對照（後到覆蓋先到；最後一筆非法 → null → 下方補 fallback）。
+  const byKey = new Map<string, JourneyStage | null>();
+  for (const result of parsed.results) {
+    byKey.set(normalizeText(result.keyword), cleanStage(result.stage));
+  }
+
+  return inputs.map((keyword) => ({
+    keyword, // 保留使用者原字
+    stage: byKey.get(normalizeText(keyword)) ?? FALLBACK_STAGE,
+  }));
 }
+
+export { FALLBACK_STAGE };

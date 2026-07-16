@@ -245,6 +245,19 @@ model TrackingListMember {
   @@map("tracking_list_members")
 }
 
+// M12 購買歷程分類（T12.5，FR-33 / AC-33.5；Design §17.5）。每字→7 階段之一（strict json_schema + 後處理）。
+// **分表互補、不覆寫** `keyword_intents`（S10）：journey stage 與 FR-4 每字 intent 各自獨立持有。
+// 快照範疇（snapshotId/analysisId）由呼叫端（T12.6 job）帶入；PK = [snapshotId, normalizedText]（去重同一套）。
+model KeywordJourneyAssignment {
+  analysisId     String @map("keyword_analysis_id") @db.Uuid
+  snapshotId     String @map("snapshot_id") @db.Uuid
+  normalizedText String @map("normalized_text") // 成員 key = 去重/快取同一套（S4）
+  stage          String // 7 階段 enum 之一（pain_awareness…repurchase_retention）
+
+  @@id([snapshotId, normalizedText])
+  @@map("keyword_journey_assignments")
+}
+
 // 搜量時序（append-only、store-on-change，AC-29.4）。fetchedAt = 觀測時點（非每日搜量，S1 月粒度）。
 model VolumeSnapshot {
   id                 String   @id @default(uuid()) @db.Uuid

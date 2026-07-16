@@ -27,6 +27,7 @@ const okStage =
 
 interface BuildOpts {
   batchSize?: number;
+  llmConcurrency?: number;
   withCache?: boolean;
   behave?: (keywords: string[]) => ParseChatResult<JourneyBatch>;
   seed?: Record<string, JourneyStage>;
@@ -58,7 +59,10 @@ function build(opts: BuildOpts = {}): {
   });
   const cache = { mget, mset } as unknown as JourneyCache;
 
-  const config: JourneyServiceConfig = { batchSize: opts.batchSize ?? 30 };
+  const config: JourneyServiceConfig = {
+    batchSize: opts.batchSize ?? 30,
+    llmConcurrency: opts.llmConcurrency,
+  };
   const service = new JourneyService(labeler, config, opts.withCache === false ? undefined : cache);
   return { service, batches, mget, mset };
 }
@@ -184,5 +188,20 @@ describe('JourneyService.classify (T12.5 / FR-33 / AC-33.1~33.3/33.5 / TC-69 部
     expect(out).toEqual([]);
     expect(batches).toHaveLength(0);
     expect(mget).not.toHaveBeenCalled();
+  });
+
+  it('clamps an invalid (0) batchSize to the default so batching never stalls', async () => {
+    // sanitizePositiveInt(0, 30) → 30；否則 i += 0 會無限迴圈。三字一批（≤30）。
+    const { service, batches } = build({ withCache: false, batchSize: 0 });
+    const out = await service.classify(['a', 'b', 'c']);
+    expect(out).toHaveLength(3);
+    expect(batches).toEqual([['a', 'b', 'c']]); // single batch → batchSize became 30, not 0
+  });
+
+  it('honours an explicit llmConcurrency (defined-value path)', async () => {
+    const { service, batches } = build({ withCache: false, batchSize: 2, llmConcurrency: 1 });
+    const out = await service.classify(['a', 'b', 'c']);
+    expect(out).toHaveLength(3);
+    expect(batches.map((b) => b.length)).toEqual([2, 1]);
   });
 });

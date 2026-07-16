@@ -10,6 +10,8 @@ export interface AzureConfig {
   llmBatchSize: number;
   /** intent 貼標並發上限（已 Joi 驗證 min1，預設 6；Design §14 LLM_CONCURRENCY）。 */
   llmConcurrency: number;
+  /** 購買歷程分類每批關鍵字數（已 Joi 驗證 min1，預設 30；Design §14 JOURNEY_LLM_BATCH_SIZE）。 */
+  journeyLlmBatchSize: number;
   /** SDK 自動重試次數（已 Joi 驗證 min0，預設 5；Design §14 AZURE_OPENAI_MAX_RETRIES）。 */
   maxRetries: number;
 }
@@ -22,5 +24,6 @@ export const azureConfig = registerAs('azure', (): AzureConfig => ({
   apiVersion: process.env.AZURE_OPENAI_API_VERSION as AzureOpenAiApiVersion,
   llmBatchSize: Number(process.env.LLM_BATCH_SIZE),
   llmConcurrency: Number(process.env.LLM_CONCURRENCY),
+  journeyLlmBatchSize: Number(process.env.JOURNEY_LLM_BATCH_SIZE),
   maxRetries: Number(process.env.AZURE_OPENAI_MAX_RETRIES),
 }));
