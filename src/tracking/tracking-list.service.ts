@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../common/authenticated-user';
@@ -30,6 +36,12 @@ export interface TrackingListSummary extends TrackingListView {
 export interface AddMembersResult {
   memberCount: number;
   added: number;
+}
+
+/** 移除成員回應（AC-28.6）：回被移除成員的 `listId` 與（正規化後的）`normalizedText`。 */
+export interface RemoveMemberResult {
+  listId: string;
+  normalizedText: string;
 }
 
 /** 成員基本面（FR-28；時序讀取＝FR-30/T11.7，非本任務）。 */
@@ -71,11 +83,17 @@ export class TrackingListService {
   ) {}
 
   /**
-   * 建立清單（AC-28.1）：`ownerId` 由 actor 決定（session→id、apiKey→null）；geo/language 固定於清單層
-   * （AC-28.5）。同 owner 重名撞 `@@unique([ownerId,name])`（P2002）→ 409（非 P2002 錯誤原樣上拋，不誤判重複）。
+   * 建立清單（AC-28.1/28.7）：`ownerId` 由 actor 決定（session→id、apiKey→null）；geo/language 固定於清單層
+   * （AC-28.5）。**清單上限（AC-28.7）**：該 owner（`ownerId`）現有清單數 ≥ `TRACKING_MAX_LISTS` → 409（保護
+   * Ads 配額，NFR-16）。同 owner 重名撞 `@@unique([ownerId,name])`（P2002）→ 409（非 P2002 錯誤原樣上拋，不誤判重複）。
    */
   async create(dto: CreateTrackingListDto, actor: AuthenticatedUser): Promise<TrackingListView> {
     const ownerId = ownerIdOf(actor);
+    // 清單上限（AC-28.7）：以該 owner bucket 現有清單數把關（session→自己、apiKey→null bucket）。
+    const listCount = await this.prisma.trackingList.count({ where: { ownerId } });
+    if (listCount >= this.config.maxLists) {
+      throw new ConflictException(listLimitMessage(this.config.maxLists));
+    }
     try {
       const row = await this.prisma.trackingList.create({
         data: { ownerId, name: dto.name, geo: dto.geo, language: dto.language },
@@ -198,6 +216,33 @@ export class TrackingListService {
   }
 
   /**
+   * 移除成員（AC-28.6）——T11.4。先 `assertOwnedRow`（越權/清單不存在 → 同一 404，owner 守門先於成員查找，
+   * 不洩漏存在性，FR-27）；`normalizedText` 路徑參數再經 `normalizeText`（S4，與成員 / 去重 / 快取 key 同一套）
+   * 後才比對刪除；無此成員（`deleteMany` count===0）→ `404`。回 `{ listId, normalizedText }`。
+   */
+  async removeMember(
+    listId: string,
+    normalizedText: string,
+    actor: AuthenticatedUser,
+  ): Promise<RemoveMemberResult> {
+    const list = await this.prisma.trackingList.findUnique({
+      where: { id: listId },
+      select: { id: true, ownerId: true },
+    });
+    assertOwnedRow(list, actor, notFoundMessage(listId));
+
+    // `:normalizedText` 路徑參數再經 normalizeText（S4）後才比對，確保與成員 / 去重 / 快取 key 同一套。
+    const key = normalizeText(normalizedText);
+    const { count } = await this.prisma.trackingListMember.deleteMany({
+      where: { listId, normalizedText: key },
+    });
+    if (count === 0) {
+      throw new NotFoundException(memberNotFoundMessage(key));
+    }
+    return { listId, normalizedText: key };
+  }
+
+  /**
    * 把 `items` 展開攤平為候選成員（帶來源 geo/language 語境，供語境守門）：關鍵字列 `normalizedText` 由
    * 伺服器 `normalizeText(text)` 導出（S4，不由 client 給）；主題列經 `TopicRepository.expandTopicToMembers`
    * 展開為該群非-noise 關鍵字（無此群 / 無 run → 空集合，AC-28.4）。**`analysisId` 受 owner-scope（FR-27）**：
@@ -303,6 +348,16 @@ function contextMismatchMessage(geo: string, language: string): string {
 /** 加入後成員數超過每清單上限 → 409（AC-28.7）。 */
 function limitMessage(max: number): string {
   return `Tracking list member limit reached (max ${max})`;
+}
+
+/** 該 owner 清單數達上限 → 409（AC-28.7，保護 Ads 配額）。 */
+function listLimitMessage(max: number): string {
+  return `Tracking list limit reached (max ${max})`;
+}
+
+/** 移除時無此成員（`normalizedText`）→ 404（AC-28.6）。 */
+function memberNotFoundMessage(normalizedText: string): string {
+  return `Member "${normalizedText}" not found in tracking list`;
 }
 
 /** 單批 `items` 數超過請求上限 → 400（NFR-16 DoS 前置守門，先於任何 DB 展開）。 */

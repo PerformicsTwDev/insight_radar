@@ -29,13 +29,18 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
 
   beforeAll(async () => {
     ({ app, prisma } = await createPrismaTestApp());
-    // T11.3：service 建構子加入 TopicRepository（主題展開）+ trackingConfig（成員上限 + 加成員請求上限）。
-    // CRUD（本檔）不觸及加成員路徑，兩上限任意；直接構造與 T11.2 慣例一致（HTTP 層由 e2e 覆蓋）。
-    service = new TrackingListService(prisma, new TopicRepository(prisma), {
+    // T11.3/T11.4：service 建構子含 TopicRepository（主題展開）+ trackingConfig（清單/成員上限 + 加成員請求上限）。
+    // 多數 CRUD（本檔）不觸及上限，任意預設；清單上限（AC-28.7）以 makeService(maxLists) 注入小值精準驗。
+    service = makeService();
+  });
+
+  /** 以指定 `maxLists` 建 service（清單上限測試注入小值；其餘上限預設寬鬆）。 */
+  const makeService = (maxLists = 50): TrackingListService =>
+    new TrackingListService(prisma, new TopicRepository(prisma), {
+      maxLists,
       maxMembersPerList: 500,
       maxItemsPerRequest: 500,
     });
-  });
 
   afterAll(async () => {
     await app.close();
@@ -82,6 +87,36 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
       await expect(
         service.create({ ...BODY, name: 'machine dup' }, API_KEY),
       ).resolves.toMatchObject({ name: 'machine dup' });
+    });
+  });
+
+  describe('list-count limit (AC-28.7)', () => {
+    it('達 TRACKING_MAX_LISTS → 建立回 409（ConflictException）', async () => {
+      const svc = makeService(2);
+      await svc.create({ ...BODY, name: 'l1' }, SESSION_A);
+      await svc.create({ ...BODY, name: 'l2' }, SESSION_A);
+      await expect(svc.create({ ...BODY, name: 'l3' }, SESSION_A)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
+    it('上限以「每 owner」計——A 達上限不影響 B', async () => {
+      const svc = makeService(1);
+      await svc.create({ ...BODY, name: 'a1' }, SESSION_A);
+      await expect(svc.create({ ...BODY, name: 'a2' }, SESSION_A)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      await expect(svc.create({ ...BODY, name: 'b1' }, SESSION_B)).resolves.toMatchObject({
+        name: 'b1',
+      });
+    });
+
+    it('邊界：上限=2 時第 2 筆仍成功（>= 才擋，非 >）', async () => {
+      const svc = makeService(2);
+      await svc.create({ ...BODY, name: 'ok1' }, SESSION_A);
+      await expect(svc.create({ ...BODY, name: 'ok2' }, SESSION_A)).resolves.toMatchObject({
+        name: 'ok2',
+      });
     });
   });
 
