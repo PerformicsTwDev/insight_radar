@@ -10,6 +10,13 @@ export interface CacheConfig {
    * **bump 即整批失效**：schema / prompt / 標籤語意變更時調此值 → 舊 key 自然不命中、不污染新結果（FR-10）。
    */
   intentSchemaVersion: string;
+  /**
+   * per-view AI 洞察快取 namespace 版本（key `ai_insight:v{ver}:{dep}:{snapshotId}:{view}:sha256(canonical(filters))`
+   * 的 `v{ver}` 段；env `AI_INSIGHT_SCHEMA_VERSION`，預設 `v1`；bump 即整批失效，AC-32.2/FR-32）。
+   */
+  aiInsightSchemaVersion: string;
+  /** per-view AI 洞察快取 TTL（毫秒；env `CACHE_TTL_AI_INSIGHT_MS`，預設 60 天）。 */
+  aiInsightTtlMs: number;
 }
 
 /** 快取設定（值已由 env.validation Joi schema 驗證/補預設；TTL 一律毫秒，FR-10）。 */
@@ -17,4 +24,6 @@ export const cacheConfig = registerAs('cache', (): CacheConfig => ({
   metricsTtlMs: Number(process.env.CACHE_TTL_METRICS_MS),
   intentTtlMs: Number(process.env.CACHE_TTL_INTENT_MS),
   intentSchemaVersion: process.env.INTENT_SCHEMA_VERSION as string,
+  aiInsightSchemaVersion: process.env.AI_INSIGHT_SCHEMA_VERSION as string,
+  aiInsightTtlMs: Number(process.env.CACHE_TTL_AI_INSIGHT_MS),
 }));

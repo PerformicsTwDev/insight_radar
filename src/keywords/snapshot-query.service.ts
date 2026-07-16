@@ -70,6 +70,20 @@ export class SnapshotQueryService {
   }
 
   /**
+   * 解析並回傳分析的**就緒 snapshot id**（owner-scoped，與 {@link loadSnapshot} 同一 readiness/owner 單點）：
+   * 未知 id / 非 owner → 404、尚無 snapshot（queued/running…）→ 409 NOT_READY。**不載入列**——供需要
+   * `snapshotId` 作 cache namespace 但欲在**載入/聚合/LLM 前**先命中快取者（per-view AI 洞察 filters-hash，
+   * AC-32.2）：cache 命中即免載列、免聚合、免打 LLM。owner 過濾唯一強制點仍在 `loadAnalysis`（S8）。
+   */
+  async resolveReadySnapshotId(analysisId: string, actor: AuthenticatedUser): Promise<string> {
+    const analysis = await this.loadAnalysis(analysisId, actor);
+    if (!analysis.resultSnapshotId) {
+      throw new NotReadyException(analysis.status);
+    }
+    return analysis.resultSnapshotId;
+  }
+
+  /**
    * 讀分析行（status + resultSnapshotId + ownerId）；未知 id / 非 owner → 404。feature 狀態 + readiness 判斷
    * 之共同來源，亦為 keywords/query 兩讀取路徑的 **owner 過濾唯一單點**（T10.6，AC-27.3/27.4）：越權與未知
    * id 同回 404（不洩漏存在性），session 只見自己 + 共享（null）列、apiKey 機器 actor 不過濾。

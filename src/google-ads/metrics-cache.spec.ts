@@ -56,6 +56,8 @@ function buildCache(metricsCtx?: JobMetricsContext) {
     metricsTtlMs: TTL_MS,
     intentTtlMs: 1,
     intentSchemaVersion: 'v1',
+    aiInsightSchemaVersion: 'v1',
+    aiInsightTtlMs: 1,
   };
   // DB canonical 替身（keywords）：findMany 依 geo/language + normalizedText∈ 過濾；記錄 upsert。
   const dbRows: KeywordRow[] = [];
