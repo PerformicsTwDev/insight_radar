@@ -28,15 +28,6 @@ export interface RefreshListResult {
 /** currencyCode 僅供 mapper 的 CPC 浮點欄位（**不落快照**——快照存 micros）；任意值皆不影響儲存。 */
 const REFRESH_CURRENCY = 'TWD';
 
-/** 成員無 Ads 資料時的觀測（全 null；斷點語意，null 不補 0）。 */
-const NO_DATA_OBSERVATION: VolumeObservation = {
-  avgMonthlySearches: null,
-  competition: null,
-  cpcLowMicros: null,
-  cpcHighMicros: null,
-  monthlyVolumes: [],
-};
-
 /** 該成員本次要落列與否的判定結果。 */
 type StoreOutcome = 'appended' | 'unchanged';
 
@@ -119,11 +110,15 @@ export class VolumeRefreshService {
       }
       const kwByKey = indexKeywords(fetched);
       for (const member of batch) {
+        // 不變量：fetchHistoricalMetrics 對每個輸入 seed 皆回一列（無資料→補「無指標 seed 列」+ dedupeMerge
+        // 以 normalizedText 為鍵），故 kwByKey **必**含 member.normalizedText。以 non-null 斷言表達此不變量，
+        // 避免一條不可達的防禦分支（若不變量遭破壞，取值即 throw、由 int-spec 攔截，不會靜默走錯路）。
+        const kw = kwByKey.get(member.normalizedText)!;
         const outcome = await this.storeOnChange(
           listId,
           list,
           member.normalizedText,
-          kwByKey.get(member.normalizedText),
+          kw,
           fetchedAt,
         );
         if (outcome === 'appended') {
@@ -145,7 +140,7 @@ export class VolumeRefreshService {
     listId: string,
     ctx: ListContext,
     normalizedText: string,
-    kw: Keyword | undefined,
+    kw: Keyword,
     fetchedAt: Date,
   ): Promise<StoreOutcome> {
     const observation = this.toObservation(kw);
@@ -172,7 +167,7 @@ export class VolumeRefreshService {
           avgMonthlySearches: observation.avgMonthlySearches,
           monthlyVolumes: observation.monthlyVolumes as unknown as Prisma.InputJsonValue,
           competition: observation.competition,
-          competitionIndex: kw?.competitionIndex ?? null,
+          competitionIndex: kw.competitionIndex ?? null,
           cpcLowMicros: observation.cpcLowMicros === null ? null : BigInt(observation.cpcLowMicros),
           cpcHighMicros:
             observation.cpcHighMicros === null ? null : BigInt(observation.cpcHighMicros),
@@ -189,11 +184,12 @@ export class VolumeRefreshService {
     return changed ? 'appended' : 'unchanged';
   }
 
-  /** Keyword → 觀測（缺列＝全 null 斷點）；`monthlyVolumes` 裁切至最近 `backfillMonths` 月（AC-29.1）。 */
-  private toObservation(kw: Keyword | undefined): VolumeObservation {
-    if (!kw) {
-      return NO_DATA_OBSERVATION;
-    }
+  /**
+   * Keyword → 觀測；`monthlyVolumes` 裁切至最近 `backfillMonths` 月（AC-29.1）。無 Ads 指標的輸入由
+   * `fetchHistoricalMetrics` 補「無指標 seed 列」（competition 為 `UNSPECIFIED`、其餘 null；斷點語意、
+   * null 不補 0），故此處恆收到真實 `Keyword`（不需 undefined 防禦分支——見 refreshList 的不變量斷言）。
+   */
+  private toObservation(kw: Keyword): VolumeObservation {
     return {
       avgMonthlySearches: kw.avgMonthlySearches,
       competition: kw.competition,

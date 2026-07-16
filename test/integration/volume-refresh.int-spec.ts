@@ -357,6 +357,32 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
     });
   });
 
+  describe('default clock (production seam)', () => {
+    it('unoverridden now → fetchedAt is the real current Date (real DI path)', async () => {
+      // 不經 setup()（其覆寫 now=()=>T0）；直接建構以行使**預設 real clock**（`() => new Date()`）——
+      // 即 production DI 建構路徑。以容忍下界斷言（real clock，不假決定性；test-authoring §5）。
+      const fake = new FakeAdsClient();
+      fake.specs.set('coffee', metrics());
+      const throttle: AdsThrottle = { schedule: async (_cid, fn) => fn() };
+      const ads = new GoogleAdsService(fake, undefined, throttle);
+      const svc = new VolumeRefreshService(prisma, ads, {
+        maxLists: 50,
+        maxMembersPerList: 500,
+        maxItemsPerRequest: 500,
+        backfillMonths: 12,
+      });
+      const before = Date.now();
+      const listId = await seedList([{ text: 'Coffee', normalizedText: 'coffee' }]);
+      const res = await svc.refreshList(listId);
+
+      expect(res).toMatchObject({ memberCount: 1, appended: 1, unchanged: 0, failed: 0 });
+      expect(res.fetchedAt).toBeInstanceOf(Date);
+      expect(res.fetchedAt.getTime()).toBeGreaterThanOrEqual(before);
+      const [coffee] = await snapsOf(listId, 'coffee');
+      expect(coffee.fetchedAt).toEqual(res.fetchedAt); // 快照時間軸 = 觀測時點（real clock）
+    });
+  });
+
   describe('edge cases', () => {
     it('unknown listId → NotFoundException', async () => {
       const { svc } = setup();
