@@ -293,6 +293,9 @@ export class TrackingListService {
     if (count === 0) {
       throw new NotFoundException(memberNotFoundMessage(key));
     }
+    // 連帶刪其時序快照（VolumeSnapshot 無 FK cascade）——否則同 normalizedText re-add 會復活舊快照
+    // 且 storeOnChange 撞舊 latest 抑制首筆新快照（M11-R1，AC-28.6）。不受 KEEP_SERIES_ON_DELETE 影響。
+    await this.prisma.volumeSnapshot.deleteMany({ where: { listId, normalizedText: key } });
     return { listId, normalizedText: key };
   }
 
