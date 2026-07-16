@@ -28,6 +28,28 @@ describe('env validation schema (TC-19 fail-fast)', () => {
     expect(error).toBeUndefined();
   });
 
+  // M11-R3：TRACKING_REFRESH_CRON 以 cron-parser（= BullMQ 同一 parser）自訂驗證——無效 cron fail-fast，
+  // 避免逃過驗證 → upsertJobScheduler 擲錯被 bootstrap best-effort catch 吞掉 → 排程靜默停擺。
+  it.each(['60 3 * * *', 'not-a-cron', '0 25 * * *', '0 3 * * * * *', '', '   '])(
+    'rejects an invalid TRACKING_REFRESH_CRON %j (fail-fast, M11-R3)',
+    (cron) => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, TRACKING_REFRESH_CRON: cron },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('TRACKING_REFRESH_CRON');
+    },
+  );
+
+  it('accepts a valid TRACKING_REFRESH_CRON', () => {
+    const { error } = validationSchema.validate(
+      { ...validEnv, TRACKING_REFRESH_CRON: '30 2 * * 1' },
+      { abortEarly: false },
+    );
+    expect(error).toBeUndefined();
+  });
+
   it.each([
     'API_KEY',
     'GOOGLE_ADS_DEVELOPER_TOKEN',
