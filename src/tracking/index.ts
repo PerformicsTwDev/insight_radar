@@ -2,3 +2,5 @@
 export * from './tracking-list.service';
 export * from './tracking-list.controller';
 export * from './tracking-list.module';
+export * from './volume-refresh.service';
+export * from './volume-observation';

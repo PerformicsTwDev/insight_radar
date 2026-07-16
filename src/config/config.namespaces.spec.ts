@@ -93,6 +93,7 @@ const ENV: Record<string, string> = {
   TRACKING_MAX_LISTS: '50',
   TRACKING_MAX_MEMBERS_PER_LIST: '500',
   TRACKING_MAX_ITEMS_PER_REQUEST: '500',
+  TRACKING_BACKFILL_MONTHS: '12',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -247,11 +248,12 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('trackingConfig maps list/member limits + request-size env (coerced to number; M11)', () => {
+  it('trackingConfig maps list/member limits + request-size + backfill env (coerced to number; M11)', () => {
     expect(trackingConfig()).toEqual({
       maxLists: 50,
       maxMembersPerList: 500,
       maxItemsPerRequest: 500,
+      backfillMonths: 12,
     });
   });
 });

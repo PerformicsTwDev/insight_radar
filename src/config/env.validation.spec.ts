@@ -98,6 +98,7 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.TRACKING_MAX_LISTS).toBe(50);
       expect(value.TRACKING_MAX_MEMBERS_PER_LIST).toBe(500);
       expect(value.TRACKING_MAX_ITEMS_PER_REQUEST).toBe(500);
+      expect(value.TRACKING_BACKFILL_MONTHS).toBe(12); // AC-29.1 回填月數（Ads 原生窗）
     });
 
     it('fail-fasts when SESSION_SECRET is missing (M10 required secret, TC-63)', () => {

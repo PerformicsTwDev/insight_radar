@@ -155,4 +155,6 @@ export const validationSchema = Joi.object({
   TRACKING_MAX_MEMBERS_PER_LIST: Joi.number().integer().min(1).default(500),
   // 加成員單批 items 上限（NFR-16 DoS 前置守門）；超過 → 400，先於任何 DB 展開（比照 INGEST_BATCH_MAX）。
   TRACKING_MAX_ITEMS_PER_REQUEST: Joi.number().integer().min(1).default(500),
+  // 搜量刷新回填月數（AC-29.1；預設 12＝Ads 原生窗）；VolumeSnapshot.monthlyVolumes 裁切至最近 N 個月。
+  TRACKING_BACKFILL_MONTHS: Joi.number().integer().min(1).default(12),
 });
