@@ -1,9 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { trackingConfig } from '../config/tracking.config';
 import { GoogleAdsService, type HistoricalParams } from '../google-ads/google-ads.service';
 import type { Keyword } from '../google-ads/keyword.types';
+import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   limitToRecentMonths,
@@ -52,6 +53,7 @@ interface ListContext {
  */
 @Injectable()
 export class VolumeRefreshService {
+  private readonly logger = new Logger(VolumeRefreshService.name);
   /** 觀測時點時鐘（fetchedAt / lastCheckedAt）；測試可覆寫成可控時鐘（決定性斷言）。 */
   now: () => Date = () => new Date();
   /** 每批 seed 上限（AC-29.2 ≤20）；測試可覆寫以隔離 per-batch partial 語意。 */
@@ -110,21 +112,30 @@ export class VolumeRefreshService {
       }
       const kwByKey = indexKeywords(fetched);
       for (const member of batch) {
-        // 不變量：fetchHistoricalMetrics 對每個輸入 seed 皆回一列（無資料→補「無指標 seed 列」+ dedupeMerge
-        // 以 normalizedText 為鍵），故 kwByKey **必**含 member.normalizedText。以 non-null 斷言表達此不變量，
-        // 避免一條不可達的防禦分支（若不變量遭破壞，取值即 throw、由 int-spec 攔截，不會靜默走錯路）。
-        const kw = kwByKey.get(member.normalizedText)!;
-        const outcome = await this.storeOnChange(
-          listId,
-          list,
-          member.normalizedText,
-          kw,
-          fetchedAt,
-        );
-        if (outcome === 'appended') {
-          appended += 1;
-        } else {
-          unchanged += 1;
+        // per-member 降級（AC-29.5，M11-R2）：單成員 storeOnChange 失敗（並發移除 member.update P2025、
+        // 指標寫入錯誤、或 kwByKey 破例致 undefined→TypeError）只記 failed + warn、續跑同批其餘成員，
+        // **不逸出**中止整清單刷新。try/catch 亦收斂 `!` 不變量破例（不再讓其炸掉整批）。
+        try {
+          // 不變量：fetchHistoricalMetrics 對每個輸入 seed 皆回一列（無資料→補「無指標 seed 列」+ dedupeMerge
+          // 以 normalizedText 為鍵），故 kwByKey 必含 member.normalizedText；若破例，取值 throw 由此 catch 收。
+          const kw = kwByKey.get(member.normalizedText)!;
+          const outcome = await this.storeOnChange(
+            listId,
+            list,
+            member.normalizedText,
+            kw,
+            fetchedAt,
+          );
+          if (outcome === 'appended') {
+            appended += 1;
+          } else {
+            unchanged += 1;
+          }
+        } catch (error) {
+          failed += 1;
+          this.logger.warn(
+            `refreshList member ${member.normalizedText} failed (continuing): ${scrubSecrets(String(error))}`,
+          );
         }
       }
     }

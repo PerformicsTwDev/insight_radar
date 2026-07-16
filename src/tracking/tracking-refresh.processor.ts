@@ -105,8 +105,14 @@ export class TrackingRefreshProcessor
     let failed = 0;
     for (const listId of listIds) {
       try {
-        await this.volumeRefresh.refreshList(listId);
+        const result = await this.volumeRefresh.refreshList(listId);
         refreshed += 1;
+        // 表面化 per-member partial 失敗（AC-29.5 / M11-R2）：否則系統性 Ads 故障與零星失敗不可辨。
+        if (result.failed > 0) {
+          this.logger.warn(
+            `refreshList(${listId}) partial: ${result.failed}/${result.memberCount} members failed`,
+          );
+        }
       } catch (error) {
         // 降級不阻斷（AC-29.5）：一個清單失敗不中止其他清單；訊息 scrubSecrets（NFR-5）。
         failed += 1;
