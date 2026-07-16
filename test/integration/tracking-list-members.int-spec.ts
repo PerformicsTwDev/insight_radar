@@ -74,6 +74,7 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
     await prisma.$executeRawUnsafe('DELETE FROM snapshot_rows');
     await prisma.$executeRawUnsafe('DELETE FROM result_snapshots');
     await prisma.$executeRawUnsafe('DELETE FROM keyword_analyses');
+    await prisma.volumeSnapshot.deleteMany(); // 無 FK cascade → 顯式清（免孤點跨測試殘留）
     await prisma.trackingList.deleteMany(); // cascade removes members
   });
 
@@ -407,6 +408,36 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
   describe('removeMember (AC-28.6)', () => {
     const seedKw = (listId: string, normalizedText: string, text: string) =>
       prisma.trackingListMember.create({ data: { listId, normalizedText, text } });
+    const seedSnap = (listId: string, normalizedText: string, fetchedAt: Date) =>
+      prisma.volumeSnapshot.create({
+        data: {
+          listId,
+          normalizedText,
+          geo: 'TW',
+          language: 'zh-TW',
+          avgMonthlySearches: 100,
+          fetchedAt,
+        },
+      });
+    const snapCount = (listId: string, normalizedText: string) =>
+      prisma.volumeSnapshot.count({ where: { listId, normalizedText } });
+
+    it('移除成員連帶刪其 VolumeSnapshot；re-add 不復活舊快照（M11-R1）', async () => {
+      const svc = makeService();
+      const list = await svc.create(TW_LIST, SESSION_A);
+      await seedKw(list.listId, 'running shoes', 'Running Shoes');
+      await seedSnap(list.listId, 'running shoes', new Date('2026-01-01T00:00:00Z'));
+      await seedSnap(list.listId, 'running shoes', new Date('2026-02-01T00:00:00Z'));
+      expect(await snapCount(list.listId, 'running shoes')).toBe(2);
+
+      await svc.removeMember(list.listId, 'running shoes', SESSION_A);
+      expect(await snapCount(list.listId, 'running shoes')).toBe(0); // 連帶刪除（RED 直到實作）
+
+      // re-add 同 normalizedText → 時序不含前一追蹤期舊點。
+      await seedKw(list.listId, 'running shoes', 'Running Shoes');
+      const series = await svc.getSeries(list.listId, {}, SESSION_A);
+      expect(series.axis).toEqual([]); // 舊快照已刪 → 空時序，不復活
+    });
 
     it('移除存在成員 → 回 { listId, normalizedText } 且該成員消失', async () => {
       const svc = makeService();

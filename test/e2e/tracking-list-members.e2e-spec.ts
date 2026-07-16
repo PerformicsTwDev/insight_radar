@@ -199,6 +199,10 @@ function makeFakeDb(users: UserRow[]) {
         return Promise.resolve({ count });
       },
     },
+    // removeMember 連帶刪其時序（M11-R1）。本 e2e 只驗 HTTP 契約；真刪除語意由 int-spec 真 PG 覆蓋 → stub {count:0}。
+    volumeSnapshot: {
+      deleteMany: (): Promise<{ count: number }> => Promise.resolve({ count: 0 }),
+    },
   };
 }
 
