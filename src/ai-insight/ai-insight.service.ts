@@ -66,11 +66,10 @@ export class AiInsightService {
     }
 
     // 輸入 = 該 view 經 `/query` 產出的**聚合結果**（AC-32.1；非原始全表）。unknown-view→400 亦於此拋。
-    const aggregate: ViewResult = await this.snapshotQuery.query(
-      analysisId,
-      request satisfies QueryRequest,
-      actor,
-    );
+    // **只帶 `{ view, filters }`**（#476）：不轉 `select`，聚合僅由 `(view, filters)` 決定 → 與 filters-only
+    // 快取 key（AC-32.2）一致；`select` 缺省時各 view 走其預設欄位（如 keywords view fallback `ALLOWED_SELECT`）。
+    const queryRequest: QueryRequest = { view: request.view, filters: request.filters };
+    const aggregate: ViewResult = await this.snapshotQuery.query(analysisId, queryRequest, actor);
     const insight = await this.summarize(request.view, aggregate);
 
     await this.cache.set(key, insight, this.config.cacheTtlMs);

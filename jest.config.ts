@@ -23,6 +23,11 @@ const collectCoverageFrom = [
   //   由 tracking-refresh.service.spec（入列/owner-404）+ TC-65 refresh e2e（202/404）把關（coverage-gate §4）。
   //   註：processor **不**排除——其 manual-vs-scheduled 解析 + partial 迴圈為真實分支、留在 gate 內。
   '!<rootDir>/src/tracking/tracking-refresh.service.ts',
+  // ★ ai-insight.controller（T12.4）：**純委派 shell**——單一 handler 直委派 `service.generate`；ParseUUIDPipe
+  //   （400）、unknown-view/readiness/owner（400/409/404）、LLM 失敗→502（filter）等真實分支全在 gate 內的
+  //   `AiInsightService`/`SnapshotQueryService`/`AiInsightGenerationFilter`；剩餘缺口 100% 屬 emitDecoratorMetadata
+  //   phantom branch，比照 auth.controller/tracking-list.controller 排除，對外行為由 ai-insight.e2e 把關（§4）。
+  '!<rootDir>/src/ai-insight/ai-insight.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -42,6 +47,7 @@ const coverageIgnore = [
   'auth/auth\\.controller\\.ts$',
   'tracking/tracking-list\\.controller\\.ts$', // 純路由 shell（T11.2，同 auth.controller）
   'tracking/tracking-refresh\\.service\\.ts$', // 純入列 shell（T11.6，owner-scope 分支在 gate 內 assertOwnedRow）
+  'ai-insight/ai-insight\\.controller\\.ts$', // 純委派 shell（T12.4，狀態分支在 gate 內 service/filter）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。

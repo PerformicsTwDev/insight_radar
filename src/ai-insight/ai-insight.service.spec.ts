@@ -73,12 +73,19 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
     const { service, parseChat, resolveReadySnapshotId, query } = build();
     parseChat.mockResolvedValue(ok('Big volume on brand terms.'));
 
+    // #476: even if a caller supplies `select`, it MUST NOT reach /query — the aggregate is
+    // filters-determined only (matching the filters-only cache key AC-32.2). So /query is called
+    // with just { view, filters }, never the column subset.
     const request = { view: 'keywords', filters: { volumeMin: 10 }, select: ['text'] };
     const out = await service.generate('an-1', request, ACTOR);
 
     // owner-scoped snapshot resolution (single point) + the /query aggregate is the LLM input.
     expect(resolveReadySnapshotId).toHaveBeenCalledWith('an-1', ACTOR);
-    expect(query).toHaveBeenCalledWith('an-1', request, ACTOR);
+    expect(query).toHaveBeenCalledWith(
+      'an-1',
+      { view: 'keywords', filters: { volumeMin: 10 } },
+      ACTOR,
+    );
     expect(parseChat).toHaveBeenCalledTimes(1);
 
     const params = parseChat.mock.calls[0][0];

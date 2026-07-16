@@ -16,6 +16,10 @@
         ],
         "type": "object"
       },
+      "AiInsightDto": {
+        "properties": {},
+        "type": "object"
+      },
       "CreateKeywordAnalysisDto": {
         "properties": {
           "geo": {
@@ -458,6 +462,39 @@
         },
         "tags": [
           "keyword-analyses"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/ai-insight": {
+      "post": {
+        "operationId": "AiInsightController_generate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiInsightDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ai-insight"
         ]
       }
     },
