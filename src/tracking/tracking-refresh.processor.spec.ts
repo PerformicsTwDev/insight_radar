@@ -1,8 +1,9 @@
+import { Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import type { trackingConfig } from '../config/tracking.config';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { VolumeRefreshService } from './volume-refresh.service';
+import type { RefreshListResult, VolumeRefreshService } from './volume-refresh.service';
 import {
   SCHEDULED_REFRESH_JOB,
   TRACKING_REFRESH_SCHEDULER_ID,
@@ -10,8 +11,19 @@ import {
   type TrackingRefreshJobPayload,
 } from './tracking-refresh.processor';
 
+/** 預設刷新結果（M11-R2 後 refreshList 回 RefreshListResult；測試可 override failed/memberCount）。 */
+const refreshResult = (over: Partial<RefreshListResult> = {}): RefreshListResult => ({
+  listId: 'l',
+  fetchedAt: new Date(0),
+  memberCount: 0,
+  appended: 0,
+  unchanged: 0,
+  failed: 0,
+  ...over,
+});
+
 interface Deps {
-  refreshList: jest.Mock<Promise<void>, [string]>;
+  refreshList: jest.Mock<Promise<RefreshListResult>, [string]>;
   findMany: jest.Mock<Promise<Array<{ id: string }>>, []>;
   upsertJobScheduler: jest.Mock;
 }
@@ -21,7 +33,7 @@ function makeProcessor(refreshCron = '0 3 * * *'): {
   deps: Deps;
 } {
   const deps: Deps = {
-    refreshList: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
+    refreshList: jest.fn<Promise<RefreshListResult>, [string]>().mockResolvedValue(refreshResult()),
     findMany: jest.fn<Promise<Array<{ id: string }>>, []>(),
     upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
   };
@@ -85,14 +97,30 @@ describe('TC-65: TrackingRefreshProcessor (T11.6 · FR-29 AC-29.2/29.5 · NFR-16
       deps.refreshList.mockImplementation((listId: string) =>
         listId === 'boom'
           ? Promise.reject(new Error('ads boom (retries exhausted)'))
-          : Promise.resolve(undefined),
+          : Promise.resolve(refreshResult({ listId })),
       );
 
       const result = await processor.process(job());
 
       // 整批不失敗；失敗一個只記數，其餘照常刷新。
       expect(result).toEqual({ total: 3, refreshed: 2, failed: 1 });
-      expect(deps.refreshList.mock.calls.map((c) => c[0])).toEqual(['l1', 'boom', 'l3']);
+    });
+
+    it('surfaces per-member partial failure of a list (result.failed>0 → warn, AC-29.5/M11-R2)', async () => {
+      const { processor, deps } = makeProcessor();
+      // spy 該 processor 自身 logger 實例（NestJS Logger prototype spy 不攔實例呼叫）。
+      const logger = (processor as unknown as { logger: Logger }).logger;
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      deps.findMany.mockResolvedValue([{ id: 'l1' }]);
+      deps.refreshList.mockResolvedValue(
+        refreshResult({ listId: 'l1', memberCount: 200, failed: 20 }),
+      );
+
+      const result = await processor.process(job());
+
+      // 清單層成功（refreshList 未 throw），但成員層 partial 失敗須 warn 表面化（否則不可辨）。
+      expect(result).toEqual({ total: 1, refreshed: 1, failed: 0 });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('partial: 20/200'));
     });
   });
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { NotFoundException, type INestApplication } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type {
   AdsClient,
   GenerateKeywordHistoricalMetricsRequest,
@@ -130,6 +131,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
   });
 
   afterEach(async () => {
+    jest.restoreAllMocks(); // 還原 per-member fault-injection spy（M11-R2）
     await prisma.volumeSnapshot.deleteMany();
     await prisma.trackingList.deleteMany(); // cascade removes members
   });
@@ -384,6 +386,34 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
       expect(res.fetchedAt.getTime()).toBeGreaterThanOrEqual(before);
       const [coffee] = await snapsOf(listId, 'coffee');
       expect(coffee.fetchedAt).toEqual(res.fetchedAt); // 快照時間軸 = 觀測時點（real clock）
+    });
+  });
+
+  describe('per-member resilience (AC-29.5 · M11-R2)', () => {
+    it('單成員 DB 錯誤 → 只記 failed、同批其餘成員照常刷新（不逸出中止整清單）', async () => {
+      const { fake, svc } = setup();
+      fake.specs.set('boom', metrics({ avg: 5 })); // 依 normalizedText asc 先於 coffee 處理
+      fake.specs.set('coffee', metrics());
+      const listId = await seedList([
+        { text: 'Boom', normalizedText: 'boom' },
+        { text: 'Coffee', normalizedText: 'coffee' },
+      ]);
+      // 注入 per-member DB 故障：'boom' 的 volumeSnapshot.create 失敗（模擬並發移除 P2025 / 寫入錯誤）。
+      const realCreate = prisma.volumeSnapshot.create.bind(prisma.volumeSnapshot);
+      // Prisma `create` 為高度多載泛型，mock impl 無法精確對型 → 經 unknown 雙轉（非 as any）。
+      const faultyCreate = (args: Prisma.VolumeSnapshotCreateArgs) =>
+        (args.data as { normalizedText?: string }).normalizedText === 'boom'
+          ? Promise.reject(new Error('simulated per-member DB error'))
+          : realCreate(args);
+      jest
+        .spyOn(prisma.volumeSnapshot, 'create')
+        .mockImplementation(faultyCreate as unknown as typeof prisma.volumeSnapshot.create);
+
+      // 現況（RED）：boom 失敗逸出 refreshList → reject；修後（GREEN）：per-member catch → 續跑 coffee。
+      const res = await svc.refreshList(listId);
+      expect(res).toMatchObject({ memberCount: 2, appended: 1, unchanged: 0, failed: 1 });
+      expect(await snapsOf(listId, 'coffee')).toHaveLength(1); // 他成員照常
+      expect(await snapsOf(listId, 'boom')).toHaveLength(0); // 失敗成員無列（斷點）
     });
   });
 
