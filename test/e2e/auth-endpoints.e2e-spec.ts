@@ -18,6 +18,7 @@ import {
   TOPIC_QUEUE_EVENTS,
 } from 'src/queue/topic-job-events.constants';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 /**
  * TC-59（FR-24，AC-24.1~24.6）：register/login/logout/me + session cookie。
@@ -169,6 +170,8 @@ describe('auth endpoints (e2e · TC-59 · FR-24)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(PrismaService)
       .useValue(db)

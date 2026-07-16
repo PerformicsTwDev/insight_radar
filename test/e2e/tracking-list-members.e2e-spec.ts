@@ -16,6 +16,7 @@ import {
   TOPIC_QUEUE_EVENTS,
 } from 'src/queue/topic-job-events.constants';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { TopicRepository } from 'src/topics/topic.repository';
 import type { ExpandedTopicMember } from 'src/topics/topic.repository';
 
@@ -236,6 +237,8 @@ describe('TrackingList add members (e2e · TC-64 · FR-28/27 · AC-28.4/28.5/28.
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(TopicRepository)
       .useValue(fakeTopicRepo)

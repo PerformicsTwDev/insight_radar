@@ -14,6 +14,7 @@ import {
 } from 'src/queue/topic-job-events.constants';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { PrismaService } from 'src/prisma';
 
 const API_KEY = 'test-api-key'; // matches .env.test
@@ -63,6 +64,8 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .compile();
 

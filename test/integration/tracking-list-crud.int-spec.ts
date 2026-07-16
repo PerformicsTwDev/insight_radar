@@ -41,6 +41,7 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
       maxMembersPerList: 500,
       maxItemsPerRequest: 500,
       backfillMonths: 12,
+      refreshCron: '0 3 * * *',
     });
 
   afterAll(async () => {

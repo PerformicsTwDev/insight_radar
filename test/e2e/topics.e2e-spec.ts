@@ -18,6 +18,7 @@ import {
 } from 'src/queue/topic-job-events.constants';
 import { SERP_PROVIDER } from 'src/serp/serp-provider.port';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 const API_KEY = 'test-api-key'; // matches .env.test
 
@@ -80,6 +81,8 @@ describe('POST/GET /keyword-analyses/:id/topics (e2e, TC-48)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .compile();
 

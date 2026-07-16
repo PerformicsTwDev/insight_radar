@@ -792,6 +792,29 @@
         ]
       }
     },
+    "/api/v1/tracking-lists/{listId}/refresh": {
+      "post": {
+        "operationId": "TrackingListController_refreshList",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      }
+    },
     "/api/v1/views": {
       "get": {
         "operationId": "ViewsController_list",

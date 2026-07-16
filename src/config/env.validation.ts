@@ -157,4 +157,6 @@ export const validationSchema = Joi.object({
   TRACKING_MAX_ITEMS_PER_REQUEST: Joi.number().integer().min(1).default(500),
   // 搜量刷新回填月數（AC-29.1；預設 12＝Ads 原生窗）；VolumeSnapshot.monthlyVolumes 裁切至最近 N 個月。
   TRACKING_BACKFILL_MONTHS: Joi.number().integer().min(1).default(12),
+  // 排程刷新 repeatable job cron（AC-29.2；預設每日一次）；月粒度指標日間多半不變＋store-on-change dedup。
+  TRACKING_REFRESH_CRON: Joi.string().default('0 3 * * *'),
 });

@@ -4,5 +4,8 @@ export const KEYWORD_ANALYSIS_QUEUE = 'keyword-analysis';
 /** 主題分群 BullMQ queue 名稱（T8.9；獨立於 keyword-analysis）。 */
 export const TOPICS_QUEUE = 'topics';
 
+/** 追蹤清單搜量刷新 BullMQ queue 名稱（T11.6；repeatable 排程刷新 + 手動即時刷新共用同一 queue/worker）。 */
+export const TRACKING_REFRESH_QUEUE = 'tracking-refresh';
+
 /** BullMQ 連線的 DI token（正式為 IORedis、測試可 override 成 ioredis-mock）。 */
 export const BULL_CONNECTION = 'BullConnection';

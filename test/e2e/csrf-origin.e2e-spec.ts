@@ -16,6 +16,7 @@ import {
   TOPIC_QUEUE_EVENTS,
 } from 'src/queue/topic-job-events.constants';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 /**
  * TC-61（FR-26 · AC-26.1~26.4）：CSRF Origin 檢查（`CsrfGuard`，`CompositeAuthGuard` 之後執行）。
@@ -127,6 +128,8 @@ describe('CSRF Origin check (e2e · TC-61 · FR-26)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(PrismaService)
       .useValue(makeFakePrisma())

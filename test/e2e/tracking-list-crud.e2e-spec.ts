@@ -17,6 +17,7 @@ import {
   TOPIC_QUEUE_EVENTS,
 } from 'src/queue/topic-job-events.constants';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 /**
  * TC-64（FR-28，AC-28.1/28.2/28.3 · FR-27 owner scope）：TrackingList CRUD 的 HTTP 端到端。
@@ -290,6 +291,8 @@ describe('TrackingList CRUD (e2e · TC-64 · FR-28/27)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(PrismaService)
       .useValue(db)
