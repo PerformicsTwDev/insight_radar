@@ -113,6 +113,25 @@ describe('TrackingList series (integration · Testcontainers · TC-66 · FR-30/2
         list: { listId },
       });
     });
+
+    it('cross-list normalizedText collision isolated by listId (no other-list/owner leak)', async () => {
+      // 兩個不同 owner 的清單各有同名成員 'coffee' + 各自快照（**不同 fetchedAt**——若 seriesWhere 漏掉
+      // listId 只以 normalizedText scope，B 的 T1 快照會混入 A 的 axis/total，本測試即會紅）。
+      const listA = await seedList(OWNER_A, [{ text: 'Coffee', normalizedText: 'coffee' }]);
+      const listB = await seedList(OWNER_B, [{ text: 'Coffee', normalizedText: 'coffee' }]);
+      await seedSnaps(listA, [
+        { normalizedText: 'coffee', fetchedAt: T0, avgMonthlySearches: 100 },
+      ]);
+      await seedSnaps(listB, [
+        { normalizedText: 'coffee', fetchedAt: T1, avgMonthlySearches: 999 },
+      ]);
+
+      const res = await service.getSeries(listA, {}, SESSION_A);
+      expect(res.axis).toEqual([T0]); // 只含 A 的時點；B 的 T1 不得混入
+      expect(res.total).toEqual([100]); // 只累計 A 的 100，不見 B 的 999
+      expect(res.members[0].series.map((p) => p.avgMonthlySearches)).toEqual([100]);
+      expect(res.members[0].latest?.avgMonthlySearches).toBe(100);
+    });
   });
 
   describe('empty state (AC-30.3)', () => {
