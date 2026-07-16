@@ -255,6 +255,11 @@ function makeFakeTrackingDb(users: UserRow[]) {
         return Promise.resolve({ ...m });
       },
     },
+    // remove() 於 keepSeriesOnDelete=false（.env.test 預設）顯式刪時序（AC-28.2，T11.8）。本 e2e 只驗清單/
+    // 成員 cascade（快照刪除語意由 tracking-list-crud.int-spec 真 PG 覆蓋），故 stub 回 {count:0} 足矣。
+    volumeSnapshot: {
+      deleteMany: (): Promise<{ count: number }> => Promise.resolve({ count: 0 }),
+    },
   };
 }
 

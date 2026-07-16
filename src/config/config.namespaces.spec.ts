@@ -95,6 +95,7 @@ const ENV: Record<string, string> = {
   TRACKING_MAX_ITEMS_PER_REQUEST: '500',
   TRACKING_BACKFILL_MONTHS: '12',
   TRACKING_REFRESH_CRON: '0 3 * * *',
+  TRACKING_KEEP_SERIES_ON_DELETE: 'false',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -249,13 +250,14 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('trackingConfig maps list/member limits + request-size + backfill + refresh cron env (coerced; M11)', () => {
+  it('trackingConfig maps limits + request-size + backfill + cron + keep-series env (coerced; M11)', () => {
     expect(trackingConfig()).toEqual({
       maxLists: 50,
       maxMembersPerList: 500,
       maxItemsPerRequest: 500,
       backfillMonths: 12,
       refreshCron: '0 3 * * *',
+      keepSeriesOnDelete: false,
     });
   });
 });

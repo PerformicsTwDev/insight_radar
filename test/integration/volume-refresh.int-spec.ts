@@ -156,6 +156,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
       maxItemsPerRequest: 500,
       backfillMonths,
       refreshCron: '0 3 * * *',
+      keepSeriesOnDelete: false,
     });
     svc.now = () => T0;
     return { fake, svc, scheduleCids };
@@ -372,6 +373,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
         maxItemsPerRequest: 500,
         backfillMonths: 12,
         refreshCron: '0 3 * * *',
+        keepSeriesOnDelete: false,
       });
       const before = Date.now();
       const listId = await seedList([{ text: 'Coffee', normalizedText: 'coffee' }]);

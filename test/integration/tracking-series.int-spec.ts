@@ -47,6 +47,7 @@ describe('TrackingList series (integration · Testcontainers · TC-66 · FR-30/2
       maxItemsPerRequest: 500,
       backfillMonths: 12,
       refreshCron: '0 3 * * *',
+      keepSeriesOnDelete: false,
     });
   });
 
