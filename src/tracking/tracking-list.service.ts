@@ -17,6 +17,13 @@ import type { ExpandedTopicMember } from '../topics/topic.repository';
 import type { AddMembersDto, MemberItem } from './dto/add-members.dto';
 import type { CreateTrackingListDto } from './dto/create-tracking-list.dto';
 import type { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
+import { assembleVolumeSeries, type VolumeSeriesResult } from './volume-series';
+
+/** 時序讀取的時間範圍（FR-30，AC-30.1/30.3）：`fetchedAt` 含端點過濾；皆缺＝不設界（全時序）。 */
+export interface SeriesRange {
+  from?: Date;
+  to?: Date;
+}
 
 /** 清單基本對外形狀（create/rename 回傳；list/detail 之共同面）。 */
 export interface TrackingListView {
@@ -141,6 +148,53 @@ export class TrackingListService {
         lastCheckedAt: m.lastCheckedAt,
       })),
     };
+  }
+
+  /**
+   * 搜量時序讀取（T11.7，FR-30 AC-30.1~30.5 · NFR-16）。**owner 守門先於任何時序查詢**（`assertOwnedRow`：
+   * 越權/不存在 → 同一 404，唯一強制點在此 service 層而非請求參數，FR-27/S8）。載入清單成員 + 其
+   * `VolumeSnapshot`（scope 至**現有成員** `normalizedText` 且依 from/to 過濾 `fetchedAt` 含端點），委派純函式
+   * {@link assembleVolumeSeries} 組成 axis/total/per-member series（真實邏輯全在純函式、fully unit-covered）。
+   * 無成員 → 略過快照查詢（空時序，AC-30.3）。
+   */
+  async getSeries(
+    listId: string,
+    range: SeriesRange,
+    actor: AuthenticatedUser,
+  ): Promise<VolumeSeriesResult> {
+    const list = await this.prisma.trackingList.findUnique({
+      where: { id: listId },
+      include: { members: { orderBy: { addedAt: 'asc' } } },
+    });
+    assertOwnedRow(list, actor, notFoundMessage(listId));
+
+    const memberKeys = list.members.map((m) => m.normalizedText);
+    // 空清單：無成員 key → 略過快照查詢（空時序，AC-30.3；亦免 `IN ()` 無謂查詢）。
+    const snapshots =
+      memberKeys.length === 0
+        ? []
+        : await this.prisma.volumeSnapshot.findMany({
+            where: seriesWhere(listId, memberKeys, range),
+            orderBy: { fetchedAt: 'asc' },
+            select: {
+              normalizedText: true,
+              fetchedAt: true,
+              avgMonthlySearches: true,
+              competition: true,
+              cpcLowMicros: true,
+            },
+          });
+
+    return assembleVolumeSeries(
+      { listId: list.id, name: list.name, geo: list.geo, language: list.language },
+      list.members.map((m) => ({
+        normalizedText: m.normalizedText,
+        text: m.text,
+        addedAt: m.addedAt,
+        lastCheckedAt: m.lastCheckedAt,
+      })),
+      snapshots,
+    );
   }
 
   /**
@@ -338,6 +392,32 @@ function toView(row: ListRow): TrackingListView {
 /** 單列越權/不存在的**同一** 404 訊息（不洩漏存在性，AC-27.3/27.4）。 */
 function notFoundMessage(listId: string): string {
   return `Tracking list ${listId} not found`;
+}
+
+/**
+ * 時序快照查詢 `where`（FR-30，AC-30.3）：固定 `listId` + scope 至**現有成員** `normalizedText`（排除已移除成員
+ * 遺留快照的孤 axis 點）；`from`/`to` 存在時加 `fetchedAt` **含端點**過濾（`gte`/`lte`）——皆缺則不設時間界。
+ */
+function seriesWhere(
+  listId: string,
+  memberKeys: string[],
+  range: SeriesRange,
+): Prisma.VolumeSnapshotWhereInput {
+  const where: Prisma.VolumeSnapshotWhereInput = {
+    listId,
+    normalizedText: { in: memberKeys },
+  };
+  if (range.from || range.to) {
+    const fetchedAt: Prisma.DateTimeFilter = {};
+    if (range.from) {
+      fetchedAt.gte = range.from;
+    }
+    if (range.to) {
+      fetchedAt.lte = range.to;
+    }
+    where.fetchedAt = fetchedAt;
+  }
+  return where;
 }
 
 /** 成員語境（geo/language）與清單層不符 → 400（AC-28.5，不默默改寫）。 */

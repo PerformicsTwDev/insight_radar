@@ -8,12 +8,14 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { CurrentActor } from '../common/current-actor.decorator';
 import { AddMembersDto } from './dto/add-members.dto';
 import { CreateTrackingListDto } from './dto/create-tracking-list.dto';
+import { GetSeriesQueryDto } from './dto/get-series-query.dto';
 import { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
 import { TrackingListService } from './tracking-list.service';
 import type {
@@ -25,6 +27,7 @@ import type {
 } from './tracking-list.service';
 import { TrackingRefreshService } from './tracking-refresh.service';
 import type { EnqueueRefreshResult } from './tracking-refresh.service';
+import type { VolumeSeriesResult } from './volume-series';
 
 /**
  * TrackingList HTTP 入口（T11.2，FR-28）。掛 `/api/v1/tracking-lists`（全域前綴）。全域
@@ -62,6 +65,20 @@ export class TrackingListController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<TrackingListDetail> {
     return this.service.getDetail(listId, actor);
+  }
+
+  /**
+   * 搜量時序讀取（AC-30.1~30.5）：回 `{ list, axis, total, members:[{…,latest,series}], summary }`。
+   * `from`/`to` 過濾觀測時點（含端點；非法→400 via DTO）；`granularity` 目前 reserved（回原始觀測點）。
+   * owner 守門於 service 層（越權/不存在→同一 404，不洩漏存在性）。
+   */
+  @Get(':listId/series')
+  getSeries(
+    @Param('listId') listId: string,
+    @Query() query: GetSeriesQueryDto,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<VolumeSeriesResult> {
+    return this.service.getSeries(listId, { from: query.from, to: query.to }, actor);
   }
 
   /**
