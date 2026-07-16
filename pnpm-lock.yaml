@@ -67,6 +67,9 @@ importers:
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
+      cron-parser:
+        specifier: 4.9.0
+        version: 4.9.0
       google-ads-api:
         specifier: ^24.1.0
         version: 24.1.0

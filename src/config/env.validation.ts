@@ -1,7 +1,26 @@
+import { parseExpression } from 'cron-parser';
 import * as Joi from 'joi';
 import { AZURE_OPENAI_API_VERSION_ALLOWLIST } from './azure-api-version.allowlist';
 
 const TEN_DIGIT_CID = /^\d{10}$/;
+
+/**
+ * cron 字串驗證（M11-R3）：以 `cron-parser`（= BullMQ repeatable job 內部同一 parser）解析——無法解析 /
+ * 越界（如 `60 3 * * *`）/ 空白 → **fail-fast**（NFR-5），避免無效 cron 逃過 env 驗證 → 啟動時
+ * `upsertJobScheduler` 擲錯被 bootstrap best-effort catch 吞掉 → 排程刷新靜默停擺（AC-29.2）。
+ */
+const cronString = (): Joi.StringSchema =>
+  Joi.string().custom((value: string, helpers) => {
+    if (value.trim() === '') {
+      return helpers.error('any.invalid');
+    }
+    try {
+      parseExpression(value);
+    } catch {
+      return helpers.error('any.invalid');
+    }
+    return value;
+  }, 'cron');
 
 /**
  * 環境變數驗證 schema（TC-19，fail-fast）。
@@ -158,7 +177,7 @@ export const validationSchema = Joi.object({
   // 搜量刷新回填月數（AC-29.1；預設 12＝Ads 原生窗）；VolumeSnapshot.monthlyVolumes 裁切至最近 N 個月。
   TRACKING_BACKFILL_MONTHS: Joi.number().integer().min(1).default(12),
   // 排程刷新 repeatable job cron（AC-29.2；預設每日一次）；月粒度指標日間多半不變＋store-on-change dedup。
-  TRACKING_REFRESH_CRON: Joi.string().default('0 3 * * *'),
+  TRACKING_REFRESH_CRON: cronString().default('0 3 * * *'),
   // 刪清單時保留時序（AC-28.2；預設 false＝連帶刪除，VolumeSnapshot 無 FK cascade → service 顯式 deleteMany）。
   TRACKING_KEEP_SERIES_ON_DELETE: Joi.boolean().default(false),
 });
