@@ -82,7 +82,12 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
     maxItemsPerRequest = 500,
     maxLists = 50,
   ): TrackingListService =>
-    new TrackingListService(prisma, repo, { maxLists, maxMembersPerList, maxItemsPerRequest });
+    new TrackingListService(prisma, repo, {
+      maxLists,
+      maxMembersPerList,
+      maxItemsPerRequest,
+      backfillMonths: 12,
+    });
 
   /** 建父分析（params 帶 geo/language 語境），回 analysisId。 */
   async function seedAnalysis(

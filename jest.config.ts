@@ -97,6 +97,10 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   './src/topics/decide-run-status.ts': coreThreshold,
   './src/topics/build-topics-response.ts': coreThreshold,
   './src/topics/topic-job-metrics.ts': coreThreshold,
+  // tracking core = **純邏輯**：搜量 store-on-change 全欄相等判定 + backfill 月裁切（TC-65、正確性單點 S3）。
+  // `volume-refresh.service`（DI 編排：Prisma + GoogleAdsService + partial try/catch）走 global 85%——
+  // 與其他 DI 服務一致（不把 @Injectable class-typed 建構子的 emitDecoratorMetadata phantom branch 當 core）。
+  './src/tracking/volume-observation.ts': coreThreshold,
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
 // 讓門檻集中定義於此、並在對應 core 目錄一建立就「自動生效」（毋需事後回頭補設定）。

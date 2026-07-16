@@ -4,8 +4,8 @@ import { registerAs } from '@nestjs/config';
  * 追蹤清單設定（M11，FR-28/29；Design §14/§17.3）。值已由 env.validation Joi schema 驗證/補預設。
  *
  * T11.3 需 `maxMembersPerList`（加成員上限守門，AC-28.7）＋ `maxItemsPerRequest`（加成員請求形狀守門，
- * NFR-16 DoS）；T11.4 加 `maxLists`（每 owner 清單數上限，AC-28.7）；其餘 `TRACKING_*`（refresh cron /
- * backfill months / keep-series-on-delete 等）由 T11.8 一併補齊，故此處**只**登記本里程碑已需項。
+ * NFR-16 DoS）；T11.4 加 `maxLists`（每 owner 清單數上限，AC-28.7）；T11.5 加 `backfillMonths`（搜量刷新
+ * 回填月數，AC-29.1）；其餘 `TRACKING_*`（refresh cron / keep-series-on-delete 等）由 T11.8 一併補齊。
  */
 export interface TrackingConfig {
   /** 每 owner 清單數上限（AC-28.7；建立時達上限 → 409，保護每月 Ads 配額，NFR-16）。 */
@@ -18,10 +18,16 @@ export interface TrackingConfig {
    * 於 `addMembers` **第一步**、先於任何 DB 存取即以此上限拒絕（比照 `INGEST_BATCH_MAX`）。
    */
   maxItemsPerRequest: number;
+  /**
+   * 搜量刷新時 `VolumeSnapshot.monthlyVolumes` 保留的最近月數（AC-29.1；預設 12＝Ads 原生窗）。
+   * 每次刷新把觀測 `monthlyVolumes` 裁切至最近 N 個月作為時序起點（`null` 缺月不補 0）。
+   */
+  backfillMonths: number;
 }
 
 export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
   maxLists: Number(process.env.TRACKING_MAX_LISTS),
   maxMembersPerList: Number(process.env.TRACKING_MAX_MEMBERS_PER_LIST),
   maxItemsPerRequest: Number(process.env.TRACKING_MAX_ITEMS_PER_REQUEST),
+  backfillMonths: Number(process.env.TRACKING_BACKFILL_MONTHS),
 }));
