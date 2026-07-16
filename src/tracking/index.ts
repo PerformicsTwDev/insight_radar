@@ -4,5 +4,6 @@ export * from './tracking-list.controller';
 export * from './tracking-list.module';
 export * from './volume-refresh.service';
 export * from './volume-observation';
+export * from './volume-series';
 export * from './tracking-refresh.service';
 export * from './tracking-refresh.processor';

@@ -815,6 +815,58 @@
         ]
       }
     },
+    "/api/v1/tracking-lists/{listId}/series": {
+      "get": {
+        "operationId": "TrackingListController_getSeries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "起始觀測時點（含）",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "結束觀測時點（含）",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "reserved（未定義分桶語意；目前回原始觀測點）",
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tracking-lists"
+        ]
+      }
+    },
     "/api/v1/views": {
       "get": {
         "operationId": "ViewsController_list",
