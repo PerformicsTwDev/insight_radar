@@ -8,6 +8,7 @@ import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import {
   TOPIC_JOB_EVENTS_CONNECTION,
@@ -88,6 +89,8 @@ describe('auth boundary (e2e, TC-25)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .compile();
 

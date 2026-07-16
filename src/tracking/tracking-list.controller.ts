@@ -23,6 +23,8 @@ import type {
   TrackingListSummary,
   TrackingListView,
 } from './tracking-list.service';
+import { TrackingRefreshService } from './tracking-refresh.service';
+import type { EnqueueRefreshResult } from './tracking-refresh.service';
 
 /**
  * TrackingList HTTP 入口（T11.2，FR-28）。掛 `/api/v1/tracking-lists`（全域前綴）。全域
@@ -33,7 +35,10 @@ import type {
 @ApiTags('tracking-lists')
 @Controller('tracking-lists')
 export class TrackingListController {
-  constructor(private readonly service: TrackingListService) {}
+  constructor(
+    private readonly service: TrackingListService,
+    private readonly refresh: TrackingRefreshService,
+  ) {}
 
   /** 建立清單（AC-28.1）：ownerId=actor；缺欄位→400；同 owner 重名→409。回傳建立的清單（201）。 */
   @Post()
@@ -105,5 +110,18 @@ export class TrackingListController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<{ listId: string }> {
     return this.service.remove(listId, actor);
+  }
+
+  /**
+   * 手動即時刷新（AC-29.6，【should】）：入列一次即時刷新 job（沿用同一批次刷新路徑 + 限流器）→ `202`。
+   * owner 守門於 `TrackingRefreshService`（service 層，FR-27）：越權/不存在 → 404，入列前擋掉。
+   */
+  @Post(':listId/refresh')
+  @HttpCode(HttpStatus.ACCEPTED)
+  refreshList(
+    @Param('listId') listId: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<EnqueueRefreshResult> {
+    return this.refresh.enqueueManualRefresh(listId, actor);
   }
 }

@@ -23,6 +23,11 @@ export interface TrackingConfig {
    * 每次刷新把觀測 `monthlyVolumes` 裁切至最近 N 個月作為時序起點（`null` 缺月不補 0）。
    */
   backfillMonths: number;
+  /**
+   * 排程刷新的 BullMQ repeatable job cron（AC-29.2；預設每日一次 `0 3 * * *`，Design §14）。月粒度指標
+   * 日間多半不變、store-on-change dedup 避免冗餘落列，故無需高頻。以 job scheduler 註冊、cron pattern 觸發。
+   */
+  refreshCron: string;
 }
 
 export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
@@ -30,4 +35,5 @@ export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
   maxMembersPerList: Number(process.env.TRACKING_MAX_MEMBERS_PER_LIST),
   maxItemsPerRequest: Number(process.env.TRACKING_MAX_ITEMS_PER_REQUEST),
   backfillMonths: Number(process.env.TRACKING_BACKFILL_MONTHS),
+  refreshCron: String(process.env.TRACKING_REFRESH_CRON),
 }));

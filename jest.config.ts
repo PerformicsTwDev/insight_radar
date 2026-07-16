@@ -16,6 +16,13 @@ const collectCoverageFrom = [
   //   `TrackingListService`（100% 覆蓋）；剩餘缺口 100% 屬 emitDecoratorMetadata phantom
   //   branch，比照 auth.controller 排除，對外行為由 TC-64 e2e 把關（coverage-gate rule §4）。
   '!<rootDir>/src/tracking/tracking-list.controller.ts',
+  // ★ tracking-refresh.service（T11.6）：**純入列 shell**——`enqueueManualRefresh` 無真實分支
+  //   （owner-scope 唯一真實分支在 gate 內 `assertOwnedRow`，由 owner-scope.spec 單測；`manualRefreshJobId`
+  //   為無分支純字串）。剩餘缺口 100% 屬 `@InjectQueue`/class-typed 建構子 + `Promise` 回傳的
+  //   emitDecoratorMetadata phantom branch，比照 auth.controller/tracking-list.controller 排除；對外行為
+  //   由 tracking-refresh.service.spec（入列/owner-404）+ TC-65 refresh e2e（202/404）把關（coverage-gate §4）。
+  //   註：processor **不**排除——其 manual-vs-scheduled 解析 + partial 迴圈為真實分支、留在 gate 內。
+  '!<rootDir>/src/tracking/tracking-refresh.service.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -34,6 +41,7 @@ const coverageIgnore = [
   '\\.dto\\.ts$',
   'auth/auth\\.controller\\.ts$',
   'tracking/tracking-list\\.controller\\.ts$', // 純路由 shell（T11.2，同 auth.controller）
+  'tracking/tracking-refresh\\.service\\.ts$', // 純入列 shell（T11.6，owner-scope 分支在 gate 內 assertOwnedRow）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。

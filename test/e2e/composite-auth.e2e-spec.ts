@@ -16,6 +16,7 @@ import {
 } from 'src/queue/topic-job-events.constants';
 import { getQueueToken } from '@nestjs/bullmq';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 /**
  * TC-60（FR-25 · AC-25.1~25.4）：`CompositeAuthGuard`——同一組受保護 **資料** 端點可由「瀏覽器 session」
@@ -113,6 +114,8 @@ describe('composite auth (e2e · TC-60 · FR-25)', () => {
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
+      .useValue({})
+      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(PrismaService)
       .useValue(makeFakePrisma())
