@@ -147,4 +147,26 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
     );
     expect(findMany).not.toHaveBeenCalled(); // 尚無 snapshot → 不查列、不回誤導資料
   });
+
+  describe('resolveReadySnapshotId (owner-scoped snapshot id; no row load)', () => {
+    it('returns the ready snapshot id without loading any rows', async () => {
+      const { service, findMany } = build({ resultSnapshotId: 'snap-1' }, [srow('a')]);
+      await expect(service.resolveReadySnapshotId('an-1', API_ACTOR)).resolves.toBe('snap-1');
+      expect(findMany).not.toHaveBeenCalled(); // 只解析 id、不載列
+    });
+
+    it('throws 404 for an unknown analysis id (owner-scope single point)', async () => {
+      const { service } = build(null, []);
+      await expect(service.resolveReadySnapshotId('unknown', API_ACTOR)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('throws 409 NotReadyException when no snapshot exists yet', async () => {
+      const { service } = build({ status: 'running', resultSnapshotId: null }, []);
+      await expect(service.resolveReadySnapshotId('running', API_ACTOR)).rejects.toBeInstanceOf(
+        NotReadyException,
+      );
+    });
+  });
 });

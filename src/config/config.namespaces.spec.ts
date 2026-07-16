@@ -61,6 +61,8 @@ const ENV: Record<string, string> = {
   CACHE_TTL_METRICS_MS: '1814400000',
   CACHE_TTL_INTENT_MS: '5184000000',
   INTENT_SCHEMA_VERSION: 'v1',
+  AI_INSIGHT_SCHEMA_VERSION: 'v1',
+  CACHE_TTL_AI_INSIGHT_MS: '5184000000',
   QUERY_MAX_PAGE_SIZE: '200',
   AGG_MAX_BUCKETS: '200',
   AGG_MAX_GROUPS: '1000',
@@ -192,6 +194,8 @@ describe('config namespaces (registerAs, typed)', () => {
       metricsTtlMs: 1814400000,
       intentTtlMs: 5184000000,
       intentSchemaVersion: 'v1',
+      aiInsightSchemaVersion: 'v1',
+      aiInsightTtlMs: 5184000000,
     });
   });
 

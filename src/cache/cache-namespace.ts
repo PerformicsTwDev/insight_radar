@@ -10,6 +10,7 @@ export const CacheNamespace = {
   IDEMP: 'idemp',
   EMBEDDING: 'embedding',
   SESSION: 'session',
+  AI_INSIGHT: 'ai_insight',
 } as const;
 
 export type CacheNamespace = (typeof CacheNamespace)[keyof typeof CacheNamespace];

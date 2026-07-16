@@ -48,6 +48,8 @@ function buildCache(
     metricsTtlMs: 1,
     intentTtlMs: TTL_MS,
     intentSchemaVersion,
+    aiInsightSchemaVersion: 'v1',
+    aiInsightTtlMs: 1,
   };
   // DB canonical 替身（keyword_intents）：findMany 依 modelVersion + normalizedText∈ 過濾；記錄 upsert。
   const upsert = jest.fn().mockResolvedValue({});

@@ -1,4 +1,5 @@
 import type { MonthlySearchVolume } from '../google-ads/mapping/map-monthly-volumes';
+import { canonicalize } from '../common/canonical-json';
 import { sha256Hex } from '../common/sha256';
 
 /**
@@ -16,22 +17,6 @@ export interface SnapshotRowData {
   cpcHigh: number | null;
   intent: string[];
   monthlyVolumes: MonthlySearchVolume[];
-}
-
-/** 遞迴排序物件 key（陣列保序）→ 穩定序列化，使 checksum 與 key 順序無關。 */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
-  }
-  if (value !== null && typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(obj).sort()) {
-      sorted[key] = canonicalize(obj[key]);
-    }
-    return sorted;
-  }
-  return value;
 }
 
 /**

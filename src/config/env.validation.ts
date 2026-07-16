@@ -104,6 +104,12 @@ export const validationSchema = Joi.object({
   INTENT_SCHEMA_VERSION: Joi.string()
     .pattern(/^v\d+$/)
     .default('v1'),
+  // per-view AI 洞察快取 namespace 版本（bump 整批失效，AC-32.2；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
+  AI_INSIGHT_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
+  // per-view AI 洞察快取 TTL（毫秒，預設 60 天）；快取內容綁不可變 snapshot + 固定 filters，TTL 僅為記憶體逐出。
+  CACHE_TTL_AI_INSIGHT_MS: Joi.number().integer().min(0).default(5184000000),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

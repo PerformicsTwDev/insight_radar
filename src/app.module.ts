@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AiInsightModule } from './ai-insight/ai-insight.module';
 import { AuthModule } from './auth';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
@@ -40,6 +41,7 @@ import { configNamespaces, validationSchema } from './config';
     KeywordsModule,
     TopicsModule,
     TrackingListModule,
+    AiInsightModule,
   ],
 })
 export class AppModule {}
