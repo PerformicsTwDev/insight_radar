@@ -363,9 +363,10 @@ export class TrackingListService {
   }
 
   /**
-   * 刪除（AC-28.2）：先 `assertOwnedRow`（越權/不存在→404，不刪他人資源）再 delete；成員經 FK
-   * `onDelete: Cascade` 一併移除。
-   * TODO(T11.4)：`TRACKING_KEEP_SERIES_ON_DELETE` 旗標（保留時序快照）——本任務僅預設 cascade，旗標不在此實作。
+   * 刪除（AC-28.2）：先 `assertOwnedRow`（越權/不存在→404，不刪他人資源）再 delete。成員經 FK
+   * `onDelete: Cascade` 一併移除；**時序 `VolumeSnapshot` 無 FK cascade**（僅 `listId` 欄）→ 預設
+   * （`TRACKING_KEEP_SERIES_ON_DELETE=false`）由此**顯式** `deleteMany({listId})` 連帶刪除；`true` 則
+   * 跳過、保留孤立快照供日後重建 / 稽核（T11.8，AC-28.2）。
    */
   async remove(listId: string, actor: AuthenticatedUser): Promise<{ listId: string }> {
     const existing = await this.prisma.trackingList.findUnique({
@@ -373,6 +374,9 @@ export class TrackingListService {
       select: { id: true, ownerId: true },
     });
     assertOwnedRow(existing, actor, notFoundMessage(listId));
+    if (!this.config.keepSeriesOnDelete) {
+      await this.prisma.volumeSnapshot.deleteMany({ where: { listId } });
+    }
     await this.prisma.trackingList.delete({ where: { id: listId } });
     return { listId };
   }

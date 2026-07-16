@@ -35,13 +35,14 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
   });
 
   /** 以指定 `maxLists` 建 service（清單上限測試注入小值；其餘上限預設寬鬆）。 */
-  const makeService = (maxLists = 50): TrackingListService =>
+  const makeService = (maxLists = 50, keepSeriesOnDelete = false): TrackingListService =>
     new TrackingListService(prisma, new TopicRepository(prisma), {
       maxLists,
       maxMembersPerList: 500,
       maxItemsPerRequest: 500,
       backfillMonths: 12,
       refreshCron: '0 3 * * *',
+      keepSeriesOnDelete,
     });
 
   afterAll(async () => {
@@ -49,12 +50,21 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
   });
 
   afterEach(async () => {
+    await prisma.volumeSnapshot.deleteMany(); // 無 FK cascade → 顯式清（免孤點跨測試殘留）
     await prisma.trackingList.deleteMany(); // cascade removes members
   });
 
   /** 直接落一筆成員（T11.3 之前無 addMembers；供 detail / memberCount / cascade 測試）。 */
   const addMember = (listId: string, normalizedText: string, text: string) =>
     prisma.trackingListMember.create({ data: { listId, normalizedText, text } });
+
+  /** 直接落一筆搜量快照（T11.8 KEEP_SERIES_ON_DELETE 測試用）。 */
+  const addSnapshot = (listId: string, normalizedText: string) =>
+    prisma.volumeSnapshot.create({
+      data: { listId, normalizedText, geo: 'TW', language: 'zh-TW', fetchedAt: new Date() },
+    });
+
+  const snapshotCount = (listId: string) => prisma.volumeSnapshot.count({ where: { listId } });
 
   describe('create (AC-28.1)', () => {
     it('session actor → ownerId = actor.id；回傳清單', async () => {
@@ -243,6 +253,33 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
       await expect(service.remove(randomUUID(), SESSION_A)).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('KEEP_SERIES_ON_DELETE 刪清單時序處理 (AC-28.2 · T11.8)', () => {
+    it('預設（false）→ 顯式刪除時序快照（VolumeSnapshot 無 FK cascade）', async () => {
+      const svc = makeService(50, false);
+      const own = await svc.create(BODY, SESSION_A);
+      await addMember(own.listId, 'kw', 'kw');
+      await addSnapshot(own.listId, 'kw');
+      expect(await snapshotCount(own.listId)).toBe(1);
+
+      await svc.remove(own.listId, SESSION_A);
+      expect(await prisma.trackingList.findUnique({ where: { id: own.listId } })).toBeNull();
+      expect(await prisma.trackingListMember.count({ where: { listId: own.listId } })).toBe(0);
+      expect(await snapshotCount(own.listId)).toBe(0); // 連帶刪除時序
+    });
+
+    it('true → 保留孤立時序快照（成員仍 cascade 移除、清單刪除）', async () => {
+      const svc = makeService(50, true);
+      const own = await svc.create(BODY, SESSION_A);
+      await addMember(own.listId, 'kw', 'kw');
+      await addSnapshot(own.listId, 'kw');
+
+      await svc.remove(own.listId, SESSION_A);
+      expect(await prisma.trackingList.findUnique({ where: { id: own.listId } })).toBeNull();
+      expect(await prisma.trackingListMember.count({ where: { listId: own.listId } })).toBe(0);
+      expect(await snapshotCount(own.listId)).toBe(1); // 保留（不刪時序）
     });
   });
 });

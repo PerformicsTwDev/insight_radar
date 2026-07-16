@@ -102,3 +102,15 @@ pnpm start:prod                       # node dist/main
 - **關閉回應緩衝**，否則事件會被 proxy 緩衝、前端收不到即時進度：nginx `proxy_buffering off;`（或後端已送 `X-Accel-Buffering: no` header，NestJS SSE 預設帶）。
 - **idle timeout 對策已內建**：後端每 `SSE_HEARTBEAT_MS`（預設 15000ms）發一則 `event: heartbeat` 保活事件（named event，非 `:` comment——NestJS `@Sse` serializer 無 comment 支援；前端忽略此事件名）。**確保 proxy 的 idle/read timeout > `SSE_HEARTBEAT_MS`**（常見預設 60s 即安全）；若調長 heartbeat 週期，需同步確認未超過 proxy timeout。
 - heartbeat 於串流收到 `completed`/`failed` 終態、或 client 斷線時自動停止（`clearInterval`），無殘留 timer。
+
+## 8. 追蹤刷新 Ads 配額治理（M11，FR-29 / NFR-16）
+
+追蹤清單是**持續**的 Ads 用量來源（與一次性分析不同）：排程 job（`TRACKING_REFRESH_CRON`，預設每日）對**每個清單的每個成員**打 `GenerateKeywordHistoricalMetrics`（exact 模式）刷新搜量。用量由**上限直接治理**：
+
+- **每日 Ads 呼叫量估算**：`≈ ceil(Σ 所有清單成員數 / 20)`（每批 ≤20 seed）。worst-case 上界 = `TRACKING_MAX_LISTS × TRACKING_MAX_MEMBERS_PER_LIST`（預設 `50 × 500 = 25,000` 關鍵字）→ `~1,250` 批。**串行 ~1 QPS/CID**（沿用既有 `AdsRateLimiter`，**不新增限流器、不放大 QPS**，ADR-0001）→ 每日刷新 wall-clock `~1,250 s ≈ 21 分鐘`（worst case，單 CID）。
+- **⚠ store-on-change dedup 省的是「儲存」不是「配額」**：dedup（同值略過落列）減少 `VolumeSnapshot` **列數**，但**每日仍需 fetch 每個成員**以比對是否變動——故 Ads **呼叫量 = 全部被追蹤關鍵字 × 每日**，不因 dedup 減少。調高上限前，以上式估算是否撞每日 Ads 用量 / 可在合理 wall-clock 內完成。
+- **月粒度語意（S1 / AC-29.3）**：Ads Keyword Plan 指標為**月粒度**；每日刷新追蹤的是「Google 對這些指標的**修訂變化**」而非「每日搜量」。時間軸維度＝觀測時點 `fetchedAt`，勿誤呈現成每日搜量。
+- **worker 並發固定 = 1**（BullMQ 預設）：手動刷新（`POST /:listId/refresh`）與排程刷新共用 `tracking-refresh` queue，per-list single-flight（jobId=`refresh:<listId>` + `removeOnComplete`）+ 並發 1 serialize 同清單刷新。**若日後調高 worker concurrency，須加 per-list 鎖**，否則手動與排程可能並發刷新同清單 → store-on-change race 落近似重複列。
+- **調參**：`TRACKING_MAX_LISTS` / `TRACKING_MAX_MEMBERS_PER_LIST` 依「每日刷新總關鍵字數 × ~1 QPS/CID」估算天花板；`TRACKING_KEEP_SERIES_ON_DELETE=false`（預設）刪清單連帶刪時序、`true` 保留孤立快照（`VolumeSnapshot` 無 FK cascade，由 service 顯式 `deleteMany`）。`TRACKING_HISTORY_RETENTION_DAYS` 為 reserved（未接線，pruning 為未來任務）。
+
+（值班速查補充：`Ads 用量暴增` 除 §2 錯誤分類外，另查追蹤清單/成員數是否暴增、`TRACKING_REFRESH_CRON` 是否誤設高頻。）

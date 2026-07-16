@@ -159,4 +159,6 @@ export const validationSchema = Joi.object({
   TRACKING_BACKFILL_MONTHS: Joi.number().integer().min(1).default(12),
   // 排程刷新 repeatable job cron（AC-29.2；預設每日一次）；月粒度指標日間多半不變＋store-on-change dedup。
   TRACKING_REFRESH_CRON: Joi.string().default('0 3 * * *'),
+  // 刪清單時保留時序（AC-28.2；預設 false＝連帶刪除，VolumeSnapshot 無 FK cascade → service 顯式 deleteMany）。
+  TRACKING_KEEP_SERIES_ON_DELETE: Joi.boolean().default(false),
 });

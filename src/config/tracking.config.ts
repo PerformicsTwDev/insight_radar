@@ -5,7 +5,8 @@ import { registerAs } from '@nestjs/config';
  *
  * T11.3 需 `maxMembersPerList`（加成員上限守門，AC-28.7）＋ `maxItemsPerRequest`（加成員請求形狀守門，
  * NFR-16 DoS）；T11.4 加 `maxLists`（每 owner 清單數上限，AC-28.7）；T11.5 加 `backfillMonths`（搜量刷新
- * 回填月數，AC-29.1）；其餘 `TRACKING_*`（refresh cron / keep-series-on-delete 等）由 T11.8 一併補齊。
+ * 回填月數，AC-29.1）；T11.6 加 `refreshCron`；T11.8 加 `keepSeriesOnDelete`（刪清單時序保留旗標，AC-28.2）。
+ * （`HISTORY_RETENTION_DAYS`＝reserved 未接線，無 pruning 消費者故不入此 config，見 Design §14。）
  */
 export interface TrackingConfig {
   /** 每 owner 清單數上限（AC-28.7；建立時達上限 → 409，保護每月 Ads 配額，NFR-16）。 */
@@ -28,6 +29,11 @@ export interface TrackingConfig {
    * 日間多半不變、store-on-change dedup 避免冗餘落列，故無需高頻。以 job scheduler 註冊、cron pattern 觸發。
    */
   refreshCron: string;
+  /**
+   * 刪清單時是否**保留**時序快照（AC-28.2；預設 `false`＝連帶刪除）。`VolumeSnapshot` 無 FK cascade（僅
+   * `listId` 欄）→ `remove()` 於 `false` 時**顯式** `deleteMany({listId})`；`true` 則跳過、保留孤立快照。
+   */
+  keepSeriesOnDelete: boolean;
 }
 
 export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
@@ -36,4 +42,5 @@ export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
   maxItemsPerRequest: Number(process.env.TRACKING_MAX_ITEMS_PER_REQUEST),
   backfillMonths: Number(process.env.TRACKING_BACKFILL_MONTHS),
   refreshCron: String(process.env.TRACKING_REFRESH_CRON),
+  keepSeriesOnDelete: process.env.TRACKING_KEEP_SERIES_ON_DELETE === 'true',
 }));
