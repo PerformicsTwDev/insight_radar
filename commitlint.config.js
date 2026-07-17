@@ -31,6 +31,7 @@ module.exports = {
         'embeddings',
         'clustering',
         'topics',
+        'journey', // 購買歷程分類（journey/，FR-33/M12）
         'serp',
         'cache',
         'config',
