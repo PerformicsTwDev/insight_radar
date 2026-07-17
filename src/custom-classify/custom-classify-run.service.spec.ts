@@ -142,13 +142,14 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
 
     it('409 when a DIFFERENT in-progress run exists for the cid (M12-R8 concurrent guard)', async () => {
       // assignments are cid-scoped (no runId) → two in-flight runs last-committer-wins → stale taxonomy.
-      const { service, createRun } = build({
+      const { service, createRun, ccUpdate } = build({
         inProgressRun: { id: 'run-x', idempotencyKey: 'a-different-key' },
       });
       await expect(service.create(AN, CID, LABELS, API_KEY_ACTOR)).rejects.toBeInstanceOf(
         ConflictException,
       );
       expect(createRun).not.toHaveBeenCalled(); // guarded before creating a second run
+      expect(ccUpdate).not.toHaveBeenCalled(); // fail-fast: no labels write-back on the rejected path
     });
 
     it('does NOT block when the in-progress run has the SAME idempotencyKey (idempotent re-send)', async () => {

@@ -111,12 +111,6 @@ export class CustomClassifyRunService {
       );
     }
 
-    // 回寫確認標籤（反映 HITL 確認；last-write-wins）——階段一存草案，此處以確認集為準。
-    await this.prisma.customClassification.update({
-      where: { id: classificationId },
-      data: { labels },
-    });
-
     const snapshot = await this.prisma.resultSnapshot.findUniqueOrThrow({
       where: { id: classification.snapshotId },
       select: { checksum: true },
@@ -135,13 +129,20 @@ export class CustomClassifyRunService {
     // 並發 run 守門（M12-R8）：assignments 為 cid-scoped（PK 無 runId），同 cid 兩 in-flight run 皆
     // deleteMany(cid)+createMany、後 commit 者覆寫 → view 供舊 taxonomy 卻報新 run 為 latest（不一致）。故同 cid
     // 已有 queued/running 且**不同** idempotencyKey 的 run → 409。同 key = idempotent 重送（不擋、下方 createRun 回既有）；
-    // terminal（completed/failed）不擋（failed 走 M12-R1 reset 重入列）。
+    // terminal（completed/failed）不擋（failed 走 M12-R1 reset 重入列）。**須先於下方回寫**——與其餘 guard 一致
+    // 皆 fail-fast、無副作用（否則 409 已把 labels 覆寫成被拒的集合）。
     const inProgress = await this.repo.findInProgressRunByClassification(classificationId);
     if (inProgress && inProgress.idempotencyKey !== idempotencyKey) {
       throw new ConflictException(
         `custom classification ${classificationId} already has an in-progress classification run; retry after it completes`,
       );
     }
+
+    // 回寫確認標籤（反映 HITL 確認；last-write-wins）——階段一存草案，此處以確認集為準。所有 guard 皆已過。
+    await this.prisma.customClassification.update({
+      where: { id: classificationId },
+      data: { labels },
+    });
 
     const { runId, created } = await this.repo.createRun({
       classificationId,
