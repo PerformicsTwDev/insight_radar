@@ -38,4 +38,17 @@ describe('computeFeatures (T6.8)', () => {
     expect(features.serp).toEqual({ status: 'not_generated' });
     expect(features.topics).toEqual({ status: 'not_generated' });
   });
+
+  it('journey derives from the latest JourneyRun status (T12.6 / AC-33.6)', () => {
+    const ready = { status: 'completed' as const, resultSnapshotId: 'snap-1' };
+    const derive = (journeyStatus?: string) =>
+      computeFeatures(ready, { journeyStatus }).journey.status;
+    expect(derive(undefined)).toBe('not_generated'); // 無 run
+    expect(derive('canceled')).toBe('not_generated');
+    expect(derive('queued')).toBe('running');
+    expect(derive('running')).toBe('running');
+    expect(derive('completed')).toBe('ready');
+    expect(derive('partial')).toBe('ready');
+    expect(derive('failed')).toBe('failed');
+  });
 });
