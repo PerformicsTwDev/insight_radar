@@ -86,6 +86,10 @@ export class JourneyProcessor
       // `running`，下次 attempt 再標 `running`）。markStatus 亦 best-effort（DB 全掛時不掩蓋原錯）。
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
       this.logger.error(`journey run ${runId} failed: ${msg}`);
+      // 註：此為**預測式**判定（假設 BullMQ 只因 attempts 耗盡而終止）。本 processor 的 catch **從不** throw
+      // `UnrecoverableError`／呼叫 `job.discard()`，且未用會回 -1 的自訂 backoff，故此預測與 BullMQ 實際決策一致。
+      // 若未來引入上述任一，改採 keyword-analysis.processor 的事後式 `@OnWorkerEvent('failed')` + `isTerminalFailure(job)`
+      // （查 `job.finishedOn`）以免預測失準致 run 卡 `running`。
       const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
       if (isFinalAttempt) {
         await this.runRepo.markStatus(runId, 'failed', { error: msg }).catch(() => undefined);
