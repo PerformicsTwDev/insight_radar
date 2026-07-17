@@ -8,6 +8,14 @@ export interface JourneyRunParams {
   deployment: string;
 }
 
+/** 終態集（SSE 據此停止串流；completed/partial 有結果、failed/canceled 為失敗）。 */
+export const TERMINAL_JOURNEY_STATUSES: ReadonlySet<JourneyRunStatus> = new Set<JourneyRunStatus>([
+  'completed',
+  'partial',
+  'failed',
+  'canceled',
+]);
+
 /** journey job 進度階段（SSE / GET 回報）。 */
 export type JourneyPhase = 'loading' | 'classifying' | 'persisting' | 'done';
 

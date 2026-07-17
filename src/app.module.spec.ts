@@ -2,10 +2,15 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
 import { AppModule } from './app.module';
+import { JourneyProcessor } from './journey/journey.processor';
 import { KeywordAnalysisProcessor } from './keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from './topics/topic-cluster.processor';
 import { TrackingRefreshProcessor } from './tracking/tracking-refresh.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from './queue/job-events.constants';
+import {
+  JOURNEY_JOB_EVENTS_CONNECTION,
+  JOURNEY_QUEUE_EVENTS,
+} from './queue/journey-job-events.constants';
 import {
   TOPIC_JOB_EVENTS_CONNECTION,
   TOPIC_QUEUE_EVENTS,
@@ -32,7 +37,11 @@ describe('AppModule (smoke)', () => {
       .useValue(new RedisMock())
       .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
       .useValue(new RedisMock())
+      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
       .overrideProvider(TOPIC_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(JOURNEY_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
@@ -41,6 +50,8 @@ describe('AppModule (smoke)', () => {
       .overrideProvider(TopicClusterProcessor)
       .useValue({})
       .overrideProvider(TrackingRefreshProcessor)
+      .useValue({})
+      .overrideProvider(JourneyProcessor)
       .useValue({})
       .compile();
 

@@ -498,6 +498,73 @@
         ]
       }
     },
+    "/api/v1/keyword-analyses/{id}/journey": {
+      "get": {
+        "operationId": "JourneyController_getStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "journey"
+        ]
+      },
+      "post": {
+        "operationId": "JourneyController_create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "journey"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/journey/stream": {
+      "get": {
+        "operationId": "JourneyController_stream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "journey"
+        ]
+      }
+    },
     "/api/v1/keyword-analyses/{id}/keywords": {
       "get": {
         "operationId": "KeywordsController_getKeywords",
