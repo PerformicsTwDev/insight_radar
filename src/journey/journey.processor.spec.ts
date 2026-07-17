@@ -33,7 +33,9 @@ function build(opts: BuildOpts = {}) {
   const saveAssignments = jest.fn(() => Promise.resolve(undefined));
   const assignments = { saveAssignments } as unknown as JourneyRepository;
 
-  const markStatus = jest.fn(() => Promise.resolve(undefined));
+  const markStatus = jest.fn((_runId: string, _status: string, _outcome?: unknown) =>
+    Promise.resolve(undefined),
+  );
   const updateProgress = jest.fn((_runId: string, _progress: unknown) =>
     Promise.resolve(undefined),
   );
