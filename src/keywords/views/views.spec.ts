@@ -11,6 +11,8 @@ import {
   createViewRegistry,
   intentDistributionView,
   intentTopicsView,
+  journeyFunnelView,
+  journeyView,
   keywordsView,
   serpQuestionsView,
   trendView,
@@ -45,6 +47,8 @@ describe('ViewRegistry (T5.5 / FR-14 / NFR-10)', () => {
       'cpc_histogram',
       'intent_distribution',
       'intent_topics',
+      'journey',
+      'journey_funnel',
       'keywords',
       'serp_questions',
       'trend',
@@ -54,6 +58,9 @@ describe('ViewRegistry (T5.5 / FR-14 / NFR-10)', () => {
     // T6.8：未來 view 已註冊，宣告依賴 feature（gating 由 QueryViewService 依 features 判定）。
     expect(registry.get('serp_questions')?.requiresFeature).toBe('serp');
     expect(registry.get('intent_topics')?.requiresFeature).toBe('topics');
+    // T12.6：journey / journey_funnel 依賴 journey feature（未接 compute 前由 gate 擋）。
+    expect(registry.get('journey')?.requiresFeature).toBe('journey');
+    expect(registry.get('journey_funnel')?.requiresFeature).toBe('journey');
   });
 
   it('returns undefined / false for an unknown view (→ 400 at the service)', () => {
@@ -227,5 +234,102 @@ describe('placeholder views (serp_questions / intent_topics, T6.8)', () => {
     ) as TableViewResult;
     expect(topics.view).toBe('intent_topics');
     expect(topics.rows).toEqual([]);
+  });
+});
+
+/** journey rows：srow + left-joined `stage`（stage 非 SnapshotRowData 欄，測試以 cast 附掛）。 */
+function jrow(over: Partial<SnapshotRowData>, stage?: string): SnapshotRowData {
+  return { ...srow(over), ...(stage !== undefined ? { stage } : {}) };
+}
+
+describe('journey view (table, T12.6 / FR-33 / AC-33.4)', () => {
+  it('filters, paginates, and projects text + stage', () => {
+    const rows = [
+      jrow({ normalizedText: 'a', text: 'aa', avgMonthlySearches: 300 }, 'final_decision'),
+      jrow({ normalizedText: 'b', text: 'bb', avgMonthlySearches: 100 }, 'need_definition'),
+    ];
+    const res = journeyView.build(
+      ctx(rows, { view: 'journey', select: ['text', 'stage'] }),
+    ) as TableViewResult;
+    expect(res.view).toBe('journey');
+    expect(res.columns.map((c) => c.key)).toEqual(['text', 'stage']);
+    expect(res.rows).toEqual([
+      { text: 'aa', stage: 'final_decision' },
+      { text: 'bb', stage: 'need_definition' },
+    ]);
+    expect(res.pagination.total).toBe(2);
+  });
+
+  it('defaults to all columns (text/normalizedText/stage/avgMonthlySearches) when select omitted', () => {
+    const res = journeyView.build(
+      ctx([jrow({ normalizedText: 'a' }, 'spec_comparison')], { view: 'journey' }),
+    ) as TableViewResult;
+    expect(res.columns.map((c) => c.key)).toEqual([
+      'text',
+      'normalizedText',
+      'stage',
+      'avgMonthlySearches',
+    ]);
+    expect(res.rows[0]).toMatchObject({ stage: 'spec_comparison' });
+  });
+
+  it('applies the shared FilterSpec + sort', () => {
+    const rows = [
+      jrow({ normalizedText: 'a', avgMonthlySearches: 100 }, 'pain_awareness'),
+      jrow({ normalizedText: 'b', avgMonthlySearches: 300 }, 'final_decision'),
+    ];
+    const res = journeyView.build(
+      ctx(rows, { view: 'journey', sort: [{ field: 'avgMonthlySearches', direction: 'desc' }] }),
+    ) as TableViewResult;
+    expect(res.rows.map((r) => r.stage)).toEqual(['final_decision', 'pain_awareness']);
+  });
+
+  it('requires the journey feature and reuses the shared filters', () => {
+    expect(journeyView.requiresFeature).toBe('journey');
+    expect(journeyView.allowedFilters).toContain('q');
+  });
+});
+
+describe('journey_funnel view (chart, T12.6 / FR-33 / AC-33.4)', () => {
+  it('returns all 7 stages in canonical funnel order with group counts (missing → 0)', () => {
+    const rows = [
+      jrow({ normalizedText: 'a' }, 'need_definition'),
+      jrow({ normalizedText: 'b' }, 'need_definition'),
+      jrow({ normalizedText: 'c' }, 'final_decision'),
+    ];
+    const res = journeyFunnelView.build(ctx(rows, { view: 'journey_funnel' })) as ChartViewResult;
+    expect(res.view).toBe('journey_funnel');
+    expect(res.groups.map((g) => g.key.stage)).toEqual([
+      'pain_awareness',
+      'need_definition',
+      'solution_exploration',
+      'spec_comparison',
+      'reputation_validation',
+      'final_decision',
+      'repurchase_retention',
+    ]);
+    const counts = Object.fromEntries(res.groups.map((g) => [g.key.stage, g.measures.count]));
+    expect(counts.need_definition).toBe(2);
+    expect(counts.final_decision).toBe(1);
+    expect(counts.pain_awareness).toBe(0); // 缺階 → 0
+    expect(counts.repurchase_retention).toBe(0);
+  });
+
+  it('counts distinct keywords per stage (countDistinct normalizedText)', () => {
+    const rows = [
+      jrow({ normalizedText: 'a' }, 'spec_comparison'),
+      jrow({ normalizedText: 'a' }, 'spec_comparison'), // 同 nt 重覆
+    ];
+    const res = journeyFunnelView.build(ctx(rows, { view: 'journey_funnel' })) as ChartViewResult;
+    const spec = res.groups.find((g) => g.key.stage === 'spec_comparison');
+    expect(spec?.measures.count).toBe(2);
+    expect(spec?.measures.keywords).toBe(1);
+  });
+
+  it('ignores unclassified rows (no stage) — only the 7 canonical stages appear', () => {
+    const rows = [jrow({ normalizedText: 'a' }), jrow({ normalizedText: 'b' }, 'final_decision')];
+    const res = journeyFunnelView.build(ctx(rows, { view: 'journey_funnel' })) as ChartViewResult;
+    expect(res.groups).toHaveLength(7);
+    expect(res.groups.find((g) => g.key.stage === 'final_decision')?.measures.count).toBe(1);
   });
 });

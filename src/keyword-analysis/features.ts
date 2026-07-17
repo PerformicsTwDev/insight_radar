@@ -7,8 +7,9 @@ import type { JobStatus } from '@prisma/client';
  * - `keyword_metrics`：既有 keyword-analysis pipeline（expand→metrics→intent→snapshot）。
  * - `serp`：SERP 抓取（FR-15，M7 落地）——目前尚未實作 compute。
  * - `topics`：意圖主題分群（FR-17/18，M8 落地）——目前尚未實作 compute。
+ * - `journey`：購買歷程分類（FR-33，M12/T12.6）——狀態由 `JourneyRun` 推導（於 job slice 接線；此前 not_generated）。
  */
-export const FEATURE_KEYS = ['keyword_metrics', 'serp', 'topics'] as const;
+export const FEATURE_KEYS = ['keyword_metrics', 'serp', 'topics', 'journey'] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export const FEATURE_STATUSES = ['not_generated', 'running', 'ready', 'failed'] as const;
@@ -49,5 +50,7 @@ export function computeFeatures(analysis: AnalysisFeatureInput): FeaturesMap {
     keyword_metrics: { status: keywordMetricsStatus(analysis) },
     serp: { status: 'not_generated' },
     topics: { status: 'not_generated' },
+    // journey：真實狀態由 JourneyRun 推導（T12.6 job slice 接線）；compute 未接前 not_generated（view 被 gate）。
+    journey: { status: 'not_generated' },
   };
 }

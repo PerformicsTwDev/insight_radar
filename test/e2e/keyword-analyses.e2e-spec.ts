@@ -203,6 +203,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
           keyword_metrics: { status: 'running' },
           serp: { status: 'not_generated' },
           topics: { status: 'not_generated' },
+          journey: { status: 'not_generated' },
         },
       });
     });

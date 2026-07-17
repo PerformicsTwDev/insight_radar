@@ -21,6 +21,7 @@ function statusResponse(status: AnalysisStatus): AnalysisStatusResponse {
       keyword_metrics: { status: 'running' },
       serp: { status: 'not_generated' },
       topics: { status: 'not_generated' },
+      journey: { status: 'not_generated' },
     },
   };
 }
