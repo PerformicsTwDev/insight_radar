@@ -79,6 +79,7 @@ describe('custom:{cid} view + DELETE (e2e, TC-70)', () => {
       },
       customClassifyRun: {
         findFirst: ccrFindFirst,
+        findMany: jest.fn().mockResolvedValue([]), // M12-R5: DELETE looks up the cid's runs to cancel jobs
         deleteMany: jest.fn().mockReturnValue('op-ccr'),
       },
       keywordCustomAssignment: {
@@ -91,7 +92,11 @@ describe('custom:{cid} view + DELETE (e2e, TC-70)', () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(getQueueToken(CUSTOM_CLASSIFY_QUEUE))
-      .useValue({ add: jest.fn(), getJob: jest.fn().mockResolvedValue(null) })
+      .useValue({
+        add: jest.fn(),
+        getJob: jest.fn().mockResolvedValue(null),
+        remove: jest.fn().mockResolvedValue(1),
+      })
       .overrideProvider(BULL_CONNECTION)
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)

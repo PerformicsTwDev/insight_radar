@@ -1,10 +1,13 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { assertOwnedRow } from '../common/owner-scope';
 import { AzureOpenAiService } from '../intent/azure-openai.service';
 import type { IntentLabeler, ParseChatResult } from '../intent/intent-labeler.port';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { PrismaService } from '../prisma';
+import { CUSTOM_CLASSIFY_QUEUE } from '../queue/queue.constants';
 import { SnapshotQueryService } from '../keywords/snapshot-query.service';
 import { scrubSecrets } from '../logger/redaction';
 import { CustomClassifyGenerationError } from './custom-classify.error';
@@ -46,6 +49,7 @@ export class CustomClassifyService {
     private readonly snapshotQuery: SnapshotQueryService,
     private readonly prisma: PrismaService,
     @Inject(CUSTOM_CLASSIFY_CONFIG) private readonly config: CustomClassifyConfig,
+    @InjectQueue(CUSTOM_CLASSIFY_QUEUE) private readonly queue: Queue,
   ) {}
 
   async generateLabels(
@@ -100,6 +104,16 @@ export class CustomClassifyService {
       select: { ownerId: true },
     });
     assertOwnedRow(owner, actor, `custom classification ${classificationId} not found`);
+
+    // 取消該 cid 的 in-flight/queued BullMQ job（M12-R5）**先於刪表**：每個 run 的 id = jobId，逐一 `queue.remove`。
+    // 否則被取消的 queued/delayed job 於刪表後仍執行 → worker `saveAssignments` 重插 orphan `keyword_custom_assignments`
+    // （三表無 FK cascade）＋ `markStatus` 撞 P2025 重試再洩漏。best-effort（`.catch`）：`queue.remove` 對**鎖定中
+    // （active）** job 回 0、無法中止該 attempt（殘留窗，見 Design——其 orphan 為永不可讀死列、重試於首行 P2025 自限）。
+    const runs = await this.prisma.customClassifyRun.findMany({
+      where: { classificationId },
+      select: { id: true },
+    });
+    await Promise.all(runs.map((run) => this.queue.remove(run.id).catch(() => undefined)));
 
     await this.prisma.$transaction([
       this.prisma.keywordCustomAssignment.deleteMany({ where: { classificationId } }),
