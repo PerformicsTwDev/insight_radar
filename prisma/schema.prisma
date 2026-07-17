@@ -291,6 +291,37 @@ model CustomClassification {
   @@map("custom_classifications")
 }
 
+// 自訂分類階段二歸類結果（T12.8，FR-34/AC-34.3）。每 (classificationId, normalizedText) 一 label（確認集之一，
+// 或 sentinel `unclassified`）；snapshot-scoped 物化，view/查詢讀取用，**不覆寫** keyword_intents（S10）。重跑同 cid 覆寫。
+model KeywordCustomAssignment {
+  classificationId String @map("classification_id") @db.Uuid
+  normalizedText   String @map("normalized_text")
+  label            String
+
+  @@id([classificationId, normalizedText])
+  @@map("keyword_custom_assignments")
+}
+
+// 自訂分類階段二 async job 追蹤（T12.8，FR-34/AC-34.2；比照 JourneyRun）。idempotency = sha256(cid+snapshotChecksum+
+// labelsHash)——改確認標籤 → labelsHash 變 → 新 run（HITL 正確重跑）；P2002 慢路徑尊重 idempotency（NFR-8 並發）。
+model CustomClassifyRun {
+  id                String   @id @default(uuid()) @db.Uuid
+  classificationId  String   @map("classification_id") @db.Uuid
+  keywordAnalysisId String   @map("keyword_analysis_id") @db.Uuid
+  snapshotId        String   @map("snapshot_id") @db.Uuid
+  status            String // queued|running|completed|failed
+  params            Json // { schemaVersion, deployment, labelsHash }
+  progress          Json?
+  idempotencyKey    String   @unique @map("idempotency_key")
+  keywordCount      Int?     @map("keyword_count")
+  error             String?
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([classificationId])
+  @@index([keywordAnalysisId])
+  @@map("custom_classify_runs")
+}
+
 // 搜量時序（append-only、store-on-change，AC-29.4）。fetchedAt = 觀測時點（非每日搜量，S1 月粒度）。
 model VolumeSnapshot {
   id                 String   @id @default(uuid()) @db.Uuid
