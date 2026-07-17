@@ -131,6 +131,18 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       expect(createRun).not.toHaveBeenCalled();
     });
 
+    it.each([['unclassified'], ['Unclassified'], ['  UNCLASSIFIED  ']])(
+      'rejects the reserved sentinel label %p with 409 (defensive; would conflate the gap bucket, M12-R4)',
+      async (reserved) => {
+        const { service, createRun } = build();
+        const labels = [{ label: reserved, description: 'x' }, ...LABELS];
+        await expect(service.create(AN, CID, labels, API_KEY_ACTOR)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(createRun).not.toHaveBeenCalled();
+      },
+    );
+
     it('rejects a confirmed-label set over maxLabels with 413 (cost guard); no run created', async () => {
       const { service, createRun } = build();
       const tooMany = Array.from({ length: 13 }, (_, i) => ({

@@ -1,0 +1,55 @@
+import 'reflect-metadata'; // 裝飾器 metadata（Nest app 於 bootstrap 匯入；unit 測試須自帶）
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import {
+  ConfirmedLabelDto,
+  CustomClassifyAssignDto,
+  IsNotReservedLabelConstraint,
+} from './custom-classify-assign.dto';
+import { UNCLASSIFIED_LABEL } from './custom-classify-assign.schema';
+
+/**
+ * M12-R4：`unclassified` 為保留字（gap-fallback sentinel），不得作確認標籤——否則同時進 LLM enum 又是缺漏補值，
+ * `custom:{cid}` view 桶混算兩類、灌大計數。經 DTO `@IsNotReservedLabel`（trim + 大小寫不敏感）於 HTTP 邊界擋 400。
+ */
+describe('CustomClassifyAssignDto reserved-label guard (M12-R4)', () => {
+  async function labelErrors(label: unknown): Promise<string[]> {
+    const dto = plainToInstance(CustomClassifyAssignDto, {
+      labels: [{ label, description: 'x' }],
+    });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    // 巢狀：labels → children[0] → label 的失敗 constraint keys。
+    const labelChild = errors[0]?.children?.[0]?.children?.find((c) => c.property === 'label');
+    return Object.keys(labelChild?.constraints ?? {});
+  }
+
+  it.each([UNCLASSIFIED_LABEL, 'Unclassified', '  UNCLASSIFIED  '])(
+    'flags a reserved sentinel label %p with isNotReservedLabel (trim + case-insensitive)',
+    async (reserved) => {
+      expect(await labelErrors(reserved)).toContain('isNotReservedLabel');
+    },
+  );
+
+  it('accepts a normal label (no reserved-label error)', async () => {
+    expect(await labelErrors('transactional')).not.toContain('isNotReservedLabel');
+  });
+
+  describe('IsNotReservedLabelConstraint (direct)', () => {
+    const c = new IsNotReservedLabelConstraint();
+
+    it('passes a non-string value through (defers to @IsString/@IsNotEmpty)', () => {
+      expect(c.validate(123)).toBe(true);
+      expect(c.validate(undefined)).toBe(true);
+      expect(c.validate(null)).toBe(true);
+    });
+
+    it('reports a message naming the reserved word', () => {
+      expect(c.defaultMessage()).toContain(UNCLASSIFIED_LABEL);
+      expect(c.defaultMessage()).toContain('reserved');
+    });
+  });
+
+  it('exports ConfirmedLabelDto (shape guard)', () => {
+    expect(new ConfirmedLabelDto()).toBeInstanceOf(ConfirmedLabelDto);
+  });
+});

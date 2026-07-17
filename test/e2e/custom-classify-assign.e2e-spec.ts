@@ -157,6 +157,16 @@ describe('POST/GET/SSE /keyword-analyses/:id/custom-classifications/:cid/assignm
     expect(queueAdd).not.toHaveBeenCalled();
   });
 
+  it.each([['unclassified'], ['Unclassified'], ['  UNCLASSIFIED  ']])(
+    '400 when a confirmed label is the reserved sentinel %p (DTO @IsNotReservedLabel, M12-R4)',
+    async (reserved) => {
+      // Would enter the LLM enum AND be the gap-fallback → the custom:{cid} 'unclassified' bucket
+      // conflates LLM-classified + gap-filled and inflates counts. Reserved case-insensitively.
+      await post(AN, CID, { labels: [{ label: reserved, description: 'x' }] }).expect(400);
+      expect(queueAdd).not.toHaveBeenCalled();
+    },
+  );
+
   it('400 for an unknown field (global whitelist forbidNonWhitelisted)', async () => {
     await post(AN, CID, { labels: LABELS, extra: 'x' }).expect(400);
   });
