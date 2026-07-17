@@ -9,17 +9,18 @@ import { scrubSecrets } from '../logger/redaction';
 import { cleanLabel, type AssignedKeyword } from './custom-classify-assign-postprocess';
 
 /**
- * 自訂分類階段二歸類快取（T12.8，FR-34/AC-34.2）。**Redis-only、per-(cid, nt)**：key =
- * `custom_classify:v{CUSTOM_CLASSIFY_SCHEMA_VERSION}:{cid}:sha256(normalizedText)`（Design §17.4，**keyed on
- * classificationId、非 deployment**）。label 由 (cid, normalizedText) 決定，故快取為「該分類定義下 keyword→label 記憶」。
- * 與 snapshot-scoped 的 `keyword_custom_assignments`（view/查詢物化結果）為**兩層**。
+ * 自訂分類階段二歸類快取（T12.8，FR-34/AC-34.2）。**Redis-only、per-(cid, labelsHash, nt)**：key =
+ * `custom_classify:v{CUSTOM_CLASSIFY_SCHEMA_VERSION}:{cid}:{labelsHash}:sha256(normalizedText)`（Design §17.4）。
+ * `labelsHash`（= `computeLabelsHash(labels)`，涵蓋 label + description）**入 key**——HITL 任何改動（含只改
+ * description）→ 不同 labelsHash → 不同 key → 自然隔離，不回舊指引下算出的 verdict（**coherency guard**：涵蓋
+ * 移除標籤 *與* 同名改述兩種情況；否則 60 天 TTL 內 description-only 修正會靜默失效）。
  *
- * - **mget**：批查；讀取 best-effort（錯誤=miss，落 LLM，不拖垮 job）。讀出以**當前確認標籤集**驗成員
- *   （{@link cleanLabel}）——落在已被 HITL 移除的舊標籤 → 視同 miss（coherency guard，因 key 不含 labels-hash）。
- * - **mset**：只回寫**確認集內**的 label（`unclassified` sentinel + 已移除標籤自然被濾掉，不快取——比照 journey
- *   不快取非法 stage、避免近乎永久的錯誤命中）。
- * - **schemaVer + cid** 入 namespace → bump 版本整批失效；換分類定義自然不同 cid、不污染。TTL 一律毫秒
- *   （`CACHE_TTL_CUSTOM_CLASSIFY_MS`）。sha256(normalizedText)：去重 key = 快取 key 共用同一 normalizedText。
+ * - **mget**：批查；讀取 best-effort（錯誤=miss，落 LLM，不拖垮 job）。讀出仍以確認標籤集驗成員
+ *   （{@link cleanLabel}，defensive）。
+ * - **mset**：只回寫**確認集內**的 label（濾掉 LLM 幻覺的非確認 label + `unclassified` sentinel，不快取——比照
+ *   journey 不快取非法 stage、避免近乎永久的錯誤命中）。
+ * - **schemaVer + cid + labelsHash** 入 namespace → bump 版本整批失效；換分類定義/改標籤自然不同 key、不污染。TTL
+ *   一律毫秒（`CACHE_TTL_CUSTOM_CLASSIFY_MS`）。sha256(normalizedText)：去重 key = 快取 key 共用同一 normalizedText。
  */
 @Injectable()
 export class CustomClassifyAssignCache {
@@ -30,12 +31,13 @@ export class CustomClassifyAssignCache {
     @Inject(cacheConfig.KEY) private readonly config: ConfigType<typeof cacheConfig>,
   ) {}
 
-  /** key：`custom_classify:v{ver}:{cid}:sha256(normalizeText(nt))`（去重 key = 快取 key 共用同一 normalizedText）。 */
-  private keyFor(classificationId: string, normalizedText: string): string {
+  /** key：`custom_classify:v{ver}:{cid}:{labelsHash}:sha256(normalizeText(nt))`（labelsHash 隔離 HITL 改動）。 */
+  private keyFor(classificationId: string, labelsHash: string, normalizedText: string): string {
     return this.cache.buildKey(
       CacheNamespace.CUSTOM_CLASSIFY,
       this.config.customClassifySchemaVersion,
       classificationId,
+      labelsHash,
       sha256Hex(normalizedText),
     );
   }
@@ -65,6 +67,7 @@ export class CustomClassifyAssignCache {
    */
   async mget(
     classificationId: string,
+    labelsHash: string,
     normalizedTexts: string[],
     allowedLabels: ReadonlySet<string>,
   ): Promise<(string | undefined)[]> {
@@ -73,7 +76,9 @@ export class CustomClassifyAssignCache {
     }
     const normalized = normalizedTexts.map(normalizeText);
     const raw = await this.bestEffortRead<(string | undefined)[]>(
-      this.cache.mget<string>(normalized.map((nt) => this.keyFor(classificationId, nt))),
+      this.cache.mget<string>(
+        normalized.map((nt) => this.keyFor(classificationId, labelsHash, nt)),
+      ),
       normalized.map(() => undefined),
       'custom-classify cache read',
     );
@@ -86,6 +91,7 @@ export class CustomClassifyAssignCache {
   /** 回寫（writeback）：只寫**確認集內**的 label（`unclassified` + 已移除標籤自然濾掉、不快取）。 */
   async mset(
     classificationId: string,
+    labelsHash: string,
     entries: AssignedKeyword[],
     allowedLabels: ReadonlySet<string>,
   ): Promise<void> {
@@ -99,7 +105,7 @@ export class CustomClassifyAssignCache {
       Promise.all(
         valid.map((e) =>
           this.cache.set(
-            this.keyFor(classificationId, e.nt),
+            this.keyFor(classificationId, labelsHash, e.nt),
             e.label,
             this.config.customClassifyTtlMs,
           ),

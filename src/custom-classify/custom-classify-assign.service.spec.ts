@@ -53,6 +53,15 @@ describe('CustomClassifyAssignService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)',
     expect(parseChat).not.toHaveBeenCalled();
   });
 
+  it('falls back to the default batch size when configured with an invalid (non-positive) value', async () => {
+    // batchSize 0 → sanitizePositiveInt fallback (30); one batch for a small input, still classifies.
+    const { service, parseChat } = build({ config: { batchSize: 0 } });
+    parseChat.mockResolvedValue(ok([{ keyword: 'a', label: 'transactional' }]));
+    const out = await service.classifyByLabels(CID, LABELS, ['a']);
+    expect(parseChat).toHaveBeenCalledTimes(1);
+    expect(out).toEqual([{ keyword: 'a', label: 'transactional' }]);
+  });
+
   it('classifies via one LLM completion; result count = input count, in order', async () => {
     const { service, parseChat } = build();
     parseChat.mockResolvedValue(
@@ -117,6 +126,7 @@ describe('CustomClassifyAssignService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)',
 
       expect(mget).toHaveBeenCalledWith(
         CID,
+        expect.any(String), // labelsHash (label + description)
         ['a', 'b'],
         new Set(['transactional', 'informational']),
       );
@@ -132,6 +142,7 @@ describe('CustomClassifyAssignService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)',
       // writeback the freshly-classified miss
       expect(mset).toHaveBeenCalledWith(
         CID,
+        expect.any(String), // labelsHash
         [{ keyword: 'b', label: 'informational' }],
         expect.any(Set),
       );

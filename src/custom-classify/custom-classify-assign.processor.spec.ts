@@ -9,7 +9,6 @@ import { CustomClassifyAssignProcessor } from './custom-classify-assign.processo
 
 interface BuildOpts {
   rows?: { text: string }[];
-  labels?: { label: string; description: string }[];
   assigned?: AssignedKeyword[];
   loadError?: Error;
 }
@@ -19,14 +18,8 @@ function build(opts: BuildOpts = {}) {
       ? Promise.reject(opts.loadError)
       : Promise.resolve((opts.rows ?? [{ text: 'a' }, { text: 'b' }]).map((r) => ({ data: r }))),
   );
-  const findUniqueOrThrow = jest.fn(() =>
-    Promise.resolve({
-      labels: opts.labels ?? [{ label: 'transactional', description: 'buy' }],
-    }),
-  );
   const prisma = {
     snapshotRow: { findMany },
-    customClassification: { findUniqueOrThrow },
   } as unknown as PrismaService;
 
   const classifyByLabels = jest.fn(() =>
@@ -56,13 +49,14 @@ function build(opts: BuildOpts = {}) {
   return {
     processor,
     findMany,
-    findUniqueOrThrow,
     classifyByLabels,
     saveAssignments,
     markStatus,
     updateProgress,
   };
 }
+
+const JOB_LABELS = [{ label: 'transactional', description: 'buy' }];
 
 function makeJob(over: Partial<CustomClassifyJobPayload> = {}): {
   j: Job<CustomClassifyJobPayload>;
@@ -75,6 +69,7 @@ function makeJob(over: Partial<CustomClassifyJobPayload> = {}): {
       analysisId: 'an-1',
       classificationId: 'cid-1',
       snapshotId: 'snap-1',
+      labels: JOB_LABELS,
       params: { schemaVersion: 'v1', deployment: 'd', labelsHash: 'lh' },
       ...over,
     },

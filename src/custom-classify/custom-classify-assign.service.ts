@@ -8,6 +8,7 @@ import {
 import { type ChunkOutcome, resilientChunk } from '../intent/resilient-batch';
 import type { CustomLabel } from './custom-classify.schema';
 import { CustomClassifyAssignCache } from './custom-classify-assign-cache';
+import { computeLabelsHash } from './custom-classify-idempotency';
 import {
   type AssignedKeyword,
   postProcessCustomAssign,
@@ -75,10 +76,12 @@ export class CustomClassifyAssignService {
     }
     const labelStrings = labels.map((l) => l.label);
     const allowed = new Set(labelStrings);
+    // labelsHash（含 label + description）入快取 key → HITL 任何改動自然隔離（coherency，reviewer #490）。
+    const labelsHash = computeLabelsHash(labels);
 
     // cache-first：命中（在確認集內的 label）直接收；miss 才送 LLM。無 cache → 全 miss。
     const cached = this.cache
-      ? await this.cache.mget(classificationId, keywords, allowed)
+      ? await this.cache.mget(classificationId, labelsHash, keywords, allowed)
       : undefined;
     const cachedCollected: CustomAssignResult[] = [];
     const misses: string[] = [];
@@ -96,7 +99,9 @@ export class CustomClassifyAssignService {
     for (let i = 0; i < misses.length; i += this.batchSize) {
       const chunk = misses.slice(i, i + this.batchSize);
       tasks.push(
-        this.limit(() => this.classifyChunkAndCache(classificationId, labels, allowed, chunk)),
+        this.limit(() =>
+          this.classifyChunkAndCache(classificationId, labelsHash, labels, allowed, chunk),
+        ),
       );
     }
     const outcomes = await Promise.all(tasks);
@@ -108,6 +113,7 @@ export class CustomClassifyAssignService {
   /** 分類單批（cache-miss）並回寫成功者（fallback/非確認集不快取——由 cache.mset 驗成員濾除）。 */
   private async classifyChunkAndCache(
     classificationId: string,
+    labelsHash: string,
     labels: CustomLabel[],
     allowed: ReadonlySet<string>,
     chunk: string[],
@@ -116,7 +122,7 @@ export class CustomClassifyAssignService {
       this.callBatch(labels, c),
     );
     if (this.cache && outcome.collected.length > 0) {
-      await this.cache.mset(classificationId, outcome.collected, allowed);
+      await this.cache.mset(classificationId, labelsHash, outcome.collected, allowed);
     }
     return outcome;
   }

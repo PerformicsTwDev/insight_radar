@@ -127,6 +127,7 @@ export class CustomClassifyRunService {
         analysisId,
         classificationId,
         snapshotId: classification.snapshotId,
+        labels, // 此 run 的確認標籤快照（對齊 labelsHash）——processor 據此歸類、不重讀 live labels
         params,
       };
       try {

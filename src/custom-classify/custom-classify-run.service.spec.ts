@@ -183,6 +183,11 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       });
     });
 
+    it('returns null when the owner has no run yet (owner passes, but no latest run)', async () => {
+      const { service } = build({ latestRun: null });
+      expect(await service.getRunRef(AN, CID, API_KEY_ACTOR)).toBeNull();
+    });
+
     it('returns null (not an exception) for a non-owner session actor', async () => {
       const { service } = build({
         owner: { ownerId: 'user-B' },

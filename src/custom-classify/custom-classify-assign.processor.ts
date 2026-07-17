@@ -10,7 +10,6 @@ import type {
   CustomClassifyJobPayload,
   CustomClassifyJobResult,
 } from '../queue/custom-classify-job.types';
-import type { CustomLabel } from './custom-classify.schema';
 import { CustomClassifyAssignService } from './custom-classify-assign.service';
 import { CustomClassifyAssignRepository } from './custom-classify-assign.repository';
 import { CustomClassifyRunRepository } from './custom-classify-run.repository';
@@ -70,12 +69,13 @@ export class CustomClassifyAssignProcessor
   }
 
   async process(job: Job<CustomClassifyJobPayload>): Promise<CustomClassifyJobResult> {
-    const { runId, classificationId, snapshotId } = job.data;
+    const { runId, classificationId, snapshotId, labels } = job.data;
     try {
       await this.runRepo.markStatus(runId, 'running');
       await this.reportProgress(job, runId, 'loading', 10);
 
-      const labels = await this.loadLabels(classificationId);
+      // 標籤取自 payload（此 run 建立當下的快照，對齊 labelsHash）——不重讀 live `custom_classifications.labels`，
+      // 避免同 cid 快速連續 HITL 改動時舊 run 以新標籤歸類（reviewer #490）。
       const keywords = await this.loadKeywords(snapshotId);
 
       await this.reportProgress(job, runId, 'classifying', 40);
@@ -114,15 +114,6 @@ export class CustomClassifyAssignProcessor
     } catch (error) {
       this.logger.warn(`job progress publish failed (best-effort): ${scrubSecrets(String(error))}`);
     }
-  }
-
-  /** 讀確認後標籤（run-service 已回寫 `custom_classifications.labels`）。 */
-  private async loadLabels(classificationId: string): Promise<CustomLabel[]> {
-    const row = await this.prisma.customClassification.findUniqueOrThrow({
-      where: { id: classificationId },
-      select: { labels: true },
-    });
-    return row.labels as unknown as CustomLabel[];
   }
 
   /** 讀不可變 snapshot 的關鍵字原字（依 rowIndex 序）；classify 以原字入、後處理以 normalizedText 對回。 */

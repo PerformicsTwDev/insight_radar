@@ -8,7 +8,7 @@ import type { CustomClassifyRunParams } from './custom-classify-run.types';
  * （同一組標籤不論順序 → 同 hash）；涵蓋 label + description（description 改動亦影響分類指引 → 應重跑，故一併入 hash）。
  */
 export function computeLabelsHash(labels: CustomLabel[]): string {
-  const sorted = [...labels].sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  const sorted = [...labels].sort((a, b) => a.label.localeCompare(b.label));
   return sha256Hex(canonicalStringify(sorted));
 }
 
