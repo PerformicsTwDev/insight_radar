@@ -157,6 +157,14 @@ describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
       expect(queueAdd).toHaveBeenCalledTimes(1);
     });
 
+    it('swallows a queue.remove failure and still enqueues (best-effort stale-clear, M12-R1)', async () => {
+      const { service, queueRemove, queueAdd } = build();
+      queueRemove.mockRejectedValueOnce(new Error('remove boom'));
+      // remove() is a best-effort cleanup of a stale same-jobId job; its failure must not block enqueue.
+      expect(await service.create('an-1', API)).toEqual({ journeyJobId: 'run-1' });
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
+
     it('accepts a partial analysis (it has a usable snapshot) → 202', async () => {
       const { service, queueAdd } = build({ analysis: analysisRow({ status: 'partial' }) });
       expect(await service.create('an-1', API)).toEqual({ journeyJobId: 'run-1' });

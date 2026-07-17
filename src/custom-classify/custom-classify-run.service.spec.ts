@@ -184,6 +184,14 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       expect(queueRemove).toHaveBeenCalledWith('run-1');
       expect(queueAdd).toHaveBeenCalledTimes(1);
     });
+
+    it('swallows a queue.remove failure and still enqueues (best-effort stale-clear, M12-R1)', async () => {
+      const { service, queueRemove, queueAdd } = build();
+      queueRemove.mockRejectedValueOnce(new Error('remove boom'));
+      // remove() is a best-effort cleanup of a stale same-jobId job; its failure must not block enqueue.
+      expect(await service.create(AN, CID, LABELS, API_KEY_ACTOR)).toEqual({ jobId: 'run-1' });
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('getStatus', () => {
