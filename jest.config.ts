@@ -28,6 +28,13 @@ const collectCoverageFrom = [
   //   `AiInsightService`/`SnapshotQueryService`/`AiInsightGenerationFilter`；剩餘缺口 100% 屬 emitDecoratorMetadata
   //   phantom branch，比照 auth.controller/tracking-list.controller 排除，對外行為由 ai-insight.e2e 把關（§4）。
   '!<rootDir>/src/ai-insight/ai-insight.controller.ts',
+  // ★ journey.controller（T12.6）：**純委派 shell**——`create`/`getStatus` 直委派 `JourneyRunService`；SSE `stream`
+  //   的映射分支（isTerminalEvent / toMessageEvent / terminalSnapshot / takeWhile-inclusive）已由 journey.controller.spec
+  //   全覆蓋（9 例，含 live progress/completed/failed、terminal completed/partial/failed、empty、degrade）；owner/readiness/
+  //   413 等真實分支全在 gate 內的 `JourneyRunService`。lcov 驗剩餘缺口 100% 屬 emitDecoratorMetadata phantom
+  //   （建構子 class-typed 參數 + `Promise<Observable>` 回傳型別，L54/65/74/87）；比照 ai-insight.controller 排除，
+  //   對外行為由 journey e2e（POST/GET/SSE 202/425/409/404/413/401）把關（coverage-gate rule §4）。
+  '!<rootDir>/src/journey/journey.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -48,6 +55,7 @@ const coverageIgnore = [
   'tracking/tracking-list\\.controller\\.ts$', // 純路由 shell（T11.2，同 auth.controller）
   'tracking/tracking-refresh\\.service\\.ts$', // 純入列 shell（T11.6，owner-scope 分支在 gate 內 assertOwnedRow）
   'ai-insight/ai-insight\\.controller\\.ts$', // 純委派 shell（T12.4，狀態分支在 gate 內 service/filter）
+  'journey/journey\\.controller\\.ts$', // 純委派 shell（T12.6，SSE 分支全測、owner/413 分支在 gate 內 JourneyRunService）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。

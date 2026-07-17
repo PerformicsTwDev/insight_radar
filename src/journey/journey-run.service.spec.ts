@@ -135,6 +135,12 @@ describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
       await expect(service.create('an-1', API)).rejects.toThrow('redis down');
       expect(del).toHaveBeenCalledWith({ where: { id: 'run-1' } });
     });
+
+    it('accepts a partial analysis (it has a usable snapshot) → 202', async () => {
+      const { service, queueAdd } = build({ analysis: analysisRow({ status: 'partial' }) });
+      expect(await service.create('an-1', API)).toEqual({ journeyJobId: 'run-1' });
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('getStatus', () => {
@@ -190,6 +196,11 @@ describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
     it('unknown analysis → null', async () => {
       const { service } = build({ analysis: null });
       expect(await service.getRunRef('missing', API)).toBeNull();
+    });
+
+    it('owner ok but no run yet → null', async () => {
+      const { service } = build({ latest: null }); // analysis present (owner ok), no run
+      expect(await service.getRunRef('an-1', API)).toBeNull();
     });
   });
 });

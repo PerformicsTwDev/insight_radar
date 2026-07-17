@@ -127,5 +127,47 @@ describe('JourneyProcessor (T12.6 / FR-33 / AC-33.6)', () => {
       expect(markStatus).toHaveBeenCalledWith('run-1', 'failed', { error: 'db down' });
       expect(saveAssignments).not.toHaveBeenCalled();
     });
+
+    it('a best-effort job.updateProgress failure does not abort the run (SSE publish is best-effort)', async () => {
+      const { processor, markStatus } = build();
+      const { j, jobUpdate } = makeJob();
+      jobUpdate.mockRejectedValue(new Error('sse down')); // publish fails on every phase
+      const result = await processor.process(j);
+      expect(result).toEqual({ status: 'completed', keywordCount: 2 }); // DB progress still written → completes
+      expect(markStatus).toHaveBeenNthCalledWith(2, 'run-1', 'completed', { keywordCount: 2 });
+    });
+
+    it('a non-Error throw is stringified for the failure message/log', async () => {
+      const { processor, markStatus } = build();
+      // classify rejects with a **non-Error** value → exercises the `String(error)` defensive branch.
+      // Cast to Error so prefer-promise-reject-errors is satisfied while the runtime value stays a string.
+      const nonError = 'weird' as unknown as Error;
+      (processor as unknown as { journey: { classify: jest.Mock } }).journey.classify = jest.fn(
+        () => Promise.reject(nonError),
+      );
+      await expect(processor.process(makeJob().j)).rejects.toBe('weird');
+      expect(markStatus).toHaveBeenCalledWith('run-1', 'failed', { error: 'weird' });
+    });
+
+    it('a failure while marking failed is swallowed (does not mask the original error)', async () => {
+      const { processor, markStatus } = build({ loadError: new Error('db down') });
+      markStatus.mockImplementation((_id: string, status: string) =>
+        status === 'failed' ? Promise.reject(new Error('mark down')) : Promise.resolve(undefined),
+      );
+      await expect(processor.process(makeJob().j)).rejects.toThrow('db down'); // original, not 'mark down'
+    });
+  });
+
+  describe('lifecycle resilience', () => {
+    it('onApplicationBootstrap swallows a worker.run() rejection (logged, not thrown)', async () => {
+      const { processor } = build();
+      const run = jest.fn(() => Promise.reject(new Error('boot redis down')));
+      (processor as unknown as { _worker: Worker })._worker = {
+        concurrency: 0,
+        run,
+      } as unknown as Worker;
+      await expect(processor.onApplicationBootstrap()).resolves.toBeUndefined();
+      expect(run).toHaveBeenCalledTimes(1);
+    });
   });
 });

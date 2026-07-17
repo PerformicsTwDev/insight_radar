@@ -91,5 +91,28 @@ describe('JourneyController (T12.6 / FR-33 / AC-33.6)', () => {
       const events = await controller.stream('an-1', ACTOR);
       expect(await firstValueFrom(events.pipe(toArray()))).toEqual([]);
     });
+
+    it('emits a terminal snapshot for a partial run (completed shape with the partial status)', async () => {
+      const { controller } = make({
+        getRunRef: jest.fn().mockResolvedValue({ runId: 'run-1', status: 'partial' }),
+      });
+      const events = await controller.stream('an-1', ACTOR);
+      expect(await firstValueFrom(events.pipe(toArray()))).toEqual([
+        { type: 'completed', data: { runId: 'run-1', status: 'partial' } },
+      ]);
+    });
+
+    it('maps a live failed event to a {error} frame and completes inclusively', async () => {
+      const subject = new Subject<JobEvent>();
+      const { controller } = make({
+        getRunRef: jest.fn().mockResolvedValue({ runId: 'run-1', status: 'running' }),
+        forJob: () => subject.asObservable(),
+      });
+      const events = await controller.stream('an-1', ACTOR);
+      const collected = firstValueFrom(events.pipe(toArray()));
+      subject.next({ type: 'failed', data: 'boom' });
+      const out = await collected;
+      expect(out).toEqual([{ type: 'failed', data: { error: 'boom' } }]); // toMessageEvent failed branch
+    });
   });
 });
