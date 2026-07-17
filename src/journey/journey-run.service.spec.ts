@@ -3,6 +3,7 @@ import {
   HttpException,
   NotFoundException,
   PayloadTooLargeException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
@@ -55,7 +56,8 @@ function build(opts: BuildOpts = {}) {
   const queueAdd = jest.fn((_name: string, _data: unknown, _opts: unknown) =>
     opts.enqueueError ? Promise.reject(opts.enqueueError) : Promise.resolve(undefined),
   );
-  const queue = { add: queueAdd } as unknown as Queue;
+  const queueGetJob = jest.fn<Promise<unknown>, [string]>(() => Promise.resolve(null));
+  const queue = { add: queueAdd, getJob: queueGetJob } as unknown as Queue;
   const findUnique = jest.fn(() =>
     Promise.resolve(opts.analysis === undefined ? analysisRow() : opts.analysis),
   );
@@ -70,12 +72,24 @@ function build(opts: BuildOpts = {}) {
     Promise.resolve({ runId: 'run-1', created: opts.created ?? true }),
   );
   const findLatest = jest.fn(() => Promise.resolve(opts.latest ?? null));
+  const markStatus = jest.fn<Promise<void>, [string, string, { error?: string }?]>(() =>
+    Promise.resolve(),
+  );
   const repo = {
     createRun,
     findLatestRunByAnalysis: findLatest,
+    markStatus,
   } as unknown as JourneyRunRepository;
   const service = new JourneyRunService(queue, prisma, repo, CONFIG);
-  return { service, queueAdd, createRun, findLatest, del };
+  return { service, queueAdd, queueGetJob, createRun, findLatest, markStatus, del };
+}
+
+/** BullMQ Job 替身：只回 getState + remove（enqueueReusingJobId 用到的介面）。 */
+function fakeJob(state: string) {
+  return {
+    getState: jest.fn<Promise<string>, []>(() => Promise.resolve(state)),
+    remove: jest.fn<Promise<void>, []>(() => Promise.resolve()),
+  };
 }
 
 describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
@@ -130,10 +144,46 @@ describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
       expect(createRun).not.toHaveBeenCalled();
     });
 
-    it('enqueue failure → compensating delete of the orphan run + rethrow', async () => {
-      const { service, del } = build({ enqueueError: new Error('redis down') });
+    it('enqueue failure → marks the run failed (NOT delete) + rethrow (M12-R7)', async () => {
+      const { service, markStatus, del } = build({ enqueueError: new Error('redis down') });
       await expect(service.create('an-1', API)).rejects.toThrow('redis down');
-      expect(del).toHaveBeenCalledWith({ where: { id: 'run-1' } });
+      expect(markStatus).toHaveBeenCalledTimes(1);
+      const [runId, status, extra] = markStatus.mock.calls[0] as [
+        string,
+        string,
+        { error: string },
+      ];
+      expect(runId).toBe('run-1');
+      expect(status).toBe('failed');
+      expect(extra.error).toContain('enqueue failed');
+      expect(del).not.toHaveBeenCalled(); // no orphan-run deletion
+    });
+
+    it('fresh create (no stale job) → enqueues without removing (M12-R1)', async () => {
+      const { service, queueGetJob, queueAdd } = build();
+      await service.create('an-1', API);
+      expect(queueGetJob).toHaveBeenCalledWith('run-1');
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('reset reuse: removes a stale NON-active job then re-enqueues same jobId (M12-R1)', async () => {
+      const { service, queueGetJob, queueAdd } = build();
+      const stale = fakeJob('failed'); // reset-run's old job sits in the failed set (not locked)
+      queueGetJob.mockResolvedValueOnce(stale);
+      await service.create('an-1', API);
+      expect(stale.remove).toHaveBeenCalledTimes(1);
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('reset with an ACTIVE prior job → 503 + mark failed, does NOT silently no-op enqueue (#506 blocker)', async () => {
+      const { service, queueGetJob, queueAdd, markStatus } = build();
+      const active = fakeJob('active'); // old attempt still holds the lock → remove()=0, add() would dedup no-op
+      queueGetJob.mockResolvedValueOnce(active);
+      await expect(service.create('an-1', API)).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(active.remove).not.toHaveBeenCalled();
+      expect(queueAdd).not.toHaveBeenCalled(); // must NOT proceed to a no-op add
+      expect(markStatus).toHaveBeenCalledTimes(1); // run kept reset-eligible (failed), not stuck at queued
+      expect(markStatus.mock.calls[0][1]).toBe('failed');
     });
 
     it('accepts a partial analysis (it has a usable snapshot) → 202', async () => {

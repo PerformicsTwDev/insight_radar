@@ -37,6 +37,17 @@ export class CustomClassifyRunRepository {
       where: { idempotencyKey: input.idempotencyKey },
     });
     if (existing) {
+      // terminal-failed → 可重入列（M12-R1）：reset 為 queued（沿用同一 runId）、回 created=true 使服務重跑；
+      // 其餘（queued/running/completed）→ idempotent 回既有、不重跑。
+      // 非原子（findUnique + update 兩段）：兩並發呼叫可能都見 failed 並各自 reset+enqueue——但服務層以
+      // jobId=runId 的 BullMQ dedup（handleDuplicatedJob）保證只有一個 job 實跑，故為「良性重複工」非正確性問題。
+      if (existing.status === 'failed') {
+        await this.prisma.customClassifyRun.update({
+          where: { id: existing.id },
+          data: { status: 'queued', progress: Prisma.DbNull, error: null, keywordCount: null },
+        });
+        return { runId: existing.id, created: true };
+      }
       return { runId: existing.id, created: false };
     }
     try {

@@ -14,13 +14,19 @@ const P2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed
  * run (`created:false`); any other error rethrows (NFR-8 idempotency under concurrency).
  */
 function build(
-  overrides: { create?: jest.Mock; findUnique?: jest.Mock; findUniqueOrThrow?: jest.Mock } = {},
+  overrides: {
+    create?: jest.Mock;
+    findUnique?: jest.Mock;
+    findUniqueOrThrow?: jest.Mock;
+    update?: jest.Mock;
+  } = {},
 ) {
   const journeyRun = {
     findUnique: overrides.findUnique ?? jest.fn(() => Promise.resolve(null)),
     create: overrides.create ?? jest.fn(() => Promise.resolve({ id: 'run-1' })),
     findUniqueOrThrow:
       overrides.findUniqueOrThrow ?? jest.fn(() => Promise.resolve({ id: 'run-existing' })),
+    update: overrides.update ?? jest.fn(() => Promise.resolve({ id: 'run-existing' })),
   };
   const prisma = { journeyRun } as unknown as PrismaService;
   return { repo: new JourneyRunRepository(prisma), journeyRun };
@@ -37,6 +43,30 @@ describe('JourneyRunRepository.createRun concurrency (T12.6 / AC-33.6)', () => {
   it('creates a fresh run when the key is unseen', async () => {
     const { repo } = build();
     expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-1', created: true });
+  });
+
+  it('resets a terminal-failed/canceled run to queued and returns created:true (M12-R1)', async () => {
+    for (const status of ['failed', 'canceled']) {
+      const findUnique = jest.fn(() => Promise.resolve({ id: 'run-x', status }));
+      const update = jest.fn<Promise<{ id: string }>, [unknown]>(() =>
+        Promise.resolve({ id: 'run-x' }),
+      );
+      const create = jest.fn();
+      const { repo } = build({ findUnique, update, create });
+      expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-x', created: true });
+      const arg = update.mock.calls[0][0] as { where: { id: string }; data: { status: string } };
+      expect(arg.where.id).toBe('run-x');
+      expect(arg.data.status).toBe('queued');
+      expect(create).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does NOT reset a completed/partial run (idempotent, created:false)', async () => {
+    const findUnique = jest.fn(() => Promise.resolve({ id: 'run-done', status: 'completed' }));
+    const update = jest.fn();
+    const { repo } = build({ findUnique, update });
+    expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-done', created: false });
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('a concurrent P2002 (lost the race) → returns the winner run (created:false), no throw', async () => {

@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
   PayloadTooLargeException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
@@ -50,8 +51,9 @@ export interface CustomClassifyStatusResponse {
  * **owner/存在性單點**——`:cid` 必屬 `:id`（否則 404）且 `:id` 分析由 actor 擁有（`assertOwnedRow`，未知/他人→同一
  * 404、param 不可繞，IDOR 單點 S8）→ **空確認標籤→409**（無法建動態 enum）→ **input 上限**（keyword 數 >
  * `maxKeywords`→413，成本護欄）→ 回寫 `custom_classifications.labels`（反映 HITL 確認）→ idempotency（cid +
- * snapshot.checksum + `labelsHash`；改標籤→新 run）→ `createRun`（命中回同一 jobId、不重跑）→ 僅 created 才
- * `queue.add`。入列失敗補償刪孤兒 run。歸類/寫入皆在 worker（processor）。
+ * snapshot.checksum + `labelsHash`；改標籤→新 run）→ `createRun`（命中回同一 jobId；terminal-failed → reset queued
+ * 重入列）→ 僅 created 才入列（`enqueueReusingJobId`：探舊 job 狀態安全重用 jobId）。入列失敗 → 標 run `failed`
+ * （**非** delete，M12-R7：保並發 idempotent 202 的 jobId 有效、可再 reset 重入列）。歸類/寫入皆在 worker（processor）。
  */
 @Injectable()
 export class CustomClassifyRunService {
@@ -140,24 +142,54 @@ export class CustomClassifyRunService {
         params,
       };
       try {
-        await this.queue.add(CUSTOM_CLASSIFY_QUEUE, payload, {
-          jobId: runId,
-          attempts: this.config.jobAttempts,
-          backoff: {
-            type: 'exponential',
-            delay: this.config.jobBackoffMs,
-            jitter: this.config.jobBackoffJitter,
-          },
-        });
+        // reset 的 run 沿用同一 jobId → 須先清 BullMQ 內的舊 job 才能以同 jobId 重加。但 `queue.remove` 對
+        // **鎖定中（active）** job 回 0（不 reject），且同 jobId `add` 會靜默 dedup 成 no-op（handleDuplicatedJob）；
+        // 盲 remove().catch()→add() 遇 active 舊 job 會回 202 卻未入列、run 卡 queued（不可恢復）。故先探 job 狀態：
+        await this.enqueueReusingJobId(runId, payload);
       } catch (error) {
-        // 入列失敗（Redis 短暫不可用）→ 補償刪孤兒 run（否則 idempotencyKey 卡住、永不重跑）。
+        // 入列失敗（Redis 短暫不可用）→ 標 failed（**非** delete）：刪除會使並發 idempotent 202 已回的 jobId 變 404
+        // （M12-R7）；標 failed 則可由後續重送 reset 重入列（M12-R1），並發輪詢見 failed 非 404。
         this.logger.error(`enqueue custom-classify job failed: ${scrubSecrets(String(error))}`);
-        await this.prisma.customClassifyRun.delete({ where: { id: runId } });
+        await this.repo.markStatus(runId, 'failed', {
+          error: `enqueue failed: ${scrubSecrets(String(error))}`,
+        });
         throw error;
       }
     }
 
     return { jobId: runId };
+  }
+
+  /**
+   * 以 jobId=runId 入列，安全處理「reset 沿用同一 jobId」與 BullMQ dedup 語意（M12-R1 補強；與 journey 同構）：
+   * - 無同 id 舊 job → 直接 add（新 run 的常態）。
+   * - 有且**非 active**（failed/completed/delayed/waiting）→ `job.remove()` 後 add（可移除、重用 jobId）。
+   * - 有且 **active**（舊 attempt 仍持鎖處理中，其 DB `failed` 早於 BullMQ finalize）→ 丟可重試 `503`：**不**盲 add
+   *   （會 no-op dedup）。呼叫端 catch 標 `failed`（維持 reset-eligible），client 稍後重試——屆時舊 job 已 finalize。
+   */
+  private async enqueueReusingJobId(
+    runId: string,
+    payload: CustomClassifyJobPayload,
+  ): Promise<void> {
+    const stale = await this.queue.getJob(runId);
+    if (stale) {
+      const state = await stale.getState();
+      if (state === 'active') {
+        throw new ServiceUnavailableException(
+          `custom-classify run ${runId} is finalizing a prior attempt; retry shortly`,
+        );
+      }
+      await stale.remove();
+    }
+    await this.queue.add(CUSTOM_CLASSIFY_QUEUE, payload, {
+      jobId: runId,
+      attempts: this.config.jobAttempts,
+      backoff: {
+        type: 'exponential',
+        delay: this.config.jobBackoffMs,
+        jitter: this.config.jobBackoffJitter,
+      },
+    });
   }
 
   /** 取某分類定義最新 run 狀態（GET；無 run→404；進行中→回其 status，client 續輪詢）。 */

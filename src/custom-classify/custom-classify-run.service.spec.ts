@@ -1,4 +1,9 @@
-import { ConflictException, NotFoundException, PayloadTooLargeException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  PayloadTooLargeException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import type { PrismaService } from '../prisma';
@@ -40,7 +45,8 @@ function build(
   const queueAdd = jest.fn<Promise<unknown>, [string, unknown, Record<string, unknown>]>(() =>
     over.enqueueRejects ? Promise.reject(new Error('redis down')) : Promise.resolve(undefined),
   );
-  const queue = { add: queueAdd } as unknown as Queue;
+  const queueGetJob = jest.fn<Promise<unknown>, [string]>(() => Promise.resolve(null));
+  const queue = { add: queueAdd, getJob: queueGetJob } as unknown as Queue;
 
   const ccFindUnique = jest
     .fn()
@@ -66,13 +72,34 @@ function build(
     .fn()
     .mockResolvedValue(over.createRun ?? { runId: 'run-1', created: true });
   const findLatestRunByClassification = jest.fn().mockResolvedValue(over.latestRun ?? null);
+  const markStatus = jest
+    .fn<Promise<void>, [string, string, { error?: string }?]>()
+    .mockResolvedValue(undefined);
   const repo = {
     createRun,
     findLatestRunByClassification,
+    markStatus,
   } as unknown as CustomClassifyRunRepository;
 
   const service = new CustomClassifyRunService(queue, prisma, repo, CONFIG);
-  return { service, queueAdd, ccUpdate, createRun, findLatestRunByClassification, ccrDelete };
+  return {
+    service,
+    queueAdd,
+    queueGetJob,
+    ccUpdate,
+    createRun,
+    findLatestRunByClassification,
+    markStatus,
+    ccrDelete,
+  };
+}
+
+/** BullMQ Job 替身：只回 getState + remove（enqueueReusingJobId 用到的介面）。 */
+function fakeJob(state: string) {
+  return {
+    getState: jest.fn<Promise<string>, []>(() => Promise.resolve(state)),
+    remove: jest.fn<Promise<void>, []>(() => Promise.resolve()),
+  };
 }
 
 describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', () => {
@@ -149,10 +176,48 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       expect(createRun).not.toHaveBeenCalled();
     });
 
-    it('compensates by deleting the orphan run when enqueue fails, then rethrows', async () => {
-      const { service, ccrDelete } = build({ enqueueRejects: true });
+    it('marks the run failed (NOT delete) when enqueue fails, then rethrows (M12-R7: keep the run so a concurrent 202 jobId stays valid + it can be re-enqueued)', async () => {
+      const { service, markStatus, ccrDelete } = build({ enqueueRejects: true });
       await expect(service.create(AN, CID, LABELS, API_KEY_ACTOR)).rejects.toThrow('redis down');
-      expect(ccrDelete).toHaveBeenCalledWith({ where: { id: 'run-1' } });
+      expect(markStatus).toHaveBeenCalledTimes(1);
+      const [runId, status, extra] = markStatus.mock.calls[0] as [
+        string,
+        string,
+        { error: string },
+      ];
+      expect(runId).toBe('run-1');
+      expect(status).toBe('failed');
+      expect(extra.error).toContain('enqueue failed');
+      expect(ccrDelete).not.toHaveBeenCalled(); // no orphan-run deletion
+    });
+
+    it('fresh create (no stale job) → enqueues without removing (M12-R1)', async () => {
+      const { service, queueGetJob, queueAdd } = build();
+      await service.create(AN, CID, LABELS, API_KEY_ACTOR);
+      expect(queueGetJob).toHaveBeenCalledWith('run-1');
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('reset reuse: removes a stale NON-active job then re-enqueues same jobId (M12-R1)', async () => {
+      const { service, queueGetJob, queueAdd } = build();
+      const stale = fakeJob('failed'); // reset-run's old job sits in the failed set (not locked)
+      queueGetJob.mockResolvedValueOnce(stale);
+      await service.create(AN, CID, LABELS, API_KEY_ACTOR);
+      expect(stale.remove).toHaveBeenCalledTimes(1);
+      expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('reset with an ACTIVE prior job → 503 + mark failed, does NOT silently no-op enqueue (#506 blocker)', async () => {
+      const { service, queueGetJob, queueAdd, markStatus } = build();
+      const active = fakeJob('active'); // old attempt still holds the lock → remove()=0, add() would dedup no-op
+      queueGetJob.mockResolvedValueOnce(active);
+      await expect(service.create(AN, CID, LABELS, API_KEY_ACTOR)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      expect(active.remove).not.toHaveBeenCalled();
+      expect(queueAdd).not.toHaveBeenCalled(); // must NOT proceed to a no-op add
+      expect(markStatus).toHaveBeenCalledTimes(1); // run kept reset-eligible (failed), not stuck at queued
+      expect(markStatus.mock.calls[0][1]).toBe('failed');
     });
   });
 
