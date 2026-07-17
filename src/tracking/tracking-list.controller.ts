@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -61,7 +62,7 @@ export class TrackingListController {
   /** 清單詳情（AC-28.3）：metadata + 成員基本面。越權/不存在 → 404。 */
   @Get(':listId')
   getDetail(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<TrackingListDetail> {
     return this.service.getDetail(listId, actor);
@@ -74,7 +75,7 @@ export class TrackingListController {
    */
   @Get(':listId/series')
   getSeries(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @Query() query: GetSeriesQueryDto,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<VolumeSeriesResult> {
@@ -88,7 +89,7 @@ export class TrackingListController {
   @Post(':listId/members')
   @HttpCode(HttpStatus.OK)
   addMembers(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @Body() dto: AddMembersDto,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<AddMembersResult> {
@@ -102,7 +103,7 @@ export class TrackingListController {
   @Delete(':listId/members/:normalizedText')
   @HttpCode(HttpStatus.OK)
   removeMember(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @Param('normalizedText') normalizedText: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<RemoveMemberResult> {
@@ -112,7 +113,7 @@ export class TrackingListController {
   /** 改名（AC-28.2）：越權/不存在→404；同 owner 重名→409。 */
   @Patch(':listId')
   rename(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @Body() dto: RenameTrackingListDto,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<TrackingListView> {
@@ -123,7 +124,7 @@ export class TrackingListController {
   @Delete(':listId')
   @HttpCode(HttpStatus.OK)
   remove(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<{ listId: string }> {
     return this.service.remove(listId, actor);
@@ -136,7 +137,7 @@ export class TrackingListController {
   @Post(':listId/refresh')
   @HttpCode(HttpStatus.ACCEPTED)
   refreshList(
-    @Param('listId') listId: string,
+    @Param('listId', ParseUUIDPipe) listId: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<EnqueueRefreshResult> {
     return this.refresh.enqueueManualRefresh(listId, actor);

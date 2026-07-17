@@ -7,6 +7,7 @@ import {
   Inject,
   type MessageEvent,
   Param,
+  ParseUUIDPipe,
   Post,
   Sse,
 } from '@nestjs/common';
@@ -63,7 +64,7 @@ export class TopicsController {
   @Post(':id/topics')
   @HttpCode(HttpStatus.ACCEPTED)
   create(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateTopicRunDto,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<{ topicJobId: string }> {
@@ -73,7 +74,7 @@ export class TopicsController {
   /** 取分群結果（clusters + 每字 labels）。無 run → 404（service 拋）。 */
   @Get(':id/topics')
   getTopics(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<TopicsResponse> {
     return this.service.getTopics(id, actor);
@@ -91,7 +92,7 @@ export class TopicsController {
    */
   @Sse(':id/topics/stream')
   async stream(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<Observable<MessageEvent>> {
     const ref = await this.service.getRunRef(id, actor).catch(() => null); // 不可 reject
