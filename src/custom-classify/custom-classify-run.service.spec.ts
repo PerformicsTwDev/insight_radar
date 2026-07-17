@@ -20,6 +20,7 @@ const LABELS: CustomLabel[] = [
 const CONFIG: CustomClassifyRunConfig = {
   schemaVersion: 'v1',
   deployment: 'gpt-4o-mini',
+  maxLabels: 12,
   maxKeywords: 5000,
   jobAttempts: 5,
   jobBackoffMs: 3000,
@@ -99,6 +100,18 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       const { service, createRun } = build();
       await expect(service.create(AN, CID, [], API_KEY_ACTOR)).rejects.toBeInstanceOf(
         ConflictException,
+      );
+      expect(createRun).not.toHaveBeenCalled();
+    });
+
+    it('rejects a confirmed-label set over maxLabels with 413 (cost guard); no run created', async () => {
+      const { service, createRun } = build();
+      const tooMany = Array.from({ length: 13 }, (_, i) => ({
+        label: `l${i}`,
+        description: 'd',
+      }));
+      await expect(service.create(AN, CID, tooMany, API_KEY_ACTOR)).rejects.toBeInstanceOf(
+        PayloadTooLargeException,
       );
       expect(createRun).not.toHaveBeenCalled();
     });

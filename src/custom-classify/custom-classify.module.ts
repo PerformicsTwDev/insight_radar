@@ -86,6 +86,7 @@ import { CustomClassifyRunRepository } from './custom-classify-run.repository';
       ) => ({
         schemaVersion: cache.customClassifySchemaVersion,
         deployment: azure.deployment,
+        maxLabels: azure.customClassifyMaxLabels,
         maxKeywords: azure.customClassifyMaxKeywords,
         jobAttempts: queue.jobAttempts,
         jobBackoffMs: queue.jobBackoffMs,

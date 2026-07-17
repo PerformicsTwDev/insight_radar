@@ -13,11 +13,9 @@ import {
 } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
-import { EMPTY, type Observable, of } from 'rxjs';
-import { map, takeWhile } from 'rxjs/operators';
+import type { Observable } from 'rxjs';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { CurrentActor } from '../common/current-actor.decorator';
-import { withHeartbeat } from '../common/sse-heartbeat';
 import { appConfig } from '../config/app.config';
 import { JobEventsService } from '../queue/job-events.service';
 import { CUSTOM_CLASSIFY_JOB_EVENTS } from '../queue/custom-classify-job-events.constants';
@@ -27,7 +25,7 @@ import {
   type CustomClassifyStatusResponse,
 } from './custom-classify-run.service';
 import { TERMINAL_CUSTOM_CLASSIFY_STATUSES } from './custom-classify-run.types';
-import { isTerminalEvent, planSseResponse, toMessageEvent } from './custom-classify-assign-sse';
+import { materializeSsePlan, planSseResponse } from './custom-classify-assign-sse';
 
 /**
  * 自訂分類**階段二** HTTP 入口（T12.8，FR-34/AC-34.2）。掛
@@ -80,18 +78,8 @@ export class CustomClassifyAssignController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<Observable<MessageEvent>> {
     const ref = await this.service.getRunRef(id, cid, actor).catch(() => null); // 不可 reject
-    // 決策邏輯（empty / terminal / live）下放至 gate 內純函式（{@link planSseResponse}）；此處只物化 Observable。
+    // 決策 + 物化皆下放至 gate 內（{@link planSseResponse}/{@link materializeSsePlan}）；此 handler 零分支純委派。
     const plan = planSseResponse(ref, TERMINAL_CUSTOM_CLASSIFY_STATUSES);
-    if (plan.kind === 'empty') {
-      return EMPTY;
-    }
-    if (plan.kind === 'terminal') {
-      return of(plan.event);
-    }
-    const events$ = this.events.forJob(plan.runId).pipe(
-      takeWhile((event) => !isTerminalEvent(event), true), // inclusive：發終態事件後才 complete
-      map(toMessageEvent),
-    );
-    return withHeartbeat(events$, this.config.sseHeartbeatMs);
+    return materializeSsePlan(plan, this.events, this.config.sseHeartbeatMs);
   }
 }

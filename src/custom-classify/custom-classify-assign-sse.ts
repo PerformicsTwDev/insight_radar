@@ -1,5 +1,8 @@
 import type { MessageEvent } from '@nestjs/common';
-import type { JobEvent } from '../queue/job-events.service';
+import { EMPTY, type Observable, of } from 'rxjs';
+import { map, takeWhile } from 'rxjs/operators';
+import { withHeartbeat } from '../common/sse-heartbeat';
+import type { JobEvent, JobEventsService } from '../queue/job-events.service';
 
 /**
  * 自訂分類階段二 SSE 進度串流的**純映射/決策邏輯**（T12.8，FR-34/AC-34.2）。刻意抽出至 gate 內純函式
@@ -46,4 +49,27 @@ export function planSseResponse(
     return { kind: 'terminal', event: terminalSnapshot(ref) };
   }
   return { kind: 'live', runId: ref.runId };
+}
+
+/**
+ * 依 {@link SseResponsePlan} 物化 SSE Observable：`empty`→`EMPTY`（NestJS SSE 對空串流即刻 complete、不 hang）；
+ * `terminal`→單筆快照後 complete；`live`→訂閱 `forJob(runId)`，`takeWhile` inclusive 於終態事件後 complete、
+ * 加 heartbeat。抽出至 gate 內（controller `stream()` 因此成**零分支**純委派）。`events` 只取 `forJob`（易以替身測）。
+ */
+export function materializeSsePlan(
+  plan: SseResponsePlan,
+  events: Pick<JobEventsService, 'forJob'>,
+  heartbeatMs: number,
+): Observable<MessageEvent> {
+  if (plan.kind === 'empty') {
+    return EMPTY;
+  }
+  if (plan.kind === 'terminal') {
+    return of(plan.event);
+  }
+  const events$ = events.forJob(plan.runId).pipe(
+    takeWhile((event) => !isTerminalEvent(event), true), // inclusive：發終態事件後才 complete
+    map(toMessageEvent),
+  );
+  return withHeartbeat(events$, heartbeatMs);
 }

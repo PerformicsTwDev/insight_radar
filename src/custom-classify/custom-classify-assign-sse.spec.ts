@@ -1,11 +1,15 @@
+import { firstValueFrom, Subject, toArray } from 'rxjs';
+import type { JobEvent, JobEventsService } from '../queue/job-events.service';
 import {
   isTerminalEvent,
+  materializeSsePlan,
   planSseResponse,
   terminalSnapshot,
   toMessageEvent,
 } from './custom-classify-assign-sse';
 
 const TERMINAL = new Set(['completed', 'failed']);
+const HEARTBEAT_MS = 100000;
 
 describe('custom-classify SSE pure logic (T12.8 / FR-34 / AC-34.2)', () => {
   describe('isTerminalEvent', () => {
@@ -72,6 +76,45 @@ describe('custom-classify SSE pure logic (T12.8 / FR-34 / AC-34.2)', () => {
         kind: 'live',
         runId: 'run-1',
       });
+    });
+  });
+
+  describe('materializeSsePlan', () => {
+    const noEvents = { forJob: jest.fn() } as unknown as Pick<JobEventsService, 'forJob'>;
+
+    it('materializes an empty plan to an empty (non-hanging) stream, without subscribing', async () => {
+      const out = await firstValueFrom(
+        materializeSsePlan({ kind: 'empty' }, noEvents, HEARTBEAT_MS).pipe(toArray()),
+      );
+      expect(out).toEqual([]);
+      expect(noEvents.forJob).not.toHaveBeenCalled();
+    });
+
+    it('materializes a terminal plan to a single snapshot event, without subscribing', async () => {
+      const event = { type: 'completed', data: { runId: 'run-1', status: 'completed' } };
+      const out = await firstValueFrom(
+        materializeSsePlan({ kind: 'terminal', event }, noEvents, HEARTBEAT_MS).pipe(toArray()),
+      );
+      expect(out).toEqual([event]);
+      expect(noEvents.forJob).not.toHaveBeenCalled();
+    });
+
+    it('materializes a live plan by subscribing to forJob and completing inclusively on terminal', async () => {
+      const subject = new Subject<JobEvent>();
+      const events = { forJob: () => subject.asObservable() } as unknown as Pick<
+        JobEventsService,
+        'forJob'
+      >;
+      const collected = firstValueFrom(
+        materializeSsePlan({ kind: 'live', runId: 'run-1' }, events, HEARTBEAT_MS).pipe(toArray()),
+      );
+      subject.next({ type: 'progress', data: { percent: 40 } });
+      subject.next({ type: 'failed', data: 'boom' });
+      const out = await collected;
+      expect(out).toEqual([
+        { type: 'progress', data: { percent: 40 } },
+        { type: 'failed', data: { error: 'boom' } }, // inclusive terminal, mapped
+      ]);
     });
   });
 });

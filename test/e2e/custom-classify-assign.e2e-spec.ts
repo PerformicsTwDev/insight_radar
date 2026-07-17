@@ -167,6 +167,12 @@ describe('POST/GET/SSE /keyword-analyses/:id/custom-classifications/:cid/assignm
     expect(queueAdd).not.toHaveBeenCalled();
   });
 
+  it('413 when the confirmed-label count exceeds the custom-classify max labels (cost guard)', async () => {
+    const tooMany = Array.from({ length: 13 }, (_, i) => ({ label: `l${i}`, description: 'd' }));
+    await post(AN, CID, { labels: tooMany }).expect(413); // > default CUSTOM_CLASSIFY_MAX_LABELS (12)
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
   it('GET returns 404 when there is no run', async () => {
     ccrFindFirst.mockResolvedValue(null);
     await request(app.getHttpServer()).get(url(AN, CID)).set('x-api-key', API_KEY).expect(404);

@@ -28,6 +28,8 @@ export const CUSTOM_CLASSIFY_RUN_CONFIG = Symbol('CUSTOM_CLASSIFY_RUN_CONFIG');
 export interface CustomClassifyRunConfig {
   schemaVersion: string;
   deployment: string;
+  /** 確認標籤數上限（成本護欄，= `CUSTOM_CLASSIFY_MAX_LABELS`；AC-34.1 標籤上限一體適用）。 */
+  maxLabels: number;
   /** 單次歸類的關鍵字數上限（成本護欄）。 */
   maxKeywords: number;
   jobAttempts: number;
@@ -78,6 +80,13 @@ export class CustomClassifyRunService {
     if (labels.length === 0) {
       throw new ConflictException(
         `custom classification ${classificationId} requires at least one confirmed label`,
+      );
+    }
+    // 確認標籤數上限（成本護欄）：AC-34.1 的標籤上限對階段二確認集一體適用——避免無界 taxonomy 撐爆 LLM
+    // system prompt（DTO ArrayMaxSize(500) 為 enum 硬上限、此為業務上限 CUSTOM_CLASSIFY_MAX_LABELS）。
+    if (labels.length > this.config.maxLabels) {
+      throw new PayloadTooLargeException(
+        `confirmed labels ${labels.length} exceed custom-classify max ${this.config.maxLabels}`,
       );
     }
 
