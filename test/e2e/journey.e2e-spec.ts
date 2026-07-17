@@ -160,9 +160,13 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
     await post(AID).expect(404);
   });
 
-  it('POST 400 for a malformed (non-UUID) :id — ParseUUIDPipe, not Prisma P2023 → 500 (M12-R6)', async () => {
+  it('POST 400 for a malformed (non-UUID) :id — ParseUUIDPipe short-circuits before the service (M12-R6)', async () => {
+    // Real Prisma would raise P2023 → 500 on a non-UUID @db.Uuid lookup; the pipe rejects first with 400.
+    // Assert the service was never reached (findAnalysis is its first prisma call) so this doesn't rely on
+    // whatever a prior test left in the fake prisma — the 400 comes purely from the pipe.
     await post('not-a-uuid').expect(400);
-    expect(queueAdd).not.toHaveBeenCalled(); // rejected at the pipe, never reaches the service
+    expect(findAnalysis).not.toHaveBeenCalled();
+    expect(queueAdd).not.toHaveBeenCalled();
   });
 
   it('413 when the snapshot keyword count exceeds the journey max (#484 cost guard)', async () => {
@@ -176,6 +180,13 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
     await request(app.getHttpServer()).post(`/api/v1/keyword-analyses/${AID}/journey`).expect(401);
   });
 
+  it('401 (not 400) for a malformed :id with no API key — guard runs before the pipe (M12-R6)', async () => {
+    // Nest ordering: Guards → Pipes. A missing key must 401 before ParseUUIDPipe can 400 on the bad uuid.
+    await request(app.getHttpServer())
+      .post('/api/v1/keyword-analyses/not-a-uuid/journey')
+      .expect(401);
+  });
+
   it('GET returns 404 when there is no journey run', async () => {
     findAnalysis.mockResolvedValue(analysisRow('completed'));
     journeyFindFirst.mockResolvedValue(null);
@@ -185,11 +196,12 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
       .expect(404);
   });
 
-  it('GET 400 for a malformed (non-UUID) :id (M12-R6)', async () => {
+  it('GET 400 for a malformed (non-UUID) :id — pipe short-circuits before the service (M12-R6)', async () => {
     await request(app.getHttpServer())
       .get('/api/v1/keyword-analyses/not-a-uuid/journey')
       .set('x-api-key', API_KEY)
       .expect(400);
+    expect(findAnalysis).not.toHaveBeenCalled(); // self-contained: proves the pipe rejected, not the fake prisma
   });
 
   it('GET returns the latest run status', async () => {
@@ -218,10 +230,12 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
   });
 
   it('SSE stream 400 for a malformed (non-UUID) :id — pipe rejects before the SSE handler (M12-R6)', async () => {
+    // Pipe runs during param binding, before stream()'s "never reject" body → normal 400, not a hung stream.
     await request(app.getHttpServer())
       .get('/api/v1/keyword-analyses/not-a-uuid/journey/stream')
       .set('x-api-key', API_KEY)
       .expect(400);
+    expect(findAnalysis).not.toHaveBeenCalled(); // getRunRef (→ findAnalysis) never reached
   });
 
   it('POST /query {view:journey} → 409 FEATURE_NOT_READY with no completed journey run (AC-33.4)', async () => {

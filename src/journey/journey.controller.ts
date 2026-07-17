@@ -45,8 +45,9 @@ function terminalSnapshot(ref: { runId: string; status: string }): MessageEvent 
 
 /**
  * 購買歷程分類 HTTP 入口（T12.6，FR-33/AC-33.6）。掛 `/api/v1/keyword-analyses/:id/journey`（巢狀於既有分析）。
- * 全域 `CompositeAuthGuard`（缺/錯 key → 401）已套用。`:id` 經 `ParseUUIDPipe`（**非 UUID → 400**，避免 Prisma
- * UUID 欄位 P2023 → 500，與 ai-insight/custom-classify/topics siblings 一致，M12-R6）。`create` 為 **enqueue-only**：
+ * 全域 `CompositeAuthGuard`（缺/錯 key → 401）已套用（guard 先於 pipe → 缺 key 恆先 401，早於非 UUID 的 400）。
+ * `:id` 經 `ParseUUIDPipe`（**非 UUID → 400**，避免 Prisma UUID 欄位 P2023 → 500，比照 ai-insight/custom-classify/keywords
+ * 既有 siblings，M12-R6）。`create` 為 **enqueue-only**：
  * 委派 service 入列即回 202（NFR-1，不呼叫外部 API）。stage 表 / 漏斗經 `POST /query {view:'journey'|'journey_funnel'}`
  * （view-router，免專屬端點）。
  */
