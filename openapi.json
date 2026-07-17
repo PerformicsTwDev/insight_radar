@@ -108,6 +108,10 @@
         "properties": {},
         "type": "object"
       },
+      "IdeationDto": {
+        "properties": {},
+        "type": "object"
+      },
       "LoginDto": {
         "properties": {
           "email": {
@@ -280,6 +284,30 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/ai-ideation": {
+      "post": {
+        "operationId": "IdeationController_generate",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdeationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ideation"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "AuthController_login",

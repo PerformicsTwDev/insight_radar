@@ -38,6 +38,7 @@ jobs:
             topics
             journey
             custom-classify
+            ideation
             serp
             cache
             config
