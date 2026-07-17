@@ -128,4 +128,25 @@ describe('CustomClassifyRunRepository (T12.8 / FR-34 / AC-34.2)', () => {
       expect(await repo.findLatestRunByClassification('cid-1')).toBeNull();
     });
   });
+
+  describe('findInProgressRunByClassification (M12-R8 concurrent guard)', () => {
+    it('queries queued/running runs for the cid (latest first) and returns id + idempotencyKey', async () => {
+      const findFirst = jest.fn(() => Promise.resolve({ id: 'run-x', idempotencyKey: 'k-x' }));
+      const { repo, customClassifyRun } = build({ findFirst });
+      expect(await repo.findInProgressRunByClassification('cid-1')).toEqual({
+        id: 'run-x',
+        idempotencyKey: 'k-x',
+      });
+      expect(customClassifyRun.findFirst).toHaveBeenCalledWith({
+        where: { classificationId: 'cid-1', status: { in: ['queued', 'running'] } },
+        select: { id: true, idempotencyKey: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('returns null when the cid has no in-progress run', async () => {
+      const { repo } = build({ findFirst: jest.fn(() => Promise.resolve(null)) });
+      expect(await repo.findInProgressRunByClassification('cid-1')).toBeNull();
+    });
+  });
 });

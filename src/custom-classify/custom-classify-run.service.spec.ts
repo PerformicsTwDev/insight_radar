@@ -7,6 +7,10 @@ import {
 import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import type { PrismaService } from '../prisma';
+import {
+  computeCustomClassifyIdempotencyKey,
+  computeLabelsHash,
+} from './custom-classify-idempotency';
 import type { CustomClassifyRunRepository } from './custom-classify-run.repository';
 import type { CustomLabel } from './custom-classify.schema';
 import {
@@ -32,6 +36,13 @@ const CONFIG: CustomClassifyRunConfig = {
   jobBackoffJitter: 0.2,
 };
 
+/** 本 build 下 create() 會算出的 idempotencyKey（snapshot.checksum='chk'）——供並發守門「同 key 不擋」測試。 */
+const SAME_KEY = computeCustomClassifyIdempotencyKey(CID, 'chk', {
+  schemaVersion: 'v1',
+  deployment: 'gpt-4o-mini',
+  labelsHash: computeLabelsHash(LABELS),
+});
+
 function build(
   over: {
     classification?: unknown;
@@ -39,6 +50,7 @@ function build(
     keywordCount?: number;
     createRun?: { runId: string; created: boolean };
     latestRun?: unknown;
+    inProgressRun?: { id: string; idempotencyKey: string } | null;
     enqueueRejects?: boolean;
   } = {},
 ) {
@@ -72,12 +84,16 @@ function build(
     .fn()
     .mockResolvedValue(over.createRun ?? { runId: 'run-1', created: true });
   const findLatestRunByClassification = jest.fn().mockResolvedValue(over.latestRun ?? null);
+  const findInProgressRunByClassification = jest
+    .fn()
+    .mockResolvedValue('inProgressRun' in over ? over.inProgressRun : null);
   const markStatus = jest
     .fn<Promise<void>, [string, string, { error?: string }?]>()
     .mockResolvedValue(undefined);
   const repo = {
     createRun,
     findLatestRunByClassification,
+    findInProgressRunByClassification,
     markStatus,
   } as unknown as CustomClassifyRunRepository;
 
@@ -89,6 +105,7 @@ function build(
     ccUpdate,
     createRun,
     findLatestRunByClassification,
+    findInProgressRunByClassification,
     markStatus,
     ccrDelete,
   };
@@ -121,6 +138,28 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       const out = await service.create(AN, CID, LABELS, API_KEY_ACTOR);
       expect(out).toEqual({ jobId: 'run-1' });
       expect(queueAdd).not.toHaveBeenCalled();
+    });
+
+    it('409 when a DIFFERENT in-progress run exists for the cid (M12-R8 concurrent guard)', async () => {
+      // assignments are cid-scoped (no runId) → two in-flight runs last-committer-wins → stale taxonomy.
+      const { service, createRun, ccUpdate } = build({
+        inProgressRun: { id: 'run-x', idempotencyKey: 'a-different-key' },
+      });
+      await expect(service.create(AN, CID, LABELS, API_KEY_ACTOR)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(createRun).not.toHaveBeenCalled(); // guarded before creating a second run
+      expect(ccUpdate).not.toHaveBeenCalled(); // fail-fast: no labels write-back on the rejected path
+    });
+
+    it('does NOT block when the in-progress run has the SAME idempotencyKey (idempotent re-send)', async () => {
+      const { service, queueAdd } = build({
+        inProgressRun: { id: 'run-1', idempotencyKey: SAME_KEY },
+        createRun: { runId: 'run-1', created: false }, // idempotent hit
+      });
+      const out = await service.create(AN, CID, LABELS, API_KEY_ACTOR);
+      expect(out).toEqual({ jobId: 'run-1' });
+      expect(queueAdd).not.toHaveBeenCalled(); // idempotent, no re-enqueue, no 409
     });
 
     it('rejects an empty confirmed-label set with 409 (cannot build enum); no run created', async () => {

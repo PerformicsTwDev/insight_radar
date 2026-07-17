@@ -75,6 +75,20 @@ export class CustomClassifyRunRepository {
     }
   }
 
+  /**
+   * 取某 cid **進行中（queued/running）** 的 run（並發守門 M12-R8；無→null）。assignments 為 cid-scoped
+   * （PK 無 runId），同 cid 兩 in-flight run 會 last-committer-wins 覆寫 → 用此擋不同 idempotencyKey 的並發 run。
+   */
+  async findInProgressRunByClassification(
+    classificationId: string,
+  ): Promise<{ id: string; idempotencyKey: string } | null> {
+    return this.prisma.customClassifyRun.findFirst({
+      where: { classificationId, status: { in: ['queued', 'running'] } },
+      select: { id: true, idempotencyKey: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   /** 取某 idempotencyKey 的 run（無則 null）。 */
   async findByIdempotencyKey(key: string): Promise<{ id: string; status: string } | null> {
     return this.prisma.customClassifyRun.findUnique({
