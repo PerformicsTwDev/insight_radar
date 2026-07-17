@@ -8,6 +8,9 @@ export interface JourneyRunParams {
   deployment: string;
 }
 
+/** journey job 進度階段（SSE / GET 回報）。 */
+export type JourneyPhase = 'loading' | 'classifying' | 'persisting' | 'done';
+
 /** GET /:id/journey 回應投影（最新 run）。 */
 export interface JourneyRunView {
   id: string;
