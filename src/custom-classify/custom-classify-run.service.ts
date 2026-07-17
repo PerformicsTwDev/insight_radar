@@ -15,6 +15,7 @@ import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
 import { CUSTOM_CLASSIFY_QUEUE } from '../queue/queue.constants';
 import type { CustomClassifyJobPayload } from '../queue/custom-classify-job.types';
+import { UNCLASSIFIED_LABEL } from './custom-classify-assign.schema';
 import type { CustomLabel } from './custom-classify.schema';
 import {
   computeCustomClassifyIdempotencyKey,
@@ -82,6 +83,14 @@ export class CustomClassifyRunService {
     if (labels.length === 0) {
       throw new ConflictException(
         `custom classification ${classificationId} requires at least one confirmed label`,
+      );
+    }
+    // 保留字守衛（M12-R4 defensive；HTTP 邊界已由 DTO @IsNotReservedLabel 擋 400）：確認標籤禁與後處理 gap-fallback
+    // sentinel `unclassified` 同名（trim + 大小寫不敏感）——否則它同時進 LLM enum 又是缺漏補值，view 的 unclassified
+    // 桶會混算兩類、灌大計數。
+    if (labels.some((l) => l.label.trim().toLowerCase() === UNCLASSIFIED_LABEL)) {
+      throw new ConflictException(
+        `label "${UNCLASSIFIED_LABEL}" is reserved (gap-fallback sentinel) and cannot be a confirmed label`,
       );
     }
     // 確認標籤數上限（成本護欄）：AC-34.1 的標籤上限對階段二確認集一體適用——避免無界 taxonomy 撐爆 LLM
