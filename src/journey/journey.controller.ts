@@ -6,6 +6,7 @@ import {
   Inject,
   type MessageEvent,
   Param,
+  ParseUUIDPipe,
   Post,
   Sse,
 } from '@nestjs/common';
@@ -44,8 +45,10 @@ function terminalSnapshot(ref: { runId: string; status: string }): MessageEvent 
 
 /**
  * 購買歷程分類 HTTP 入口（T12.6，FR-33/AC-33.6）。掛 `/api/v1/keyword-analyses/:id/journey`（巢狀於既有分析）。
- * 全域 `CompositeAuthGuard`（缺/錯 key → 401）已套用。`create` 為 **enqueue-only**：委派 service 入列即回 202
- * （NFR-1，不呼叫外部 API）。stage 表 / 漏斗經 `POST /query {view:'journey'|'journey_funnel'}`（view-router，免專屬端點）。
+ * 全域 `CompositeAuthGuard`（缺/錯 key → 401）已套用。`:id` 經 `ParseUUIDPipe`（**非 UUID → 400**，避免 Prisma
+ * UUID 欄位 P2023 → 500，與 ai-insight/custom-classify/topics siblings 一致，M12-R6）。`create` 為 **enqueue-only**：
+ * 委派 service 入列即回 202（NFR-1，不呼叫外部 API）。stage 表 / 漏斗經 `POST /query {view:'journey'|'journey_funnel'}`
+ * （view-router，免專屬端點）。
  */
 @ApiTags('journey')
 @Controller('keyword-analyses')
@@ -60,7 +63,7 @@ export class JourneyController {
   @Post(':id/journey')
   @HttpCode(HttpStatus.ACCEPTED)
   create(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<{ journeyJobId: string }> {
     return this.service.create(id, actor);
@@ -69,7 +72,7 @@ export class JourneyController {
   /** 取最新 run 狀態（輪詢）。無 run→404（service 拋）。 */
   @Get(':id/journey')
   getStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<JourneyStatusResponse> {
     return this.service.getStatus(id, actor);
@@ -82,7 +85,7 @@ export class JourneyController {
    */
   @Sse(':id/journey/stream')
   async stream(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<Observable<MessageEvent>> {
     const ref = await this.service.getRunRef(id, actor).catch(() => null); // 不可 reject

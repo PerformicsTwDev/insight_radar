@@ -28,6 +28,7 @@ import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 const API_KEY = 'test-api-key'; // matches .env.test
+const AID = '11111111-1111-1111-1111-111111111111'; // valid UUID (:id 經 ParseUUIDPipe，M12-R6)
 
 /**
  * TC-69（T12.6 · FR-33/AC-33.6）：`POST /keyword-analyses/:id/journey` 為 **enqueue-only、零外部呼叫**。
@@ -139,44 +140,56 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
 
   it('202 + journeyJobId (enqueue-only) for a completed analysis', async () => {
     findAnalysis.mockResolvedValue(analysisRow('completed'));
-    const res = await post('a-1').expect(202);
+    const res = await post(AID).expect(202);
     expect(res.body).toEqual({ journeyJobId: 'run-1' });
     expect(queueAdd).toHaveBeenCalledTimes(1);
   });
 
   it('425 when the analysis is still running (snapshot not ready)', async () => {
     findAnalysis.mockResolvedValue(analysisRow('running'));
-    await post('a-1').expect(425);
+    await post(AID).expect(425);
   });
 
   it('409 when the analysis failed (no usable snapshot)', async () => {
     findAnalysis.mockResolvedValue(analysisRow('failed'));
-    await post('a-1').expect(409);
+    await post(AID).expect(409);
   });
 
   it('404 when the analysis does not exist', async () => {
     findAnalysis.mockResolvedValue(null);
-    await post('missing').expect(404);
+    await post(AID).expect(404);
+  });
+
+  it('POST 400 for a malformed (non-UUID) :id — ParseUUIDPipe, not Prisma P2023 → 500 (M12-R6)', async () => {
+    await post('not-a-uuid').expect(400);
+    expect(queueAdd).not.toHaveBeenCalled(); // rejected at the pipe, never reaches the service
   });
 
   it('413 when the snapshot keyword count exceeds the journey max (#484 cost guard)', async () => {
     findAnalysis.mockResolvedValue(analysisRow('completed'));
     snapshotCount.mockResolvedValue(5001); // > default JOURNEY_MAX_KEYWORDS (5000)
-    await post('a-1').expect(413);
+    await post(AID).expect(413);
     expect(queueAdd).not.toHaveBeenCalled();
   });
 
   it('401 without an API key (global guard)', async () => {
-    await request(app.getHttpServer()).post('/api/v1/keyword-analyses/a-1/journey').expect(401);
+    await request(app.getHttpServer()).post(`/api/v1/keyword-analyses/${AID}/journey`).expect(401);
   });
 
   it('GET returns 404 when there is no journey run', async () => {
     findAnalysis.mockResolvedValue(analysisRow('completed'));
     journeyFindFirst.mockResolvedValue(null);
     await request(app.getHttpServer())
-      .get('/api/v1/keyword-analyses/a-1/journey')
+      .get(`/api/v1/keyword-analyses/${AID}/journey`)
       .set('x-api-key', API_KEY)
       .expect(404);
+  });
+
+  it('GET 400 for a malformed (non-UUID) :id (M12-R6)', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses/not-a-uuid/journey')
+      .set('x-api-key', API_KEY)
+      .expect(400);
   });
 
   it('GET returns the latest run status', async () => {
@@ -189,7 +202,7 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
       keywordCount: 3,
     });
     const res = await request(app.getHttpServer())
-      .get('/api/v1/keyword-analyses/a-1/journey')
+      .get(`/api/v1/keyword-analyses/${AID}/journey`)
       .set('x-api-key', API_KEY)
       .expect(200);
     expect(res.body).toMatchObject({ journeyJobId: 'run-1', status: 'completed', keywordCount: 3 });
@@ -199,9 +212,16 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
     findAnalysis.mockResolvedValue(null);
     journeyFindFirst.mockResolvedValue(null);
     await request(app.getHttpServer())
-      .get('/api/v1/keyword-analyses/unknown/journey/stream')
+      .get(`/api/v1/keyword-analyses/${AID}/journey/stream`)
       .set('x-api-key', API_KEY)
       .expect(200);
+  });
+
+  it('SSE stream 400 for a malformed (non-UUID) :id — pipe rejects before the SSE handler (M12-R6)', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses/not-a-uuid/journey/stream')
+      .set('x-api-key', API_KEY)
+      .expect(400);
   });
 
   it('POST /query {view:journey} → 409 FEATURE_NOT_READY with no completed journey run (AC-33.4)', async () => {
