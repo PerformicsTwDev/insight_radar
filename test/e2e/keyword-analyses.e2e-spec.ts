@@ -28,6 +28,7 @@ import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processo
 import { PrismaService } from 'src/prisma';
 
 const API_KEY = 'test-api-key'; // matches .env.test
+const AID = '11111111-1111-1111-1111-111111111111'; // valid UUID (:id 經 ParseUUIDPipe，M12-R10)
 
 /**
  * TC-21 / TC-28：`POST /keyword-analyses`。e2e 啟動完整 app 但以替身隔離外部資源：
@@ -214,7 +215,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .get('/api/v1/keyword-analyses/some-id')
+        .get(`/api/v1/keyword-analyses/${AID}`)
         .set('x-api-key', API_KEY);
 
       expect(res.status).toBe(200);
@@ -241,7 +242,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .get('/api/v1/keyword-analyses/some-id')
+        .get(`/api/v1/keyword-analyses/${AID}`)
         .set('x-api-key', API_KEY);
 
       expect(res.status).toBe(200);
@@ -260,7 +261,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .get('/api/v1/keyword-analyses/some-id')
+        .get(`/api/v1/keyword-analyses/${AID}`)
         .set('x-api-key', API_KEY);
 
       expect(res.status).toBe(200);
@@ -271,7 +272,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       prismaFindUnique.mockResolvedValueOnce(null);
 
       const res = await request(app.getHttpServer())
-        .get('/api/v1/keyword-analyses/missing')
+        .get(`/api/v1/keyword-analyses/${AID}`)
         .set('x-api-key', API_KEY);
 
       expect(res.status).toBe(404);
@@ -279,9 +280,27 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     });
 
     it('requires x-api-key (401 without)', async () => {
-      const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses/some-id');
+      const res = await request(app.getHttpServer()).get(`/api/v1/keyword-analyses/${AID}`);
 
       expect(res.status).toBe(401);
+    });
+
+    it('400 for a malformed (non-UUID) :id — ParseUUIDPipe short-circuits before the service (M12-R10)', async () => {
+      prismaFindUnique.mockClear(); // this spec doesn't clear between tests; isolate THIS request's calls
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/not-a-uuid')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(400);
+      expect(prismaFindUnique).not.toHaveBeenCalled(); // rejected at the pipe, never reaches the service
+    });
+
+    it('DELETE 400 for a malformed (non-UUID) :id (M12-R10)', async () => {
+      const res = await request(app.getHttpServer())
+        .delete('/api/v1/keyword-analyses/not-a-uuid')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(400);
     });
   });
 
@@ -295,7 +314,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .get('/api/v1/keyword-analyses/done/stream')
+        .get(`/api/v1/keyword-analyses/${AID}/stream`)
         .set('x-api-key', API_KEY);
 
       expect(res.status).toBe(200);
@@ -307,9 +326,17 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     });
 
     it('requires x-api-key (401 without)', async () => {
-      const res = await request(app.getHttpServer()).get('/api/v1/keyword-analyses/done/stream');
+      const res = await request(app.getHttpServer()).get(`/api/v1/keyword-analyses/${AID}/stream`);
 
       expect(res.status).toBe(401);
+    });
+
+    it('stream 400 for a malformed (non-UUID) :id — pipe rejects before the SSE handler (M12-R10)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/keyword-analyses/not-a-uuid/stream')
+        .set('x-api-key', API_KEY);
+
+      expect(res.status).toBe(400);
     });
   });
 });

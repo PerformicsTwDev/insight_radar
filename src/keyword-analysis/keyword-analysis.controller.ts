@@ -9,6 +9,7 @@ import {
   Logger,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Sse,
@@ -98,7 +99,7 @@ export class KeywordAnalysisController {
   /** 輪詢分析狀態（T3.4，FR-8）。不存在的 id / 非 owner → 404（service 拋 NotFoundException，FR-27）。 */
   @Get(':id')
   getStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<AnalysisStatusResponse> {
     return this.service.getStatus(id, actor);
@@ -108,7 +109,7 @@ export class KeywordAnalysisController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   cancel(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<{ status: AnalysisStatus }> {
     return this.service.cancel(id, actor);
@@ -130,7 +131,7 @@ export class KeywordAnalysisController {
    */
   @Sse(':id/stream')
   async stream(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<Observable<MessageEvent>> {
     const status = await this.fetchStatus(id, actor);

@@ -498,6 +498,11 @@ describe('TrackingList CRUD (e2e · TC-64 · FR-28/27)', () => {
       const res = await request(server()).get(`${base}/${randomUUID()}`).set('Cookie', cookieA);
       expect(res.status).toBe(404);
     });
+
+    it('malformed (non-UUID) listId → 400 (ParseUUIDPipe, not Prisma @db.Uuid P2023 → 500; M12-R10)', async () => {
+      const res = await request(server()).get(`${base}/not-a-uuid`).set('Cookie', cookieA);
+      expect(res.status).toBe(400); // rejected at the pipe before the service/owner check
+    });
   });
 
   describe('PATCH /tracking-lists/:listId (AC-28.2)', () => {

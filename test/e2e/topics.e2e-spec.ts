@@ -31,6 +31,7 @@ import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classi
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 const API_KEY = 'test-api-key'; // matches .env.test
+const AID = '11111111-1111-1111-1111-111111111111'; // valid UUID (:id 經 ParseUUIDPipe，M12-R10)
 
 /**
  * TC-48（T8.10b · FR-15）：`POST /keyword-analyses/:id/topics` 為 **enqueue-only、零外部呼叫**。以替身隔離：
@@ -127,7 +128,7 @@ describe('POST/GET /keyword-analyses/:id/topics (e2e, TC-48)', () => {
   it('202 + topicJobId and NO external calls for a completed analysis', async () => {
     findAnalysis.mockResolvedValue(analysisRow('completed'));
 
-    const res = await post('a-1').send({ serpEnabled: false }).expect(202);
+    const res = await post(AID).send({ serpEnabled: false }).expect(202);
 
     expect(res.body).toEqual({ topicJobId: 'run-1' });
     expect(queueAdd).toHaveBeenCalledTimes(1);
@@ -139,22 +140,35 @@ describe('POST/GET /keyword-analyses/:id/topics (e2e, TC-48)', () => {
 
   it('425 when the analysis is still running (snapshot not ready)', async () => {
     findAnalysis.mockResolvedValue(analysisRow('running'));
-    await post('a-1').send({}).expect(425);
+    await post(AID).send({}).expect(425);
   });
 
   it('409 when the analysis failed (no usable snapshot)', async () => {
     findAnalysis.mockResolvedValue(analysisRow('failed'));
-    await post('a-1').send({}).expect(409);
+    await post(AID).send({}).expect(409);
   });
 
   it('404 when the analysis does not exist', async () => {
     findAnalysis.mockResolvedValue(null);
-    await post('missing').send({}).expect(404);
+    await post(AID).send({}).expect(404);
+  });
+
+  it('POST 400 for a malformed (non-UUID) :id — ParseUUIDPipe short-circuits before the service (M12-R10)', async () => {
+    await post('not-a-uuid').send({}).expect(400);
+    expect(findAnalysis).not.toHaveBeenCalled(); // rejected at the pipe, never reaches the service
+    expect(queueAdd).not.toHaveBeenCalled();
   });
 
   it('401 without an API key (global guard)', async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/keyword-analyses/a-1/topics')
+      .post(`/api/v1/keyword-analyses/${AID}/topics`)
+      .send({})
+      .expect(401);
+  });
+
+  it('401 (not 400) for a malformed :id with no API key — guard runs before the pipe (M12-R10)', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/keyword-analyses/not-a-uuid/topics')
       .send({})
       .expect(401);
   });
@@ -162,8 +176,15 @@ describe('POST/GET /keyword-analyses/:id/topics (e2e, TC-48)', () => {
   it('SSE stream returns an empty (non-hanging) stream for an unknown analysis', async () => {
     // findFirst → null（無 run）→ handler 回 EMPTY → 連線立即完成、不 hang。
     await request(app.getHttpServer())
-      .get('/api/v1/keyword-analyses/unknown/topics/stream')
+      .get(`/api/v1/keyword-analyses/${AID}/topics/stream`)
       .set('x-api-key', API_KEY)
       .expect(200);
+  });
+
+  it('SSE stream 400 for a malformed (non-UUID) :id — pipe rejects before the handler (M12-R10)', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/keyword-analyses/not-a-uuid/topics/stream')
+      .set('x-api-key', API_KEY)
+      .expect(400);
   });
 });
