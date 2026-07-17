@@ -7,5 +7,8 @@ export const TOPICS_QUEUE = 'topics';
 /** 追蹤清單搜量刷新 BullMQ queue 名稱（T11.6；repeatable 排程刷新 + 手動即時刷新共用同一 queue/worker）。 */
 export const TRACKING_REFRESH_QUEUE = 'tracking-refresh';
 
+/** 購買歷程分類 BullMQ queue 名稱（T12.6；整批 snapshot LLM 貼標 async job）。 */
+export const JOURNEY_QUEUE = 'journey';
+
 /** BullMQ 連線的 DI token（正式為 IORedis、測試可 override 成 ioredis-mock）。 */
 export const BULL_CONNECTION = 'BullConnection';

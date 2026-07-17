@@ -50,6 +50,7 @@ const ENV: Record<string, string> = {
   LLM_BATCH_SIZE: '30',
   LLM_CONCURRENCY: '6',
   JOURNEY_LLM_BATCH_SIZE: '30',
+  JOURNEY_MAX_KEYWORDS: '5000',
   AZURE_OPENAI_MAX_RETRIES: '5',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
@@ -173,6 +174,7 @@ describe('config namespaces (registerAs, typed)', () => {
       llmBatchSize: 30,
       llmConcurrency: 6,
       journeyLlmBatchSize: 30,
+      journeyMaxKeywords: 5000,
       maxRetries: 5,
     });
   });
