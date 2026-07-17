@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import type {
   IntentLabeler,
@@ -55,7 +56,8 @@ function build(config: CustomClassifyConfig = { maxLabels: 12 }): {
     customClassification: { create },
   } as unknown as PrismaService;
 
-  const service = new CustomClassifyService(labeler, snapshotQuery, prisma, config);
+  const queue = { remove: jest.fn().mockResolvedValue(1) } as unknown as Queue;
+  const service = new CustomClassifyService(labeler, snapshotQuery, prisma, config, queue);
   return { service, parseChat, resolveReadySnapshotId, findMany, create };
 }
 
@@ -205,13 +207,16 @@ describe('CustomClassifyService (T12.7 / FR-34 / AC-34.1 / TC-70 部分)', () =>
   describe('remove (T12.9 / FR-34 / AC-34.5)', () => {
     const SESSION_A: AuthenticatedUser = { kind: 'session', id: 'user-A', email: 'a@x.com' };
 
-    function buildRemove(over: { classification?: unknown; owner?: unknown } = {}) {
+    function buildRemove(
+      over: { classification?: unknown; owner?: unknown; runs?: Array<{ id: string }> } = {},
+    ) {
       const ccFindUnique = jest
         .fn()
         .mockResolvedValue('classification' in over ? over.classification : { analysisId: 'an-1' });
       const kaFindUnique = jest
         .fn()
         .mockResolvedValue('owner' in over ? over.owner : { ownerId: null });
+      const ccrFindMany = jest.fn().mockResolvedValue(over.runs ?? []);
       const kcaDeleteMany = jest.fn().mockReturnValue('op-kca');
       const ccrDeleteMany = jest.fn().mockReturnValue('op-ccr');
       const ccDelete = jest.fn().mockReturnValue('op-cc');
@@ -220,16 +225,19 @@ describe('CustomClassifyService (T12.7 / FR-34 / AC-34.1 / TC-70 部分)', () =>
         customClassification: { findUnique: ccFindUnique, delete: ccDelete },
         keywordAnalysis: { findUnique: kaFindUnique },
         keywordCustomAssignment: { deleteMany: kcaDeleteMany },
-        customClassifyRun: { deleteMany: ccrDeleteMany },
+        customClassifyRun: { findMany: ccrFindMany, deleteMany: ccrDeleteMany },
         $transaction: txn,
       } as unknown as PrismaService;
+      const queueRemove = jest.fn<Promise<number>, [string]>().mockResolvedValue(1);
+      const queue = { remove: queueRemove } as unknown as Queue;
       const service = new CustomClassifyService(
         {} as unknown as IntentLabeler,
         {} as unknown as SnapshotQueryService,
         prisma,
         { maxLabels: 12 },
+        queue,
       );
-      return { service, kcaDeleteMany, ccrDeleteMany, ccDelete, txn };
+      return { service, ccrFindMany, kcaDeleteMany, ccrDeleteMany, ccDelete, txn, queueRemove };
     }
 
     it('cascades assignments + runs + definition in one transaction and returns the id', async () => {
@@ -242,12 +250,38 @@ describe('CustomClassifyService (T12.7 / FR-34 / AC-34.1 / TC-70 部分)', () =>
       expect(txn).toHaveBeenCalledWith(['op-kca', 'op-ccr', 'op-cc']); // single atomic transaction
     });
 
+    it('cancels the cid in-flight/queued jobs (queue.remove) BEFORE deleting the tables (M12-R5)', async () => {
+      const { service, queueRemove, txn, ccrFindMany } = buildRemove({
+        runs: [{ id: 'run-a' }, { id: 'run-b' }],
+      });
+      await service.remove('an-1', 'cid-1', ACTOR);
+      // every run of this cid (id = jobId) is cancelled so the worker can't re-insert after delete
+      expect(ccrFindMany).toHaveBeenCalledWith({
+        where: { classificationId: 'cid-1' },
+        select: { id: true },
+      });
+      expect(queueRemove).toHaveBeenCalledWith('run-a');
+      expect(queueRemove).toHaveBeenCalledWith('run-b');
+      // cancellation must precede the delete transaction
+      expect(queueRemove.mock.invocationCallOrder[0]).toBeLessThan(txn.mock.invocationCallOrder[0]);
+    });
+
+    it('tolerates a queue.remove failure (best-effort) and still deletes (M12-R5)', async () => {
+      const { service, queueRemove, txn } = buildRemove({ runs: [{ id: 'run-a' }] });
+      queueRemove.mockRejectedValueOnce(new Error('redis down'));
+      await expect(service.remove('an-1', 'cid-1', ACTOR)).resolves.toEqual({
+        classificationId: 'cid-1',
+      });
+      expect(txn).toHaveBeenCalledTimes(1); // delete still proceeds
+    });
+
     it('returns 404 for an unknown classification id', async () => {
-      const { service, txn } = buildRemove({ classification: null });
+      const { service, txn, queueRemove } = buildRemove({ classification: null });
       await expect(service.remove('an-1', 'cid-1', ACTOR)).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(txn).not.toHaveBeenCalled();
+      expect(queueRemove).not.toHaveBeenCalled(); // no cancellation before ownership is proven
     });
 
     it('returns 404 when the classification belongs to a different analysis (IDOR)', async () => {
