@@ -6,6 +6,7 @@ import { CacheModule } from './cache';
 import { CommonModule } from './common';
 import { CustomClassifyModule } from './custom-classify/custom-classify.module';
 import { HealthModule } from './health';
+import { IdeationModule } from './ideation/ideation.module';
 import { JourneyModule } from './journey/journey.module';
 import { KeywordAnalysisModule } from './keyword-analysis';
 import { KeywordsModule } from './keywords/keywords.module';
@@ -46,6 +47,7 @@ import { configNamespaces, validationSchema } from './config';
     AiInsightModule,
     JourneyModule,
     CustomClassifyModule,
+    IdeationModule,
   ],
 })
 export class AppModule {}

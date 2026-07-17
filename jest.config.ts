@@ -47,6 +47,11 @@ const collectCoverageFrom = [
   //   內的 `CustomClassifyRunService`。剩餘缺口 100% 屬 emitDecoratorMetadata phantom（同 journey.controller），
   //   比照排除，對外行為由 custom-classify-assign.e2e 把關（coverage-gate rule §4）。
   '!<rootDir>/src/custom-classify/custom-classify-assign.controller.ts',
+  // ★ ideation.controller（T12.10）：**純委派 shell**——單一 handler `generate` 直委派 `IdeationService.generate`；
+  //   驗證（未知 template `@IsIn`→400 / 空 seeds→400）由 ValidationPipe、LLM 失敗→502 由 `IdeationGenerationFilter`
+  //   （皆 gate 內受測）。剩餘缺口 100% 屬 emitDecoratorMetadata phantom，比照 ai-insight.controller 排除，對外行為
+  //   由 ideation.e2e 把關（coverage-gate rule §4）。
+  '!<rootDir>/src/ideation/ideation.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -70,6 +75,7 @@ const coverageIgnore = [
   'journey/journey\\.controller\\.ts$', // 純委派 shell（T12.6，SSE 分支全測、owner/413 分支在 gate 內 JourneyRunService）
   'custom-classify/custom-classify\\.controller\\.ts$', // 純委派 shell（T12.7，owner/readiness/502 分支在 gate 內 service/filter）
   'custom-classify/custom-classify-assign\\.controller\\.ts$', // 純委派 SSE shell（T12.8，SSE 分支全測、owner/404/409/413 在 gate 內 run-service）
+  'ideation/ideation\\.controller\\.ts$', // 純委派 shell（T12.10，驗證/502 分支在 gate 內 ValidationPipe/filter）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。

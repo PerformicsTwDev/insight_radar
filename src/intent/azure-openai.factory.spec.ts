@@ -14,6 +14,7 @@ const CONFIG: AzureConfig = {
   customClassifyMaxLabels: 12,
   customClassifyLlmBatchSize: 30,
   customClassifyMaxKeywords: 5000,
+  ideationMaxKeywords: 50,
   maxRetries: 5,
 };
 

@@ -54,6 +54,7 @@ const ENV: Record<string, string> = {
   CUSTOM_CLASSIFY_MAX_LABELS: '12',
   CUSTOM_CLASSIFY_LLM_BATCH_SIZE: '30',
   CUSTOM_CLASSIFY_MAX_KEYWORDS: '5000',
+  IDEATION_MAX_KEYWORDS: '50',
   CUSTOM_CLASSIFY_QUEUE_CONCURRENCY: '3',
   AZURE_OPENAI_MAX_RETRIES: '5',
   REDIS_URL: 'redis://localhost:6379',
@@ -184,6 +185,7 @@ describe('config namespaces (registerAs, typed)', () => {
       customClassifyMaxLabels: 12,
       customClassifyLlmBatchSize: 30,
       customClassifyMaxKeywords: 5000,
+      ideationMaxKeywords: 50,
       maxRetries: 5,
     });
   });
