@@ -35,6 +35,12 @@ const collectCoverageFrom = [
   //   （建構子 class-typed 參數 + `Promise<Observable>` 回傳型別，L54/65/74/87）；比照 ai-insight.controller 排除，
   //   對外行為由 journey e2e（POST/GET/SSE 202/425/409/404/413/401）把關（coverage-gate rule §4）。
   '!<rootDir>/src/journey/journey.controller.ts',
+  // ★ custom-classify.controller（T12.7）：**純委派 shell**——單一 handler `create` 直委派
+  //   `CustomClassifyService.generateLabels`；ParseUUIDPipe/ValidationPipe 為框架層、owner-404/readiness-409
+  //   /LLM-502 等真實分支全在 gate 內（`SnapshotQueryService` / `CustomClassifyService` / `CustomClassifyGenerationFilter`
+  //   皆有單元 spec）。移除後剩餘缺口 100% 屬 emitDecoratorMetadata phantom branch（class-typed 建構子 + DTO 參數
+  //   + Promise 回傳），比照 ai-insight.controller 排除，對外行為由 custom-classify.e2e 把關（coverage-gate rule §4）。
+  '!<rootDir>/src/custom-classify/custom-classify.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -56,6 +62,7 @@ const coverageIgnore = [
   'tracking/tracking-refresh\\.service\\.ts$', // 純入列 shell（T11.6，owner-scope 分支在 gate 內 assertOwnedRow）
   'ai-insight/ai-insight\\.controller\\.ts$', // 純委派 shell（T12.4，狀態分支在 gate 內 service/filter）
   'journey/journey\\.controller\\.ts$', // 純委派 shell（T12.6，SSE 分支全測、owner/413 分支在 gate 內 JourneyRunService）
+  'custom-classify/custom-classify\\.controller\\.ts$', // 純委派 shell（T12.7，owner/readiness/502 分支在 gate 內 service/filter）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。

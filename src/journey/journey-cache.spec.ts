@@ -46,6 +46,7 @@ function build(opts: { schemaVersion?: string; store?: Map<string, unknown> } = 
     aiInsightTtlMs: 1,
     journeySchemaVersion: opts.schemaVersion ?? 'v1',
     journeyTtlMs: TTL_MS,
+    customClassifySchemaVersion: 'v1',
   };
   const journeyCache = new JourneyCache(cache, config, DEPLOYMENT);
   return { journeyCache, cache, mget, set, setCalls, store };

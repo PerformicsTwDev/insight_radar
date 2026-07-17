@@ -14,6 +14,8 @@ export interface AzureConfig {
   journeyLlmBatchSize: number;
   /** 購買歷程 async job 單次分類的關鍵字數上限（成本護欄，已 Joi 驗證 min1，預設 5000；#484）。 */
   journeyMaxKeywords: number;
+  /** 自訂分類標籤數上限（動態 enum 大小，已 Joi 驗證 min1，預設 12；AC-34.1）。 */
+  customClassifyMaxLabels: number;
   /** SDK 自動重試次數（已 Joi 驗證 min0，預設 5；Design §14 AZURE_OPENAI_MAX_RETRIES）。 */
   maxRetries: number;
 }
@@ -28,5 +30,6 @@ export const azureConfig = registerAs('azure', (): AzureConfig => ({
   llmConcurrency: Number(process.env.LLM_CONCURRENCY),
   journeyLlmBatchSize: Number(process.env.JOURNEY_LLM_BATCH_SIZE),
   journeyMaxKeywords: Number(process.env.JOURNEY_MAX_KEYWORDS),
+  customClassifyMaxLabels: Number(process.env.CUSTOM_CLASSIFY_MAX_LABELS),
   maxRetries: Number(process.env.AZURE_OPENAI_MAX_RETRIES),
 }));

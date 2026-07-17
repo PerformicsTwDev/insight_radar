@@ -32,6 +32,7 @@ module.exports = {
         'clustering',
         'topics',
         'journey', // 購買歷程分類（journey/，FR-33/M12）
+        'custom-classify', // 自訂分類 HITL（custom-classify/，FR-34/M12）
         'serp',
         'cache',
         'config',

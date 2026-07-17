@@ -4,6 +4,7 @@ import { AiInsightModule } from './ai-insight/ai-insight.module';
 import { AuthModule } from './auth';
 import { CacheModule } from './cache';
 import { CommonModule } from './common';
+import { CustomClassifyModule } from './custom-classify/custom-classify.module';
 import { HealthModule } from './health';
 import { JourneyModule } from './journey/journey.module';
 import { KeywordAnalysisModule } from './keyword-analysis';
@@ -44,6 +45,7 @@ import { configNamespaces, validationSchema } from './config';
     TrackingListModule,
     AiInsightModule,
     JourneyModule,
+    CustomClassifyModule,
   ],
 })
 export class AppModule {}

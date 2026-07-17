@@ -37,6 +37,7 @@ jobs:
             clustering
             topics
             journey
+            custom-classify
             serp
             cache
             config

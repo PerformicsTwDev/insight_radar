@@ -100,6 +100,10 @@
         ],
         "type": "object"
       },
+      "CustomClassifyDto": {
+        "properties": {},
+        "type": "object"
+      },
       "LoginDto": {
         "properties": {
           "email": {
@@ -495,6 +499,39 @@
         },
         "tags": [
           "ai-insight"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/custom-classifications": {
+      "post": {
+        "operationId": "CustomClassifyController_create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomClassifyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-classify"
         ]
       }
     },

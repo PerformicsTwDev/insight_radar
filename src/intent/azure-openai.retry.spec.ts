@@ -10,6 +10,7 @@ const CONFIG: AzureConfig = {
   llmConcurrency: 6,
   journeyLlmBatchSize: 30,
   journeyMaxKeywords: 5000,
+  customClassifyMaxLabels: 12,
   maxRetries: 5,
 };
 

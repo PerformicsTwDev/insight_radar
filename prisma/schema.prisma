@@ -276,6 +276,21 @@ model JourneyRun {
   @@map("journey_runs")
 }
 
+// 自訂分類定義（T12.7 階段一，FR-34/AC-34.1）。instruction + snapshot 樣本 → LLM 生 labels（待 HITL 確認）；
+// 每字→label 指派於階段二（T12.8）落 keyword_custom_assignments。owner 過濾在 service 層（snapshot owner-resolved）。
+model CustomClassification {
+  id          String   @id @default(uuid()) @db.Uuid
+  analysisId  String   @map("keyword_analysis_id") @db.Uuid
+  snapshotId  String   @map("snapshot_id") @db.Uuid
+  name        String
+  instruction String
+  labels      Json // [{ label, description }]（HITL 待確認）
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([analysisId])
+  @@map("custom_classifications")
+}
+
 // 搜量時序（append-only、store-on-change，AC-29.4）。fetchedAt = 觀測時點（非每日搜量，S1 月粒度）。
 model VolumeSnapshot {
   id                 String   @id @default(uuid()) @db.Uuid
