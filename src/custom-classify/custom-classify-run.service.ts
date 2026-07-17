@@ -132,6 +132,17 @@ export class CustomClassifyRunService {
       params,
     );
 
+    // 並發 run 守門（M12-R8）：assignments 為 cid-scoped（PK 無 runId），同 cid 兩 in-flight run 皆
+    // deleteMany(cid)+createMany、後 commit 者覆寫 → view 供舊 taxonomy 卻報新 run 為 latest（不一致）。故同 cid
+    // 已有 queued/running 且**不同** idempotencyKey 的 run → 409。同 key = idempotent 重送（不擋、下方 createRun 回既有）；
+    // terminal（completed/failed）不擋（failed 走 M12-R1 reset 重入列）。
+    const inProgress = await this.repo.findInProgressRunByClassification(classificationId);
+    if (inProgress && inProgress.idempotencyKey !== idempotencyKey) {
+      throw new ConflictException(
+        `custom classification ${classificationId} already has an in-progress classification run; retry after it completes`,
+      );
+    }
+
     const { runId, created } = await this.repo.createRun({
       classificationId,
       keywordAnalysisId: analysisId,

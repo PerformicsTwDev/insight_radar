@@ -183,6 +183,13 @@ describe('POST/GET/SSE /keyword-analyses/:id/custom-classifications/:cid/assignm
     expect(queueAdd).not.toHaveBeenCalled();
   });
 
+  it('409 when the cid already has a different in-progress run (M12-R8 concurrent guard)', async () => {
+    // a queued/running run with a different labelsHash → last-committer-wins would serve stale taxonomy.
+    ccrFindFirst.mockResolvedValue({ id: 'run-x', idempotencyKey: 'a-different-key' });
+    await post(AN, CID, { labels: LABELS }).expect(409);
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
   it('GET returns 404 when there is no run', async () => {
     ccrFindFirst.mockResolvedValue(null);
     await request(app.getHttpServer()).get(url(AN, CID)).set('x-api-key', API_KEY).expect(404);
