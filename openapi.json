@@ -100,6 +100,10 @@
         ],
         "type": "object"
       },
+      "CustomClassifyAssignDto": {
+        "properties": {},
+        "type": "object"
+      },
       "CustomClassifyDto": {
         "properties": {},
         "type": "object"
@@ -527,6 +531,107 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-classify"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/custom-classifications/{cid}/assignments": {
+      "get": {
+        "operationId": "CustomClassifyAssignController_getStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-classify"
+        ]
+      },
+      "post": {
+        "operationId": "CustomClassifyAssignController_create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomClassifyAssignDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-classify"
+        ]
+      }
+    },
+    "/api/v1/keyword-analyses/{id}/custom-classifications/{cid}/assignments/stream": {
+      "get": {
+        "operationId": "CustomClassifyAssignController_stream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },

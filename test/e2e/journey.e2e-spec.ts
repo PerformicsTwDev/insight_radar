@@ -7,6 +7,11 @@ import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { JourneyProcessor } from 'src/journey/journey.processor';
+import {
+  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
+  CUSTOM_CLASSIFY_QUEUE_EVENTS,
+} from 'src/queue/custom-classify-job-events.constants';
+import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
@@ -95,6 +100,12 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
       .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(JourneyProcessor)
+      .useValue({})
+      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(CustomClassifyAssignProcessor)
       .useValue({})
       .compile();
 
