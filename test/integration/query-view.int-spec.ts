@@ -68,6 +68,8 @@ describe('query-view integration (T5.5 / TC-36 / FR-14 · Testcontainers)', () =
   });
 
   afterEach(async () => {
+    await prisma.keywordJourneyAssignment.deleteMany();
+    await prisma.journeyRun.deleteMany();
     await prisma.snapshotRow.deleteMany();
     await prisma.keywordAnalysis.updateMany({ data: { resultSnapshotId: null } });
     await prisma.resultSnapshot.deleteMany();
