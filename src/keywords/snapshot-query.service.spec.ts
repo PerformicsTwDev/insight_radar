@@ -275,4 +275,53 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       ).rejects.toMatchObject({ status: 409 });
     });
   });
+
+  describe('resolveViewDataVersion (M12-R3 · AI-insight cache data version)', () => {
+    function buildVersion(
+      over: { customRun?: { id: string } | null; journeyRun?: { id: string } | null } = {},
+    ) {
+      const ccrFindFirst = jest.fn().mockResolvedValue(over.customRun ?? null);
+      const jrFindFirst = jest.fn().mockResolvedValue(over.journeyRun ?? null);
+      const prisma = {
+        customClassifyRun: { findFirst: ccrFindFirst },
+        journeyRun: { findFirst: jrFindFirst },
+      } as unknown as PrismaService;
+      const service = new SnapshotQueryService(prisma, {} as unknown as QueryViewService, CONFIG);
+      return { service, ccrFindFirst, jrFindFirst };
+    }
+
+    it('custom:{cid} → latest COMPLETED CustomClassifyRun.id', async () => {
+      const { service, ccrFindFirst } = buildVersion({ customRun: { id: 'run-c' } });
+      expect(await service.resolveViewDataVersion('an-1', 'custom:cid-1')).toBe('run-c');
+      expect(ccrFindFirst).toHaveBeenCalledWith({
+        where: { classificationId: 'cid-1', status: 'completed' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+    });
+
+    it('journey / journey_funnel → latest COMPLETED/PARTIAL JourneyRun.id', async () => {
+      const { service, jrFindFirst } = buildVersion({ journeyRun: { id: 'run-j' } });
+      expect(await service.resolveViewDataVersion('an-1', 'journey')).toBe('run-j');
+      expect(await service.resolveViewDataVersion('an-1', 'journey_funnel')).toBe('run-j');
+      expect(jrFindFirst).toHaveBeenCalledWith({
+        where: { keywordAnalysisId: 'an-1', status: { in: ['completed', 'partial'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+    });
+
+    it('returns "" when a dynamic view has no completed run yet', async () => {
+      const { service } = buildVersion(); // both findFirst → null
+      expect(await service.resolveViewDataVersion('an-1', 'custom:cid-1')).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', 'journey')).toBe('');
+    });
+
+    it('returns "" for a static view without any DB round-trip', async () => {
+      const { service, ccrFindFirst, jrFindFirst } = buildVersion();
+      expect(await service.resolveViewDataVersion('an-1', 'keywords')).toBe('');
+      expect(ccrFindFirst).not.toHaveBeenCalled();
+      expect(jrFindFirst).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -94,6 +94,37 @@ export class SnapshotQueryService {
   }
 
   /**
+   * dynamic view 的**資料版本 token**（AC-32.2 補正 M12-R3）：dynamic/gated view 疊在不可變 snapshot 上的
+   * per-run 可變資料版本，供 AI 洞察快取 key——避免重跑（改標籤 → 新 `labelsHash` → 新 run；或 bump
+   * `JOURNEY_SCHEMA_VERSION` → 新 run）後 `(snapshotId, view, filters)` 相同卻回舊 insight（60 天 TTL）。
+   * - `custom:{cid}` → 最新 **completed** `CustomClassifyRun.id`；
+   * - `journey`/`journey_funnel` → 最新 **completed/partial** `JourneyRun.id`（journey 終態含 partial）；
+   * - static view（keywords 等）→ `''`（資料＝不可變 snapshot、snapshotId 已定版，免 DB round-trip）。
+   *
+   * **用 completed（非「最新 run」）**：run 於*建立*時即改 id 但其 assignments 要*完成*才落表——用 completed
+   * 才與物化資料同步（避免「版本先於資料」翻轉致重跑後再度回舊 insight）。
+   */
+  async resolveViewDataVersion(analysisId: string, view: string): Promise<string> {
+    if (view.startsWith('custom:')) {
+      const run = await this.prisma.customClassifyRun.findFirst({
+        where: { classificationId: view.slice('custom:'.length), status: 'completed' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      return run?.id ?? '';
+    }
+    if (JOURNEY_VIEWS.has(view)) {
+      const run = await this.prisma.journeyRun.findFirst({
+        where: { keywordAnalysisId: analysisId, status: { in: ['completed', 'partial'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      return run?.id ?? '';
+    }
+    return '';
+  }
+
+  /**
    * 讀分析行（status + resultSnapshotId + ownerId）；未知 id / 非 owner → 404。feature 狀態 + readiness 判斷
    * 之共同來源，亦為 keywords/query 兩讀取路徑的 **owner 過濾唯一單點**（T10.6，AC-27.3/27.4）：越權與未知
    * id 同回 404（不洩漏存在性），session 只見自己 + 共享（null）列、apiKey 機器 actor 不過濾。
