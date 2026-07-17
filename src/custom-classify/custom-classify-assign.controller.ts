@@ -19,37 +19,15 @@ import type { AuthenticatedUser } from '../common/authenticated-user';
 import { CurrentActor } from '../common/current-actor.decorator';
 import { withHeartbeat } from '../common/sse-heartbeat';
 import { appConfig } from '../config/app.config';
-import { type JobEvent, JobEventsService } from '../queue/job-events.service';
+import { JobEventsService } from '../queue/job-events.service';
 import { CUSTOM_CLASSIFY_JOB_EVENTS } from '../queue/custom-classify-job-events.constants';
 import { CustomClassifyAssignDto } from './custom-classify-assign.dto';
 import {
   CustomClassifyRunService,
   type CustomClassifyStatusResponse,
 } from './custom-classify-run.service';
-import {
-  TERMINAL_CUSTOM_CLASSIFY_STATUSES,
-  type CustomClassifyRunStatus,
-} from './custom-classify-run.types';
-
-function isTerminalEvent(event: JobEvent): boolean {
-  return event.type === 'completed' || event.type === 'failed';
-}
-
-/** 即時事件 → `MessageEvent`（type=event 名、data=payload；failed 字串理由包成 `{error}`）。 */
-function toMessageEvent(event: JobEvent): MessageEvent {
-  if (event.type === 'failed') {
-    return { type: 'failed', data: { error: event.data } };
-  }
-  return { type: event.type, data: event.data as MessageEvent['data'] };
-}
-
-/** 已終態 run 的單筆快照事件：completed→completed（有結果，經 GET/query 取）；failed→failed。 */
-function terminalSnapshot(ref: { runId: string; status: string }): MessageEvent {
-  if (ref.status === 'completed') {
-    return { type: 'completed', data: { runId: ref.runId, status: ref.status } };
-  }
-  return { type: 'failed', data: { error: ref.status } };
-}
+import { TERMINAL_CUSTOM_CLASSIFY_STATUSES } from './custom-classify-run.types';
+import { isTerminalEvent, planSseResponse, toMessageEvent } from './custom-classify-assign-sse';
 
 /**
  * 自訂分類**階段二** HTTP 入口（T12.8，FR-34/AC-34.2）。掛
@@ -102,13 +80,15 @@ export class CustomClassifyAssignController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<Observable<MessageEvent>> {
     const ref = await this.service.getRunRef(id, cid, actor).catch(() => null); // 不可 reject
-    if (!ref) {
+    // 決策邏輯（empty / terminal / live）下放至 gate 內純函式（{@link planSseResponse}）；此處只物化 Observable。
+    const plan = planSseResponse(ref, TERMINAL_CUSTOM_CLASSIFY_STATUSES);
+    if (plan.kind === 'empty') {
       return EMPTY;
     }
-    if (TERMINAL_CUSTOM_CLASSIFY_STATUSES.has(ref.status as CustomClassifyRunStatus)) {
-      return of(terminalSnapshot(ref));
+    if (plan.kind === 'terminal') {
+      return of(plan.event);
     }
-    const events$ = this.events.forJob(ref.runId).pipe(
+    const events$ = this.events.forJob(plan.runId).pipe(
       takeWhile((event) => !isTerminalEvent(event), true), // inclusive：發終態事件後才 complete
       map(toMessageEvent),
     );
