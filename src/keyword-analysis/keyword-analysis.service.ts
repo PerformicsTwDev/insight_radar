@@ -343,10 +343,16 @@ export class KeywordAnalysisService {
     const result = row.resultSnapshot
       ? { resultSnapshotId: row.resultSnapshot.id, count: row.resultSnapshot.keywordCount }
       : { resultSnapshotId: null, count: null };
-    const features = computeFeatures({
-      status: row.status,
-      resultSnapshotId: row.resultSnapshotId,
+    // journey feature 由最新 JourneyRun 推導（AC-33.6，驅動前端 gate）；無 run → not_generated。
+    const journeyRun = await this.prisma.journeyRun.findFirst({
+      where: { keywordAnalysisId: analysisId },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
     });
+    const features = computeFeatures(
+      { status: row.status, resultSnapshotId: row.resultSnapshotId },
+      { journeyStatus: journeyRun?.status },
+    );
 
     return { status: row.status, progress, result, features };
   }

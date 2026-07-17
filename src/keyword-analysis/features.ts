@@ -7,8 +7,9 @@ import type { JobStatus } from '@prisma/client';
  * - `keyword_metrics`：既有 keyword-analysis pipeline（expand→metrics→intent→snapshot）。
  * - `serp`：SERP 抓取（FR-15，M7 落地）——目前尚未實作 compute。
  * - `topics`：意圖主題分群（FR-17/18，M8 落地）——目前尚未實作 compute。
+ * - `journey`：購買歷程分類（FR-33，M12/T12.6）——狀態由 `JourneyRun` 推導（於 job slice 接線；此前 not_generated）。
  */
-export const FEATURE_KEYS = ['keyword_metrics', 'serp', 'topics'] as const;
+export const FEATURE_KEYS = ['keyword_metrics', 'serp', 'topics', 'journey'] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export const FEATURE_STATUSES = ['not_generated', 'running', 'ready', 'failed'] as const;
@@ -42,12 +43,43 @@ function keywordMetricsStatus(analysis: AnalysisFeatureInput): FeatureStatus {
 }
 
 /**
- * 聚合各 feature 對外狀態（AC-14.7）。`serp`/`topics` 之 compute 尚未實作（M7/M8）→ 一律 `not_generated`；
- * 待對應 milestone 落地時，改由各自 job/durable 資料推導。 */
-export function computeFeatures(analysis: AnalysisFeatureInput): FeaturesMap {
+ * 由最新 `JourneyRun.status` 推導 `journey` feature 狀態（T12.6，AC-33.6）：completed/partial→`ready`
+ * （有 assignments、view 可讀）；queued/running→`running`；failed→`failed`；無 run / canceled→`not_generated`。
+ * 與 keyword_metrics「有物化結果即 ready」的判準一致。
+ */
+export function journeyFeatureStatus(runStatus: string | undefined): FeatureStatus {
+  switch (runStatus) {
+    case 'completed':
+    case 'partial':
+      return 'ready';
+    case 'queued':
+    case 'running':
+      return 'running';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'not_generated'; // undefined（無 run）/ canceled
+  }
+}
+
+/** computeFeatures 的可選外部狀態（由呼叫端查各 job/durable 資料帶入；省略→保守預設）。 */
+export interface FeatureExtras {
+  /** 最新 `JourneyRun.status`（AC-33.6）；省略 → journey 視為 `not_generated`（view 被 gate）。 */
+  journeyStatus?: string;
+}
+
+/**
+ * 聚合各 feature 對外狀態（AC-14.7 / AC-33.6）。`serp`/`topics` 之 compute 尚未實作（M7/M8）→ 一律
+ * `not_generated`；`journey` 由 `extras.journeyStatus`（最新 JourneyRun）推導（T12.6）。
+ */
+export function computeFeatures(
+  analysis: AnalysisFeatureInput,
+  extras: FeatureExtras = {},
+): FeaturesMap {
   return {
     keyword_metrics: { status: keywordMetricsStatus(analysis) },
     serp: { status: 'not_generated' },
     topics: { status: 'not_generated' },
+    journey: { status: journeyFeatureStatus(extras.journeyStatus) },
   };
 }

@@ -12,6 +12,9 @@ import { type PageSpec, type SortSpec, selectPage } from './paginate';
 import { QueryViewService } from './query-view.service';
 import type { QueryRequest, ViewResult } from './views';
 
+/** 依賴 journey feature 的 view 名（僅這些 view 才查 JourneyRun + left-join stage，T12.6/AC-33.4/33.6）。 */
+const JOURNEY_VIEWS = new Set<string>(['journey', 'journey_funnel']);
+
 /** `GET /keywords` 的結果列（Design §6.4 / AC-6.1；snapshot 的 `intent` → 對外 `intentLabels`）。 */
 export interface KeywordListRow {
   text: string;
@@ -163,10 +166,18 @@ export class SnapshotQueryService {
     if (!analysis.resultSnapshotId) {
       throw new NotReadyException(analysis.status);
     }
-    const features = computeFeatures(analysis);
+    // journey view/漏斗依賴 journey feature（AC-33.6）：**僅** 該類 view 才查最新 JourneyRun 狀態（其餘 view
+    // 免此開銷）；未接 run → not_generated → gate 擋（409）。
+    const needsJourney = JOURNEY_VIEWS.has(request.view);
+    const journeyStatus = needsJourney ? await this.latestJourneyStatus(analysisId) : undefined;
+    const features = computeFeatures(analysis, { journeyStatus });
     // 未知 view → 400、view 依賴的 feature 未 ready → 409，**先於** loadRows——gated view 不白抓整份 snapshot（M6-R6）。
     this.viewService.assertExecutable(request.view, features);
-    const rows = await this.loadRows(analysis.resultSnapshotId);
+    let rows = await this.loadRows(analysis.resultSnapshotId);
+    // journey 的 `stage` 不在 snapshot row：以 normalizedText left-join `keyword_journey_assignments` 帶入（AC-33.4）。
+    if (needsJourney) {
+      rows = await this.mergeJourneyStage(analysis.resultSnapshotId, rows);
+    }
     return this.viewService.query(
       rows,
       request,
@@ -176,6 +187,31 @@ export class SnapshotQueryService {
         aggMaxGroups: this.config.aggMaxGroups,
       },
       features,
+    );
+  }
+
+  /** 取某分析最新 JourneyRun 的 status（無→undefined；供 journey feature 推導，AC-33.6）。 */
+  private async latestJourneyStatus(analysisId: string): Promise<string | undefined> {
+    const run = await this.prisma.journeyRun.findFirst({
+      where: { keywordAnalysisId: analysisId },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    });
+    return run?.status;
+  }
+
+  /** 以 normalizedText left-join `keyword_journey_assignments` 把 `stage` 併入 snapshot 列（未分類字 → stage 缺）。 */
+  private async mergeJourneyStage(
+    snapshotId: string,
+    rows: SnapshotRowData[],
+  ): Promise<SnapshotRowData[]> {
+    const assignments = await this.prisma.keywordJourneyAssignment.findMany({
+      where: { snapshotId },
+      select: { normalizedText: true, stage: true },
+    });
+    const stageByNt = new Map(assignments.map((a) => [a.normalizedText, a.stage]));
+    return rows.map(
+      (row) => ({ ...row, stage: stageByNt.get(row.normalizedText) }) as SnapshotRowData,
     );
   }
 }

@@ -118,6 +118,10 @@ export const validationSchema = Joi.object({
   CACHE_TTL_JOURNEY_MS: Joi.number().integer().min(0).default(5184000000),
   // 購買歷程每 prompt 關鍵字數（沿用 intent 批量慣例，預設 30；並發沿用 LLM_CONCURRENCY，AC-33.1）。
   JOURNEY_LLM_BATCH_SIZE: Joi.number().integer().min(1).default(30),
+  // 購買歷程 async job 單次分類的關鍵字數上限（成本護欄，預設 5000；超過→413，#484 / AC-33.6）。
+  JOURNEY_MAX_KEYWORDS: Joi.number().integer().min(1).default(5000),
+  // 購買歷程 worker 並發（BullMQ；預設 3，同 topics）。
+  JOURNEY_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

@@ -36,6 +36,7 @@ jobs:
             embeddings
             clustering
             topics
+            journey
             serp
             cache
             config

@@ -1,5 +1,7 @@
 import { cpcHistogramView } from './cpc-histogram.view';
 import { intentDistributionView } from './intent-distribution.view';
+import { journeyFunnelView } from './journey-funnel.view';
+import { journeyView } from './journey.view';
 import { keywordsView } from './keywords.view';
 import { intentTopicsView, serpQuestionsView } from './placeholder-view';
 import { trendView } from './trend.view';
@@ -13,6 +15,8 @@ export { trendView } from './trend.view';
 export { intentDistributionView } from './intent-distribution.view';
 export { cpcHistogramView } from './cpc-histogram.view';
 export { serpQuestionsView, intentTopicsView } from './placeholder-view';
+export { journeyView } from './journey.view';
+export { journeyFunnelView } from './journey-funnel.view';
 
 /**
  * 本期內建 view（新增 dashboard 表 = 在此多加一個 ViewDefinition，免新 endpoint / 免 migration）。
@@ -25,6 +29,8 @@ export const BUILTIN_VIEWS: ViewDefinition[] = [
   cpcHistogramView,
   serpQuestionsView,
   intentTopicsView,
+  journeyView,
+  journeyFunnelView,
 ];
 
 /** 建立含所有內建 view 的登錄（供 QueryViewService / DI）。 */

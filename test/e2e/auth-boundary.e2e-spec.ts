@@ -8,12 +8,17 @@ import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { JourneyProcessor } from 'src/journey/journey.processor';
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import {
   TOPIC_JOB_EVENTS_CONNECTION,
   TOPIC_QUEUE_EVENTS,
 } from 'src/queue/topic-job-events.constants';
+import {
+  JOURNEY_JOB_EVENTS_CONNECTION,
+  JOURNEY_QUEUE_EVENTS,
+} from 'src/queue/journey-job-events.constants';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
 import { PrismaService } from 'src/prisma';
 
@@ -87,6 +92,12 @@ describe('auth boundary (e2e, TC-25)', () => {
       .overrideProvider(PrismaService)
       .useValue(prisma)
       .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(JOURNEY_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(JourneyProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
       .useValue({})

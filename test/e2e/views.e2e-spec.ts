@@ -53,6 +53,8 @@ describe('GET /api/v1/views 自省 (e2e · TC-55 部分 · FR-22/NFR-10)', () =>
         'cpc_histogram',
         'intent_distribution',
         'intent_topics',
+        'journey',
+        'journey_funnel',
         'keywords',
         'serp_questions',
         'trend',

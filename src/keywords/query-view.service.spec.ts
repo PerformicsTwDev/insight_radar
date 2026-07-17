@@ -203,6 +203,7 @@ describe('QueryViewService feature-gating (T6.8 / AC-14.7)', () => {
     keyword_metrics: { status: 'ready' },
     serp: { status: 'not_generated' },
     topics: { status: 'not_generated' },
+    journey: { status: 'not_generated' },
   };
 
   it('rejects a view whose required feature is not ready with 409 FEATURE_NOT_READY', () => {

@@ -93,6 +93,11 @@ class FakePrisma {
       },
     ),
   };
+
+  // journey feature 推導（AC-33.6）：getStatus 查最新 JourneyRun；預設無 run（→ not_generated）。
+  journeyRun = {
+    findFirst: jest.fn(() => Promise.resolve(null)),
+  };
 }
 
 const QUEUE_CONFIG = {
@@ -459,6 +464,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
         keyword_metrics: { status: 'running' },
         serp: { status: 'not_generated' },
         topics: { status: 'not_generated' },
+        journey: { status: 'not_generated' },
       },
     });
   });

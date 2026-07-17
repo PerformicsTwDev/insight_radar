@@ -4,10 +4,15 @@ import RedisMock from 'ioredis-mock';
 import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
+import { JourneyProcessor } from 'src/journey/journey.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
+import {
+  JOURNEY_JOB_EVENTS_CONNECTION,
+  JOURNEY_QUEUE_EVENTS,
+} from 'src/queue/journey-job-events.constants';
 import {
   TOPIC_JOB_EVENTS_CONNECTION,
   TOPIC_QUEUE_EVENTS,
@@ -41,6 +46,10 @@ export async function createTestApp(): Promise<INestApplication<App>> {
     .useValue(new RedisMock())
     .overrideProvider(TOPIC_QUEUE_EVENTS)
     .useValue({ on: () => undefined, close: () => Promise.resolve() })
+    .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
+    .useValue(new RedisMock())
+    .overrideProvider(JOURNEY_QUEUE_EVENTS)
+    .useValue({ on: () => undefined, close: () => Promise.resolve() })
     .overrideProvider(JOB_QUEUE_EVENTS)
     .useValue(fakeQueueEvents)
     .overrideProvider(KeywordAnalysisProcessor)
@@ -48,6 +57,8 @@ export async function createTestApp(): Promise<INestApplication<App>> {
     .overrideProvider(TopicClusterProcessor)
     .useValue({})
     .overrideProvider(TrackingRefreshProcessor)
+    .useValue({})
+    .overrideProvider(JourneyProcessor)
     .useValue({})
     .compile();
 
