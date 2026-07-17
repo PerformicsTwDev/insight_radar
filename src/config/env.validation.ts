@@ -122,6 +122,12 @@ export const validationSchema = Joi.object({
   JOURNEY_MAX_KEYWORDS: Joi.number().integer().min(1).default(5000),
   // 購買歷程 worker 並發（BullMQ；預設 3，同 topics）。
   JOURNEY_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3),
+  // 自訂分類標籤數上限（動態 enum 大小，AC-34.1；預設 12）。
+  CUSTOM_CLASSIFY_MAX_LABELS: Joi.number().integer().min(1).default(12),
+  // 自訂分類 schema/快取版本（限 `v\d+`，同 INTENT_SCHEMA_VERSION；階段二歸類快取用，FR-34）。
+  CUSTOM_CLASSIFY_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

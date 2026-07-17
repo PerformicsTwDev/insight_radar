@@ -52,6 +52,7 @@ function buildCache(
     aiInsightTtlMs: 1,
     journeySchemaVersion: 'v1',
     journeyTtlMs: 1,
+    customClassifySchemaVersion: 'v1',
   };
   // DB canonical 替身（keyword_intents）：findMany 依 modelVersion + normalizedText∈ 過濾；記錄 upsert。
   const upsert = jest.fn().mockResolvedValue({});

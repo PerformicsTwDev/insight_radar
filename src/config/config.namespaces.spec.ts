@@ -51,6 +51,7 @@ const ENV: Record<string, string> = {
   LLM_CONCURRENCY: '6',
   JOURNEY_LLM_BATCH_SIZE: '30',
   JOURNEY_MAX_KEYWORDS: '5000',
+  CUSTOM_CLASSIFY_MAX_LABELS: '12',
   AZURE_OPENAI_MAX_RETRIES: '5',
   REDIS_URL: 'redis://localhost:6379',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
@@ -67,6 +68,7 @@ const ENV: Record<string, string> = {
   CACHE_TTL_AI_INSIGHT_MS: '5184000000',
   JOURNEY_SCHEMA_VERSION: 'v1',
   CACHE_TTL_JOURNEY_MS: '5184000000',
+  CUSTOM_CLASSIFY_SCHEMA_VERSION: 'v1',
   QUERY_MAX_PAGE_SIZE: '200',
   AGG_MAX_BUCKETS: '200',
   AGG_MAX_GROUPS: '1000',
@@ -175,6 +177,7 @@ describe('config namespaces (registerAs, typed)', () => {
       llmConcurrency: 6,
       journeyLlmBatchSize: 30,
       journeyMaxKeywords: 5000,
+      customClassifyMaxLabels: 12,
       maxRetries: 5,
     });
   });
@@ -204,6 +207,7 @@ describe('config namespaces (registerAs, typed)', () => {
       aiInsightTtlMs: 5184000000,
       journeySchemaVersion: 'v1',
       journeyTtlMs: 5184000000,
+      customClassifySchemaVersion: 'v1',
     });
   });
 
