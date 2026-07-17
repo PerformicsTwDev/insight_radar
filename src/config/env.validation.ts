@@ -110,6 +110,8 @@ export const validationSchema = Joi.object({
     .default('v1'),
   // per-view AI 洞察快取 TTL（毫秒，預設 60 天）；快取內容綁不可變 snapshot + 固定 filters，TTL 僅為記憶體逐出。
   CACHE_TTL_AI_INSIGHT_MS: Joi.number().integer().min(0).default(5184000000),
+  // table-grain view 洞察的有界代表樣本上限（top-N by avgMonthlySearches desc；M12-R2/AC-32.1，預設 200）。
+  AI_INSIGHT_MAX_ROWS: Joi.number().integer().min(1).default(200),
   // 購買歷程分類快取 namespace 版本（bump 整批失效，AC-33.3；schema 或 prompt 變更皆 bump；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
   JOURNEY_SCHEMA_VERSION: Joi.string()
     .pattern(/^v\d+$/)

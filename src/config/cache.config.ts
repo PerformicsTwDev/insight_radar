@@ -17,6 +17,8 @@ export interface CacheConfig {
   aiInsightSchemaVersion: string;
   /** per-view AI 洞察快取 TTL（毫秒；env `CACHE_TTL_AI_INSIGHT_MS`，預設 60 天）。 */
   aiInsightTtlMs: number;
+  /** table-grain view 洞察的有界代表樣本上限（top-N by volume；env `AI_INSIGHT_MAX_ROWS`，預設 200，M12-R2）。 */
+  aiInsightMaxRows: number;
   /**
    * 購買歷程分類快取 namespace 版本（key `journey:v{ver}:{dep}:sha256(nt)` 的 `v{ver}` 段；
    * env `JOURNEY_SCHEMA_VERSION`，預設 `v1`；**schema 或 prompt 變更皆 bump**→整批失效，FR-33/AC-33.3）。
@@ -40,6 +42,7 @@ export const cacheConfig = registerAs('cache', (): CacheConfig => ({
   intentSchemaVersion: process.env.INTENT_SCHEMA_VERSION as string,
   aiInsightSchemaVersion: process.env.AI_INSIGHT_SCHEMA_VERSION as string,
   aiInsightTtlMs: Number(process.env.CACHE_TTL_AI_INSIGHT_MS),
+  aiInsightMaxRows: Number(process.env.AI_INSIGHT_MAX_ROWS),
   journeySchemaVersion: process.env.JOURNEY_SCHEMA_VERSION as string,
   journeyTtlMs: Number(process.env.CACHE_TTL_JOURNEY_MS),
   customClassifySchemaVersion: process.env.CUSTOM_CLASSIFY_SCHEMA_VERSION as string,

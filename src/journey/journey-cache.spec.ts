@@ -44,6 +44,7 @@ function build(opts: { schemaVersion?: string; store?: Map<string, unknown> } = 
     intentSchemaVersion: 'v1',
     aiInsightSchemaVersion: 'v1',
     aiInsightTtlMs: 1,
+    aiInsightMaxRows: 200,
     journeySchemaVersion: opts.schemaVersion ?? 'v1',
     journeyTtlMs: TTL_MS,
     customClassifySchemaVersion: 'v1',

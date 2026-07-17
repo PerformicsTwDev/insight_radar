@@ -58,6 +58,7 @@ function buildCache(metricsCtx?: JobMetricsContext) {
     intentSchemaVersion: 'v1',
     aiInsightSchemaVersion: 'v1',
     aiInsightTtlMs: 1,
+    aiInsightMaxRows: 200,
     journeySchemaVersion: 'v1',
     journeyTtlMs: 1,
     customClassifySchemaVersion: 'v1',
