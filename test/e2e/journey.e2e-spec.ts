@@ -64,7 +64,7 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(getQueueToken(JOURNEY_QUEUE))
-      .useValue({ add: queueAdd })
+      .useValue({ add: queueAdd, remove: jest.fn().mockResolvedValue(0) })
       .overrideProvider(BULL_CONNECTION)
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)

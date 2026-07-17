@@ -40,7 +40,8 @@ function build(
   const queueAdd = jest.fn<Promise<unknown>, [string, unknown, Record<string, unknown>]>(() =>
     over.enqueueRejects ? Promise.reject(new Error('redis down')) : Promise.resolve(undefined),
   );
-  const queue = { add: queueAdd } as unknown as Queue;
+  const queueRemove = jest.fn<Promise<unknown>, [string]>(() => Promise.resolve(0));
+  const queue = { add: queueAdd, remove: queueRemove } as unknown as Queue;
 
   const ccFindUnique = jest
     .fn()
@@ -66,13 +67,26 @@ function build(
     .fn()
     .mockResolvedValue(over.createRun ?? { runId: 'run-1', created: true });
   const findLatestRunByClassification = jest.fn().mockResolvedValue(over.latestRun ?? null);
+  const markStatus = jest
+    .fn<Promise<void>, [string, string, { error?: string }?]>()
+    .mockResolvedValue(undefined);
   const repo = {
     createRun,
     findLatestRunByClassification,
+    markStatus,
   } as unknown as CustomClassifyRunRepository;
 
   const service = new CustomClassifyRunService(queue, prisma, repo, CONFIG);
-  return { service, queueAdd, ccUpdate, createRun, findLatestRunByClassification, ccrDelete };
+  return {
+    service,
+    queueAdd,
+    queueRemove,
+    ccUpdate,
+    createRun,
+    findLatestRunByClassification,
+    markStatus,
+    ccrDelete,
+  };
 }
 
 describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', () => {
@@ -149,10 +163,26 @@ describe('CustomClassifyRunService (T12.8 / FR-34 / AC-34.2 / TC-70 部分)', ()
       expect(createRun).not.toHaveBeenCalled();
     });
 
-    it('compensates by deleting the orphan run when enqueue fails, then rethrows', async () => {
-      const { service, ccrDelete } = build({ enqueueRejects: true });
+    it('marks the run failed (NOT delete) when enqueue fails, then rethrows (M12-R7: keep the run so a concurrent 202 jobId stays valid + it can be re-enqueued)', async () => {
+      const { service, markStatus, ccrDelete } = build({ enqueueRejects: true });
       await expect(service.create(AN, CID, LABELS, API_KEY_ACTOR)).rejects.toThrow('redis down');
-      expect(ccrDelete).toHaveBeenCalledWith({ where: { id: 'run-1' } });
+      expect(markStatus).toHaveBeenCalledTimes(1);
+      const [runId, status, extra] = markStatus.mock.calls[0] as [
+        string,
+        string,
+        { error: string },
+      ];
+      expect(runId).toBe('run-1');
+      expect(status).toBe('failed');
+      expect(extra.error).toContain('enqueue failed');
+      expect(ccrDelete).not.toHaveBeenCalled(); // no orphan-run deletion
+    });
+
+    it('removes any stale same-jobId job before enqueuing (M12-R1: reset-run reuse)', async () => {
+      const { service, queueRemove, queueAdd } = build();
+      await service.create(AN, CID, LABELS, API_KEY_ACTOR);
+      expect(queueRemove).toHaveBeenCalledWith('run-1');
+      expect(queueAdd).toHaveBeenCalledTimes(1);
     });
   });
 

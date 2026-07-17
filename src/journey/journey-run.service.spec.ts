@@ -55,7 +55,8 @@ function build(opts: BuildOpts = {}) {
   const queueAdd = jest.fn((_name: string, _data: unknown, _opts: unknown) =>
     opts.enqueueError ? Promise.reject(opts.enqueueError) : Promise.resolve(undefined),
   );
-  const queue = { add: queueAdd } as unknown as Queue;
+  const queueRemove = jest.fn((_jobId: string) => Promise.resolve(0));
+  const queue = { add: queueAdd, remove: queueRemove } as unknown as Queue;
   const findUnique = jest.fn(() =>
     Promise.resolve(opts.analysis === undefined ? analysisRow() : opts.analysis),
   );
@@ -70,12 +71,16 @@ function build(opts: BuildOpts = {}) {
     Promise.resolve({ runId: 'run-1', created: opts.created ?? true }),
   );
   const findLatest = jest.fn(() => Promise.resolve(opts.latest ?? null));
+  const markStatus = jest.fn<Promise<void>, [string, string, { error?: string }?]>(() =>
+    Promise.resolve(),
+  );
   const repo = {
     createRun,
     findLatestRunByAnalysis: findLatest,
+    markStatus,
   } as unknown as JourneyRunRepository;
   const service = new JourneyRunService(queue, prisma, repo, CONFIG);
-  return { service, queueAdd, createRun, findLatest, del };
+  return { service, queueAdd, queueRemove, createRun, findLatest, markStatus, del };
 }
 
 describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
@@ -130,10 +135,26 @@ describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
       expect(createRun).not.toHaveBeenCalled();
     });
 
-    it('enqueue failure → compensating delete of the orphan run + rethrow', async () => {
-      const { service, del } = build({ enqueueError: new Error('redis down') });
+    it('enqueue failure → marks the run failed (NOT delete) + rethrow (M12-R7)', async () => {
+      const { service, markStatus, del } = build({ enqueueError: new Error('redis down') });
       await expect(service.create('an-1', API)).rejects.toThrow('redis down');
-      expect(del).toHaveBeenCalledWith({ where: { id: 'run-1' } });
+      expect(markStatus).toHaveBeenCalledTimes(1);
+      const [runId, status, extra] = markStatus.mock.calls[0] as [
+        string,
+        string,
+        { error: string },
+      ];
+      expect(runId).toBe('run-1');
+      expect(status).toBe('failed');
+      expect(extra.error).toContain('enqueue failed');
+      expect(del).not.toHaveBeenCalled(); // no orphan-run deletion
+    });
+
+    it('removes any stale same-jobId job before enqueuing (M12-R1: reset-run reuse)', async () => {
+      const { service, queueRemove, queueAdd } = build();
+      await service.create('an-1', API);
+      expect(queueRemove).toHaveBeenCalledWith('run-1');
+      expect(queueAdd).toHaveBeenCalledTimes(1);
     });
 
     it('accepts a partial analysis (it has a usable snapshot) → 202', async () => {

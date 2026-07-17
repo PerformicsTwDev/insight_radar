@@ -19,6 +19,7 @@ function build(
     findUnique?: jest.Mock;
     findUniqueOrThrow?: jest.Mock;
     findFirst?: jest.Mock;
+    update?: jest.Mock;
   } = {},
 ) {
   const customClassifyRun = {
@@ -27,6 +28,7 @@ function build(
     findUniqueOrThrow:
       overrides.findUniqueOrThrow ?? jest.fn(() => Promise.resolve({ id: 'run-existing' })),
     findFirst: overrides.findFirst ?? jest.fn(() => Promise.resolve(null)),
+    update: overrides.update ?? jest.fn(() => Promise.resolve({ id: 'run-existing' })),
   };
   const prisma = { customClassifyRun } as unknown as PrismaService;
   return { repo: new CustomClassifyRunRepository(prisma), customClassifyRun };
@@ -42,6 +44,28 @@ const INPUT = {
 
 describe('CustomClassifyRunRepository (T12.8 / FR-34 / AC-34.2)', () => {
   describe('createRun concurrency', () => {
+    it('resets a terminal-failed run to queued and returns created:true (M12-R1: re-enqueueable)', async () => {
+      const findUnique = jest.fn(() => Promise.resolve({ id: 'run-failed', status: 'failed' }));
+      const update = jest.fn<Promise<{ id: string }>, [unknown]>(() =>
+        Promise.resolve({ id: 'run-failed' }),
+      );
+      const create = jest.fn();
+      const { repo } = build({ findUnique, update, create });
+      expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-failed', created: true });
+      const arg = update.mock.calls[0][0] as { where: { id: string }; data: { status: string } };
+      expect(arg.where.id).toBe('run-failed');
+      expect(arg.data.status).toBe('queued');
+      expect(create).not.toHaveBeenCalled(); // reuse same runId, no new row
+    });
+
+    it('does NOT reset a completed run (idempotent, created:false)', async () => {
+      const findUnique = jest.fn(() => Promise.resolve({ id: 'run-done', status: 'completed' }));
+      const update = jest.fn();
+      const { repo } = build({ findUnique, update });
+      expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-done', created: false });
+      expect(update).not.toHaveBeenCalled();
+    });
+
     it('creates a fresh run when the key is unseen', async () => {
       const { repo } = build();
       expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-1', created: true });

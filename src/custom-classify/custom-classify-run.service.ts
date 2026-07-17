@@ -140,6 +140,8 @@ export class CustomClassifyRunService {
         params,
       };
       try {
+        // reset 的 run 沿用同一 jobId：先移除 BullMQ failed set 內的舊 job（新 run 為 no-op）才能以同 jobId 重加（M12-R1）。
+        await this.queue.remove(runId).catch(() => undefined);
         await this.queue.add(CUSTOM_CLASSIFY_QUEUE, payload, {
           jobId: runId,
           attempts: this.config.jobAttempts,
@@ -150,9 +152,12 @@ export class CustomClassifyRunService {
           },
         });
       } catch (error) {
-        // 入列失敗（Redis 短暫不可用）→ 補償刪孤兒 run（否則 idempotencyKey 卡住、永不重跑）。
+        // 入列失敗（Redis 短暫不可用）→ 標 failed（**非** delete）：刪除會使並發 idempotent 202 已回的 jobId 變 404
+        // （M12-R7）；標 failed 則可由後續重送 reset 重入列（M12-R1），並發輪詢見 failed 非 404。
         this.logger.error(`enqueue custom-classify job failed: ${scrubSecrets(String(error))}`);
-        await this.prisma.customClassifyRun.delete({ where: { id: runId } });
+        await this.repo.markStatus(runId, 'failed', {
+          error: `enqueue failed: ${scrubSecrets(String(error))}`,
+        });
         throw error;
       }
     }

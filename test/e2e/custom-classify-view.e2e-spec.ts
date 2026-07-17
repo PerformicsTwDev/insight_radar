@@ -91,7 +91,7 @@ describe('custom:{cid} view + DELETE (e2e, TC-70)', () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(getQueueToken(CUSTOM_CLASSIFY_QUEUE))
-      .useValue({ add: jest.fn() })
+      .useValue({ add: jest.fn(), remove: jest.fn().mockResolvedValue(0) })
       .overrideProvider(BULL_CONNECTION)
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)

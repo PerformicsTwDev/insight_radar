@@ -37,6 +37,15 @@ export class CustomClassifyRunRepository {
       where: { idempotencyKey: input.idempotencyKey },
     });
     if (existing) {
+      // terminal-failed → 可重入列（M12-R1）：reset 為 queued（沿用同一 runId）、回 created=true 使服務重跑；
+      // 其餘（queued/running/completed）→ idempotent 回既有、不重跑。
+      if (existing.status === 'failed') {
+        await this.prisma.customClassifyRun.update({
+          where: { id: existing.id },
+          data: { status: 'queued', progress: Prisma.DbNull, error: null, keywordCount: null },
+        });
+        return { runId: existing.id, created: true };
+      }
       return { runId: existing.id, created: false };
     }
     try {
