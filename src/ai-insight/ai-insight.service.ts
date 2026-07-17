@@ -28,6 +28,8 @@ export interface AiInsightConfig {
   deployment: string;
   /** 快取 TTL（毫秒）。 */
   cacheTtlMs: number;
+  /** table-grain view 洞察的有界代表樣本上限（top-N by volume；M12-R2/AC-32.1）。 */
+  maxRows: number;
 }
 
 /**
@@ -70,9 +72,15 @@ export class AiInsightService {
     }
 
     // 輸入 = 該 view 經 `/query` 產出的**聚合結果**（AC-32.1；非原始全表）。unknown-view→400 亦於此拋。
-    // **只帶 `{ view, filters }`**（#476）：不轉 `select`，聚合僅由 `(view, filters)` 決定 → 與 filters-only
-    // 快取 key（AC-32.2）一致；`select` 缺省時各 view 走其預設欄位（如 keywords view fallback `ALLOWED_SELECT`）。
-    const queryRequest: QueryRequest = { view: request.view, filters: request.filters };
+    // **只帶 `{ view, filters }` + 固定 `pagination`**：不轉請求的 `select`/`sort`（#476；聚合僅由 `(view, filters)`
+    // 決定 → 與 filters-only 快取 key 一致）。table-grain view 的 `/query` 是分頁列（預設 50）→ 只帶 50 列會讓 LLM
+    // 把有界樣本當全體（M12-R2）；故固定 `pageSize=maxRows`（常數、非請求衍生 → 不動快取 key）取 **top-N by volume**
+    // （paginate 預設 sort=`avgMonthlySearches` desc）。chart-grain view 本即全集聚合、`pageSize` 對其 group 無截斷。
+    const queryRequest: QueryRequest = {
+      view: request.view,
+      filters: request.filters,
+      pagination: { pageSize: this.config.maxRows },
+    };
     const aggregate: ViewResult = await this.snapshotQuery.query(analysisId, queryRequest, actor);
     const insight = await this.summarize(request.view, aggregate);
 

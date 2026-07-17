@@ -19,6 +19,7 @@ const CONFIG: AiInsightConfig = {
   schemaVersion: 'v1',
   deployment: 'gpt-4o-mini',
   cacheTtlMs: 5184000000,
+  maxRows: 200,
 };
 const AGGREGATE = {
   view: 'keywords',
@@ -87,9 +88,11 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
 
     // owner-scoped snapshot resolution (single point) + the /query aggregate is the LLM input.
     expect(resolveReadySnapshotId).toHaveBeenCalledWith('an-1', ACTOR);
+    // M12-R2: a fixed pageSize=maxRows is passed so the aggregate is the top-N by volume, not the default
+    // 50-row page. The select is still NOT forwarded (#476: aggregate stays filters-determined).
     expect(query).toHaveBeenCalledWith(
       'an-1',
-      { view: 'keywords', filters: { volumeMin: 10 } },
+      { view: 'keywords', filters: { volumeMin: 10 }, pagination: { pageSize: 200 } },
       ACTOR,
     );
     expect(parseChat).toHaveBeenCalledTimes(1);
@@ -102,6 +105,23 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
     expect(out.view).toBe('keywords');
     expect(out.insight).toBe('Big volume on brand terms.');
     expect(Number.isNaN(Date.parse(out.generatedAt))).toBe(false);
+  });
+
+  it('M12-R2: a truncated table view passes the top-N/M coverage disclosure to the LLM', async () => {
+    const { service, parseChat, query } = build();
+    query.mockResolvedValue({
+      view: 'keywords',
+      columns: [],
+      rows: [{ text: 'a' }, { text: 'b' }], // shown subset
+      pagination: { total: 1200, page: 1, pageSize: 200, cursor: null },
+    });
+    parseChat.mockResolvedValue(ok());
+
+    await service.generate('an-1', { view: 'keywords' }, ACTOR);
+
+    const user = parseChat.mock.calls[0][0].messages.find((m) => m.role === 'user');
+    expect(user?.content).toContain('Coverage:'); // honest bound disclosed, not presented as whole-view
+    expect(user?.content).toContain('1200'); // total M
   });
 
   it('AC-32.2: builds the exact cache key ai_insight:v{ver}:{dep}:{snapshotId}:{view}:sha256(canonical(filters))', async () => {

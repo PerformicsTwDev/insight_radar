@@ -33,6 +33,7 @@ import { AI_INSIGHT_CONFIG, AiInsightService } from './ai-insight.service';
         schemaVersion: cache.aiInsightSchemaVersion,
         deployment: azure.deployment,
         cacheTtlMs: cache.aiInsightTtlMs,
+        maxRows: cache.aiInsightMaxRows,
       }),
       inject: [cacheConfig.KEY, azureConfig.KEY],
     },
