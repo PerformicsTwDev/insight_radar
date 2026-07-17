@@ -3,6 +3,7 @@ import {
   HttpException,
   NotFoundException,
   PayloadTooLargeException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
@@ -55,8 +56,8 @@ function build(opts: BuildOpts = {}) {
   const queueAdd = jest.fn((_name: string, _data: unknown, _opts: unknown) =>
     opts.enqueueError ? Promise.reject(opts.enqueueError) : Promise.resolve(undefined),
   );
-  const queueRemove = jest.fn((_jobId: string) => Promise.resolve(0));
-  const queue = { add: queueAdd, remove: queueRemove } as unknown as Queue;
+  const queueGetJob = jest.fn<Promise<unknown>, [string]>(() => Promise.resolve(null));
+  const queue = { add: queueAdd, getJob: queueGetJob } as unknown as Queue;
   const findUnique = jest.fn(() =>
     Promise.resolve(opts.analysis === undefined ? analysisRow() : opts.analysis),
   );
@@ -80,7 +81,15 @@ function build(opts: BuildOpts = {}) {
     markStatus,
   } as unknown as JourneyRunRepository;
   const service = new JourneyRunService(queue, prisma, repo, CONFIG);
-  return { service, queueAdd, queueRemove, createRun, findLatest, markStatus, del };
+  return { service, queueAdd, queueGetJob, createRun, findLatest, markStatus, del };
+}
+
+/** BullMQ Job 替身：只回 getState + remove（enqueueReusingJobId 用到的介面）。 */
+function fakeJob(state: string) {
+  return {
+    getState: jest.fn<Promise<string>, []>(() => Promise.resolve(state)),
+    remove: jest.fn<Promise<void>, []>(() => Promise.resolve()),
+  };
 }
 
 describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
@@ -150,19 +159,31 @@ describe('JourneyRunService (T12.6 / FR-33 / AC-33.6)', () => {
       expect(del).not.toHaveBeenCalled(); // no orphan-run deletion
     });
 
-    it('removes any stale same-jobId job before enqueuing (M12-R1: reset-run reuse)', async () => {
-      const { service, queueRemove, queueAdd } = build();
+    it('fresh create (no stale job) → enqueues without removing (M12-R1)', async () => {
+      const { service, queueGetJob, queueAdd } = build();
       await service.create('an-1', API);
-      expect(queueRemove).toHaveBeenCalledWith('run-1');
+      expect(queueGetJob).toHaveBeenCalledWith('run-1');
       expect(queueAdd).toHaveBeenCalledTimes(1);
     });
 
-    it('swallows a queue.remove failure and still enqueues (best-effort stale-clear, M12-R1)', async () => {
-      const { service, queueRemove, queueAdd } = build();
-      queueRemove.mockRejectedValueOnce(new Error('remove boom'));
-      // remove() is a best-effort cleanup of a stale same-jobId job; its failure must not block enqueue.
-      expect(await service.create('an-1', API)).toEqual({ journeyJobId: 'run-1' });
+    it('reset reuse: removes a stale NON-active job then re-enqueues same jobId (M12-R1)', async () => {
+      const { service, queueGetJob, queueAdd } = build();
+      const stale = fakeJob('failed'); // reset-run's old job sits in the failed set (not locked)
+      queueGetJob.mockResolvedValueOnce(stale);
+      await service.create('an-1', API);
+      expect(stale.remove).toHaveBeenCalledTimes(1);
       expect(queueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('reset with an ACTIVE prior job → 503 + mark failed, does NOT silently no-op enqueue (#506 blocker)', async () => {
+      const { service, queueGetJob, queueAdd, markStatus } = build();
+      const active = fakeJob('active'); // old attempt still holds the lock → remove()=0, add() would dedup no-op
+      queueGetJob.mockResolvedValueOnce(active);
+      await expect(service.create('an-1', API)).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(active.remove).not.toHaveBeenCalled();
+      expect(queueAdd).not.toHaveBeenCalled(); // must NOT proceed to a no-op add
+      expect(markStatus).toHaveBeenCalledTimes(1); // run kept reset-eligible (failed), not stuck at queued
+      expect(markStatus.mock.calls[0][1]).toBe('failed');
     });
 
     it('accepts a partial analysis (it has a usable snapshot) → 202', async () => {
