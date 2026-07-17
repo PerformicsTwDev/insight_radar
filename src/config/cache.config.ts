@@ -29,6 +29,8 @@ export interface CacheConfig {
    * 快取用，schema/prompt 變更皆 bump，FR-34）。
    */
   customClassifySchemaVersion: string;
+  /** 自訂分類階段二歸類 Redis 快取 TTL（毫秒；env `CACHE_TTL_CUSTOM_CLASSIFY_MS`，預設 60 天）。 */
+  customClassifyTtlMs: number;
 }
 
 /** 快取設定（值已由 env.validation Joi schema 驗證/補預設；TTL 一律毫秒，FR-10）。 */
@@ -41,4 +43,5 @@ export const cacheConfig = registerAs('cache', (): CacheConfig => ({
   journeySchemaVersion: process.env.JOURNEY_SCHEMA_VERSION as string,
   journeyTtlMs: Number(process.env.CACHE_TTL_JOURNEY_MS),
   customClassifySchemaVersion: process.env.CUSTOM_CLASSIFY_SCHEMA_VERSION as string,
+  customClassifyTtlMs: Number(process.env.CACHE_TTL_CUSTOM_CLASSIFY_MS),
 }));

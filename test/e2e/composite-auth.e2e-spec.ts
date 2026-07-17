@@ -21,6 +21,11 @@ import {
 import { getQueueToken } from '@nestjs/bullmq';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { JourneyProcessor } from 'src/journey/journey.processor';
+import {
+  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
+  CUSTOM_CLASSIFY_QUEUE_EVENTS,
+} from 'src/queue/custom-classify-job-events.constants';
+import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 /**
@@ -123,6 +128,12 @@ describe('composite auth (e2e · TC-60 · FR-25)', () => {
       .overrideProvider(JOURNEY_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JourneyProcessor)
+      .useValue({})
+      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(CustomClassifyAssignProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
       .useValue({})

@@ -6,6 +6,11 @@ import { CacheService } from 'src/cache/cache.service';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
 import { JourneyProcessor } from 'src/journey/journey.processor';
+import {
+  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
+  CUSTOM_CLASSIFY_QUEUE_EVENTS,
+} from 'src/queue/custom-classify-job-events.constants';
+import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
 import {
@@ -63,6 +68,12 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
       .overrideProvider(JOURNEY_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JourneyProcessor)
+      .useValue({})
+      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(CustomClassifyAssignProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
       .useValue({})

@@ -16,6 +16,10 @@ export interface AzureConfig {
   journeyMaxKeywords: number;
   /** 自訂分類標籤數上限（動態 enum 大小，已 Joi 驗證 min1，預設 12；AC-34.1）。 */
   customClassifyMaxLabels: number;
+  /** 自訂分類階段二歸類每批關鍵字數（已 Joi 驗證 min1，預設 30；Design §14 CUSTOM_CLASSIFY_LLM_BATCH_SIZE）。 */
+  customClassifyLlmBatchSize: number;
+  /** 自訂分類 async job 單次歸類的關鍵字數上限（成本護欄，已 Joi 驗證 min1，預設 5000；FR-34）。 */
+  customClassifyMaxKeywords: number;
   /** SDK 自動重試次數（已 Joi 驗證 min0，預設 5；Design §14 AZURE_OPENAI_MAX_RETRIES）。 */
   maxRetries: number;
 }
@@ -31,5 +35,7 @@ export const azureConfig = registerAs('azure', (): AzureConfig => ({
   journeyLlmBatchSize: Number(process.env.JOURNEY_LLM_BATCH_SIZE),
   journeyMaxKeywords: Number(process.env.JOURNEY_MAX_KEYWORDS),
   customClassifyMaxLabels: Number(process.env.CUSTOM_CLASSIFY_MAX_LABELS),
+  customClassifyLlmBatchSize: Number(process.env.CUSTOM_CLASSIFY_LLM_BATCH_SIZE),
+  customClassifyMaxKeywords: Number(process.env.CUSTOM_CLASSIFY_MAX_KEYWORDS),
   maxRetries: Number(process.env.AZURE_OPENAI_MAX_RETRIES),
 }));
