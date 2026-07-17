@@ -36,6 +36,7 @@ function build(): {
   parseChat: jest.Mock<Promise<ParseChatResult<AiInsightPayload>>, [ParseChatParams]>;
   resolveReadySnapshotId: jest.Mock;
   query: jest.Mock;
+  resolveViewDataVersion: jest.Mock<Promise<string>, [string, string]>;
   get: jest.Mock<Promise<unknown>, [string]>;
   set: jest.Mock;
 } {
@@ -44,7 +45,12 @@ function build(): {
 
   const resolveReadySnapshotId = jest.fn().mockResolvedValue('snap-1');
   const query = jest.fn().mockResolvedValue(AGGREGATE);
-  const snapshotQuery = { resolveReadySnapshotId, query } as unknown as SnapshotQueryService;
+  const resolveViewDataVersion = jest.fn<Promise<string>, [string, string]>().mockResolvedValue('');
+  const snapshotQuery = {
+    resolveReadySnapshotId,
+    query,
+    resolveViewDataVersion,
+  } as unknown as SnapshotQueryService;
 
   const store = new Map<string, unknown>();
   const get = jest.fn((key: string) =>
@@ -61,7 +67,7 @@ function build(): {
   } as unknown as CacheService;
 
   const service = new AiInsightService(labeler, snapshotQuery, cache, CONFIG);
-  return { service, parseChat, resolveReadySnapshotId, query, get, set };
+  return { service, parseChat, resolveReadySnapshotId, query, resolveViewDataVersion, get, set };
 }
 
 function userContent(params: ParseChatParams): string {
@@ -148,6 +154,53 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
     await service.generate('an-1', { view: 'keywords' }, ACTOR);
 
     expect(get.mock.calls[0][0]).toContain(sha256Hex(canonicalStringify({})));
+  });
+
+  it('M12-R3: a static view (dataVersion="") keeps the key shape (no trailing version segment)', async () => {
+    const { service, parseChat, get, resolveViewDataVersion } = build();
+    parseChat.mockResolvedValue(ok());
+
+    await service.generate('an-1', { view: 'keywords', filters: { volumeMin: 10 } }, ACTOR);
+
+    expect(resolveViewDataVersion).toHaveBeenCalledWith('an-1', 'keywords');
+    const hash = sha256Hex(canonicalStringify({ volumeMin: 10 }));
+    expect(get.mock.calls[0][0]).toBe(`ai_insight:v1:gpt-4o-mini:snap-1:keywords:${hash}`);
+  });
+
+  it('M12-R3: a dynamic view folds the data version (latest completed run id) into the key', async () => {
+    const { service, parseChat, get, set, resolveViewDataVersion } = build();
+    resolveViewDataVersion.mockResolvedValue('run-abc');
+    parseChat.mockResolvedValue(ok());
+
+    await service.generate('an-1', { view: 'custom:cid-1', filters: { volumeMin: 10 } }, ACTOR);
+
+    expect(resolveViewDataVersion).toHaveBeenCalledWith('an-1', 'custom:cid-1');
+    const hash = sha256Hex(canonicalStringify({ volumeMin: 10 }));
+    const expectedKey = `ai_insight:v1:gpt-4o-mini:snap-1:custom:cid-1:${hash}:run-abc`;
+    expect(get).toHaveBeenCalledWith(expectedKey);
+    expect(set).toHaveBeenCalledWith(
+      expectedKey,
+      expect.objectContaining({ view: 'custom:cid-1' }),
+      5184000000,
+    );
+  });
+
+  it('M12-R3: a re-run (new data version) misses the cache → fresh insight, not the stale one', async () => {
+    const { service, parseChat, resolveViewDataVersion } = build();
+    const request = { view: 'custom:cid-1', filters: { volumeMin: 10 } };
+
+    resolveViewDataVersion.mockResolvedValue('run-old');
+    parseChat.mockResolvedValue(ok('OLD taxonomy insight'));
+    const first = await service.generate('an-1', request, ACTOR);
+    expect(first.insight).toBe('OLD taxonomy insight');
+
+    // labels edited → new completed run → new data version → different key → cache MISS.
+    resolveViewDataVersion.mockResolvedValue('run-new');
+    parseChat.mockResolvedValue(ok('NEW taxonomy insight'));
+    const second = await service.generate('an-1', request, ACTOR);
+
+    expect(second.insight).toBe('NEW taxonomy insight'); // not the stale cached one
+    expect(parseChat).toHaveBeenCalledTimes(2); // re-summarized on the new version
   });
 
   it('AC-32.4: an LLM refusal throws AiInsightGenerationError and does NOT cache a half-finished summary', async () => {

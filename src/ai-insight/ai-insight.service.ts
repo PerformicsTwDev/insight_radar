@@ -59,7 +59,11 @@ export class AiInsightService {
     // owner-scoped snapshot 解析（未知/越權→404、未就緒→409）——與讀取層共用單一強制點（S8）。
     const snapshotId = await this.snapshotQuery.resolveReadySnapshotId(analysisId, actor);
 
-    const key = this.cacheKey(snapshotId, request.view, request.filters);
+    // dynamic view 資料版本（M12-R3）：dynamic/gated view 的底層 per-run 資料重跑後 (snapshotId,view,filters) 不變、
+    // 需另以 dataVersion（最新 completed run id）綁 key；static view 回 ''（免 DB round-trip、key 不變）。
+    const dataVersion = await this.snapshotQuery.resolveViewDataVersion(analysisId, request.view);
+
+    const key = this.cacheKey(snapshotId, request.view, request.filters, dataVersion);
     const cached = await this.cache.get<AiInsight>(key);
     if (cached !== undefined) {
       return cached; // 命中：不重打 LLM、不重跑聚合（AC-32.2）
@@ -76,16 +80,28 @@ export class AiInsightService {
     return insight;
   }
 
-  /** 洞察快取 key：filters-hash 用與 `/query` 同一 canonical 序列化（S9 / AC-32.2）。 */
-  private cacheKey(snapshotId: string, view: string, filters: FilterSpec | undefined): string {
-    return this.cache.buildKey(
-      CacheNamespace.AI_INSIGHT,
+  /**
+   * 洞察快取 key：filters-hash 用與 `/query` 同一 canonical 序列化（S9 / AC-32.2）。dynamic view 另附
+   * `dataVersion`（最新 completed run id，M12-R3）綁底層可變資料版本；static view 的 `dataVersion=''` → 不附段，
+   * 既有 key 形狀不變（不必要地失效 static 快取）。
+   */
+  private cacheKey(
+    snapshotId: string,
+    view: string,
+    filters: FilterSpec | undefined,
+    dataVersion: string,
+  ): string {
+    const segments: (string | number)[] = [
       this.config.schemaVersion,
       this.config.deployment,
       snapshotId,
       view,
       sha256Hex(canonicalStringify(filters ?? {})),
-    );
+    ];
+    if (dataVersion) {
+      segments.push(dataVersion);
+    }
+    return this.cache.buildKey(CacheNamespace.AI_INSIGHT, ...segments);
   }
 
   /**
