@@ -1,5 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/authenticated-user';
+import { assertOwnedRow } from '../common/owner-scope';
 import { AzureOpenAiService } from '../intent/azure-openai.service';
 import type { IntentLabeler, ParseChatResult } from '../intent/intent-labeler.port';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
@@ -73,6 +74,39 @@ export class CustomClassifyService {
       labels,
       createdAt: row.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * 刪除自訂分類定義 + 級聯（T12.9，FR-34/AC-34.5；鏡像 `TrackingListService.remove`）。**owner 單點（S8）**：
+   * `:cid` 存在且屬 `:id`、分析由 actor 擁有——未知/他人/cid 不屬 :id → 同一 **404**（不洩漏存在性）。三表**無 FK
+   * cascade**，於單一 `$transaction` 顯式刪 `keyword_custom_assignments` + `custom_classify_runs` +
+   * `custom_classifications`。**動態 view 免註銷**（Option a：`custom:{cid}` 由分類列動態解析，刪列後自然 404）。
+   */
+  async remove(
+    analysisId: string,
+    classificationId: string,
+    actor: AuthenticatedUser,
+  ): Promise<{ classificationId: string }> {
+    const classification = await this.prisma.customClassification.findUnique({
+      where: { id: classificationId },
+      select: { analysisId: true },
+    });
+    // cid 未知、或不屬此 :id → 404（同一訊息、不洩漏存在性）。
+    if (!classification || classification.analysisId !== analysisId) {
+      throw new NotFoundException(`custom classification ${classificationId} not found`);
+    }
+    const owner = await this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { ownerId: true },
+    });
+    assertOwnedRow(owner, actor, `custom classification ${classificationId} not found`);
+
+    await this.prisma.$transaction([
+      this.prisma.keywordCustomAssignment.deleteMany({ where: { classificationId } }),
+      this.prisma.customClassifyRun.deleteMany({ where: { classificationId } }),
+      this.prisma.customClassification.delete({ where: { id: classificationId } }),
+    ]);
+    return { classificationId };
   }
 
   /** 讀不可變 snapshot 的關鍵字原字樣本（依 rowIndex 序取前 {@link SAMPLE_SIZE}）。 */

@@ -169,4 +169,110 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       );
     });
   });
+
+  describe('custom:{cid} dynamic view (T12.9 / FR-34 / AC-34.3)', () => {
+    const CID = '22222222-2222-2222-2222-222222222222';
+    const AN = '11111111-1111-1111-1111-111111111111';
+
+    function buildCustom(
+      over: {
+        classification?: unknown;
+        runStatus?: string | null;
+        assignments?: { normalizedText: string; label: string }[];
+        rows?: SnapshotRowData[];
+      } = {},
+    ) {
+      const kaFindUnique = jest.fn(() =>
+        Promise.resolve({ status: 'completed', resultSnapshotId: 'snap-1', ownerId: null }),
+      );
+      const ccFindUnique = jest.fn(() =>
+        Promise.resolve('classification' in over ? over.classification : { analysisId: AN }),
+      );
+      const ccrFindFirst = jest.fn(() =>
+        Promise.resolve(
+          over.runStatus === undefined
+            ? { status: 'completed' }
+            : over.runStatus === null
+              ? null
+              : { status: over.runStatus },
+        ),
+      );
+      const kcaFindMany = jest.fn(() => Promise.resolve(over.assignments ?? []));
+      const srFindMany = jest.fn(() =>
+        Promise.resolve((over.rows ?? [srow('a')]).map((data) => ({ data }))),
+      );
+      const prisma = {
+        keywordAnalysis: { findUnique: kaFindUnique },
+        customClassification: { findUnique: ccFindUnique },
+        customClassifyRun: { findFirst: ccrFindFirst },
+        keywordCustomAssignment: { findMany: kcaFindMany },
+        snapshotRow: { findMany: srFindMany },
+      } as unknown as PrismaService;
+      const queryWithView = jest.fn((rows: unknown) => ({ view: `custom:${CID}`, rows }));
+      const viewService = {
+        query: jest.fn(),
+        assertExecutable: jest.fn(),
+        queryWithView,
+      } as unknown as QueryViewService;
+      return {
+        service: new SnapshotQueryService(prisma, viewService, CONFIG),
+        queryWithView,
+        ccFindUnique,
+        kcaFindMany,
+      };
+    }
+
+    it('resolves the dynamic view, left-joins label by classificationId, and queries via queryWithView', async () => {
+      const { service, queryWithView, kcaFindMany } = buildCustom({
+        assignments: [{ normalizedText: 'a', label: 'transactional' }],
+        rows: [srow('a'), srow('b')],
+      });
+      await service.query(AN, { view: `custom:${CID}` }, API_ACTOR);
+      // label joined by classificationId (not snapshotId); unassigned 'b' → label undefined.
+      expect(kcaFindMany).toHaveBeenCalledWith({
+        where: { classificationId: CID },
+        select: { normalizedText: true, label: true },
+      });
+      const rowsArg = queryWithView.mock.calls[0][0] as SnapshotRowData[];
+      expect(rowsArg.map((r) => (r as unknown as { label?: string }).label)).toEqual([
+        'transactional',
+        undefined,
+      ]);
+    });
+
+    it('returns 404 for an unknown classification id', async () => {
+      const { service } = buildCustom({ classification: null });
+      await expect(service.query(AN, { view: `custom:${CID}` }, API_ACTOR)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('returns 404 when the classification belongs to a different analysis (IDOR)', async () => {
+      const { service, ccFindUnique } = buildCustom({ classification: { analysisId: 'other-an' } });
+      await expect(service.query(AN, { view: `custom:${CID}` }, API_ACTOR)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(ccFindUnique).toHaveBeenCalled();
+    });
+
+    it('returns 404 for a non-UUID cid without hitting the DB (avoids Prisma P2023 → 500)', async () => {
+      const { service, ccFindUnique } = buildCustom();
+      await expect(
+        service.query(AN, { view: 'custom:not-a-uuid' }, API_ACTOR),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(ccFindUnique).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 FEATURE_NOT_READY when there is no completed classify run', async () => {
+      const running = buildCustom({ runStatus: 'running' });
+      await expect(
+        running.service.query(AN, { view: `custom:${CID}` }, API_ACTOR),
+      ).rejects.toMatchObject({ status: 409 });
+
+      const none = buildCustom({ runStatus: null });
+      await expect(
+        none.service.query(AN, { view: `custom:${CID}` }, API_ACTOR),
+      ).rejects.toMatchObject({ status: 409 });
+    });
+  });
 });

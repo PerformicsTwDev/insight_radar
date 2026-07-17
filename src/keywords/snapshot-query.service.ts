@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { assertOwnedRow } from '../common/owner-scope';
@@ -6,14 +6,21 @@ import { queryConfig } from '../config/query.config';
 import { type AnalysisFeatureInput, computeFeatures } from '../keyword-analysis/features';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { PrismaService } from '../prisma';
+import { FeatureNotReadyException } from './feature-not-ready.exception';
 import { type FilterSpec, applyFilter } from './filter-spec';
 import { NotReadyException } from './not-ready.exception';
 import { type PageSpec, type SortSpec, selectPage } from './paginate';
 import { QueryViewService } from './query-view.service';
-import type { QueryRequest, ViewResult } from './views';
+import { type QueryLimits, type QueryRequest, type ViewResult, customView } from './views';
 
 /** 依賴 journey feature 的 view 名（僅這些 view 才查 JourneyRun + left-join stage，T12.6/AC-33.4/33.6）。 */
 const JOURNEY_VIEWS = new Set<string>(['journey', 'journey_funnel']);
+
+/** 自訂分類動態 view 名前綴（`custom:{cid}`，T12.9/AC-34.3）。 */
+const CUSTOM_VIEW_PREFIX = 'custom:';
+
+/** UUID 形狀（任一版本）——擋非 UUID cid 於 Prisma UUID 欄位（避免 P2023 → 500）。 */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** `GET /keywords` 的結果列（Design §6.4 / AC-6.1；snapshot 的 `intent` → 對外 `intentLabels`）。 */
 export interface KeywordListRow {
@@ -166,6 +173,16 @@ export class SnapshotQueryService {
     if (!analysis.resultSnapshotId) {
       throw new NotReadyException(analysis.status);
     }
+    const limits: QueryLimits = {
+      maxPageSize: this.config.maxPageSize,
+      aggMaxBuckets: this.config.aggMaxBuckets,
+      aggMaxGroups: this.config.aggMaxGroups,
+    };
+    // 自訂分類**動態 view**（`custom:{cid}`，T12.9/AC-34.3）：registry 無此 view（per-cid、boot 凍結不可註冊），
+    // 動態解析（Option a）——owner 已由 loadAnalysis 驗分析，此處驗 cid 屬性 + readiness + left-join label。
+    if (request.view.startsWith(CUSTOM_VIEW_PREFIX)) {
+      return this.queryCustomView(analysisId, analysis.resultSnapshotId, request, limits);
+    }
     // journey view/漏斗依賴 journey feature（AC-33.6）：**僅** 該類 view 才查最新 JourneyRun 狀態（其餘 view
     // 免此開銷）；未接 run → not_generated → gate 擋（409）。
     const needsJourney = JOURNEY_VIEWS.has(request.view);
@@ -178,15 +195,64 @@ export class SnapshotQueryService {
     if (needsJourney) {
       rows = await this.mergeJourneyStage(analysis.resultSnapshotId, rows);
     }
-    return this.viewService.query(
-      rows,
-      request,
-      {
-        maxPageSize: this.config.maxPageSize,
-        aggMaxBuckets: this.config.aggMaxBuckets,
-        aggMaxGroups: this.config.aggMaxGroups,
-      },
-      features,
+    return this.viewService.query(rows, request, limits, features);
+  }
+
+  /**
+   * 自訂分類動態 view 的解析 + 查詢（T12.9/AC-34.3）。cid 未知 / 不屬此分析 / 非 UUID → **404**（analysis owner
+   * 已於 loadAnalysis 驗，cid 屬性再驗）；無 completed classify run → **409 `FEATURE_NOT_READY`（custom）**；
+   * 就緒 → 動態產生 `customView(cid)`、以 normalizedText left-join `keyword_custom_assignments`（by classificationId）
+   * 帶入 `label`，交 `queryWithView`（繞過 registry.get；白名單/build 共用單點）。
+   */
+  private async queryCustomView(
+    analysisId: string,
+    snapshotId: string,
+    request: QueryRequest,
+    limits: QueryLimits,
+  ): Promise<ViewResult> {
+    const cid = request.view.slice(CUSTOM_VIEW_PREFIX.length);
+    // 非 UUID cid 直接視為未知（避免 Prisma UUID 欄位 P2023 → 500）。
+    const classification = UUID_RE.test(cid)
+      ? await this.prisma.customClassification.findUnique({
+          where: { id: cid },
+          select: { analysisId: true },
+        })
+      : null;
+    if (!classification || classification.analysisId !== analysisId) {
+      throw new NotFoundException(`custom classification ${cid} not found`);
+    }
+    // readiness gate（per-cid，不走 FeatureKey）：無 completed classify run → 409。
+    const status = await this.latestCustomRunStatus(cid);
+    if (status !== 'completed') {
+      throw new FeatureNotReadyException('custom', status ?? 'not_generated');
+    }
+    let rows = await this.loadRows(snapshotId);
+    rows = await this.mergeCustomLabel(cid, rows);
+    return this.viewService.queryWithView(rows, request, limits, customView(cid));
+  }
+
+  /** 取某分類定義最新 CustomClassifyRun 的 status（無→undefined；供 custom view readiness gate，AC-34.3）。 */
+  private async latestCustomRunStatus(classificationId: string): Promise<string | undefined> {
+    const run = await this.prisma.customClassifyRun.findFirst({
+      where: { classificationId },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    });
+    return run?.status;
+  }
+
+  /** 以 normalizedText left-join `keyword_custom_assignments`（by classificationId）把 `label` 併入 snapshot 列。 */
+  private async mergeCustomLabel(
+    classificationId: string,
+    rows: SnapshotRowData[],
+  ): Promise<SnapshotRowData[]> {
+    const assignments = await this.prisma.keywordCustomAssignment.findMany({
+      where: { classificationId },
+      select: { normalizedText: true, label: true },
+    });
+    const labelByNt = new Map(assignments.map((a) => [a.normalizedText, a.label]));
+    return rows.map(
+      (row) => ({ ...row, label: labelByNt.get(row.normalizedText) }) as SnapshotRowData,
     );
   }
 

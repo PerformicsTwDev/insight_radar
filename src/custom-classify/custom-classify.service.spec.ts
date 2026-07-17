@@ -201,4 +201,68 @@ describe('CustomClassifyService (T12.7 / FR-34 / AC-34.1 / TC-70 部分)', () =>
     ).rejects.toBeInstanceOf(CustomClassifyGenerationError);
     expect(create).not.toHaveBeenCalled();
   });
+
+  describe('remove (T12.9 / FR-34 / AC-34.5)', () => {
+    const SESSION_A: AuthenticatedUser = { kind: 'session', id: 'user-A', email: 'a@x.com' };
+
+    function buildRemove(over: { classification?: unknown; owner?: unknown } = {}) {
+      const ccFindUnique = jest
+        .fn()
+        .mockResolvedValue('classification' in over ? over.classification : { analysisId: 'an-1' });
+      const kaFindUnique = jest
+        .fn()
+        .mockResolvedValue('owner' in over ? over.owner : { ownerId: null });
+      const kcaDeleteMany = jest.fn().mockReturnValue('op-kca');
+      const ccrDeleteMany = jest.fn().mockReturnValue('op-ccr');
+      const ccDelete = jest.fn().mockReturnValue('op-cc');
+      const txn = jest.fn().mockResolvedValue([]);
+      const prisma = {
+        customClassification: { findUnique: ccFindUnique, delete: ccDelete },
+        keywordAnalysis: { findUnique: kaFindUnique },
+        keywordCustomAssignment: { deleteMany: kcaDeleteMany },
+        customClassifyRun: { deleteMany: ccrDeleteMany },
+        $transaction: txn,
+      } as unknown as PrismaService;
+      const service = new CustomClassifyService(
+        {} as unknown as IntentLabeler,
+        {} as unknown as SnapshotQueryService,
+        prisma,
+        { maxLabels: 12 },
+      );
+      return { service, kcaDeleteMany, ccrDeleteMany, ccDelete, txn };
+    }
+
+    it('cascades assignments + runs + definition in one transaction and returns the id', async () => {
+      const { service, kcaDeleteMany, ccrDeleteMany, ccDelete, txn } = buildRemove();
+      const out = await service.remove('an-1', 'cid-1', ACTOR);
+      expect(out).toEqual({ classificationId: 'cid-1' });
+      expect(kcaDeleteMany).toHaveBeenCalledWith({ where: { classificationId: 'cid-1' } });
+      expect(ccrDeleteMany).toHaveBeenCalledWith({ where: { classificationId: 'cid-1' } });
+      expect(ccDelete).toHaveBeenCalledWith({ where: { id: 'cid-1' } });
+      expect(txn).toHaveBeenCalledWith(['op-kca', 'op-ccr', 'op-cc']); // single atomic transaction
+    });
+
+    it('returns 404 for an unknown classification id', async () => {
+      const { service, txn } = buildRemove({ classification: null });
+      await expect(service.remove('an-1', 'cid-1', ACTOR)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(txn).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the classification belongs to a different analysis (IDOR)', async () => {
+      const { service } = buildRemove({ classification: { analysisId: 'other-an' } });
+      await expect(service.remove('an-1', 'cid-1', ACTOR)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('returns 404 for a non-owner session actor (owner single point)', async () => {
+      const { service, txn } = buildRemove({ owner: { ownerId: 'user-B' } });
+      await expect(service.remove('an-1', 'cid-1', SESSION_A)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(txn).not.toHaveBeenCalled();
+    });
+  });
 });
