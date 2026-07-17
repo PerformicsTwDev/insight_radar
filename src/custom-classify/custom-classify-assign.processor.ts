@@ -91,11 +91,20 @@ export class CustomClassifyAssignProcessor
       await this.reportProgress(job, runId, 'done', 100);
       return { status: 'completed', keywordCount: assigned.length };
     } catch (error) {
-      // classify 內部已降級 LLM 失敗、不 throw → 此處只餘基礎設施錯（Prisma/Redis）。標 failed（避免 run 卡
-      // running）+ rethrow 讓 BullMQ 依 JOB_ATTEMPTS 重試。markStatus 亦 best-effort（DB 全掛時不掩蓋原錯）。
+      // classify 內部已降級 LLM 失敗、不 throw → 此處只餘基礎設施錯（Prisma/Redis）。rethrow 讓 BullMQ 依
+      // JOB_ATTEMPTS 重試。**僅於 attempts 耗盡（BullMQ 不再重試）才標 `failed`**（M12-R9，與 journey 同構）——否則
+      // 重試/backoff 窗內 DB 誤顯 `failed`（run 實仍在重試）、且 `failed` 非真終態會擾動 M12-R1 reset。判定式＝ BullMQ
+      // `shouldRetryJob` 同一式（`attemptsMade + 1 < attempts` 取反）。非最終 attempt 不覆寫狀態（維持 `running`）。
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
       this.logger.error(`custom-classify run ${runId} failed: ${msg}`);
-      await this.runRepo.markStatus(runId, 'failed', { error: msg }).catch(() => undefined);
+      // 註：此為**預測式**判定（假設 BullMQ 只因 attempts 耗盡而終止）。本 processor 的 catch **從不** throw
+      // `UnrecoverableError`／呼叫 `job.discard()`，且未用會回 -1 的自訂 backoff，故此預測與 BullMQ 實際決策一致。
+      // 若未來引入上述任一，改採 keyword-analysis.processor 的事後式 `@OnWorkerEvent('failed')` + `isTerminalFailure(job)`
+      // （查 `job.finishedOn`）以免預測失準致 run 卡 `running`。
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      if (isFinalAttempt) {
+        await this.runRepo.markStatus(runId, 'failed', { error: msg }).catch(() => undefined);
+      }
       throw error;
     }
   }
