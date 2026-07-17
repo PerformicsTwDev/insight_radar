@@ -15,7 +15,12 @@ import {
   TOPIC_JOB_EVENTS_CONNECTION,
   TOPIC_QUEUE_EVENTS,
 } from 'src/queue/topic-job-events.constants';
+import {
+  JOURNEY_JOB_EVENTS_CONNECTION,
+  JOURNEY_QUEUE_EVENTS,
+} from 'src/queue/journey-job-events.constants';
 import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
+import { JourneyProcessor } from 'src/journey/journey.processor';
 import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { TopicRepository } from 'src/topics/topic.repository';
 import type { ExpandedTopicMember } from 'src/topics/topic.repository';
@@ -239,6 +244,12 @@ describe('TrackingList add members (e2e · TC-64 · FR-28/27 · AC-28.4/28.5/28.
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(JOURNEY_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(JourneyProcessor)
       .useValue({})
       .overrideProvider(TopicClusterProcessor)
       .useValue({})
