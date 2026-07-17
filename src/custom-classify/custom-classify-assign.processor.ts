@@ -91,11 +91,16 @@ export class CustomClassifyAssignProcessor
       await this.reportProgress(job, runId, 'done', 100);
       return { status: 'completed', keywordCount: assigned.length };
     } catch (error) {
-      // classify 內部已降級 LLM 失敗、不 throw → 此處只餘基礎設施錯（Prisma/Redis）。標 failed（避免 run 卡
-      // running）+ rethrow 讓 BullMQ 依 JOB_ATTEMPTS 重試。markStatus 亦 best-effort（DB 全掛時不掩蓋原錯）。
+      // classify 內部已降級 LLM 失敗、不 throw → 此處只餘基礎設施錯（Prisma/Redis）。rethrow 讓 BullMQ 依
+      // JOB_ATTEMPTS 重試。**僅於 attempts 耗盡（BullMQ 不再重試）才標 `failed`**（M12-R9，與 journey 同構）——否則
+      // 重試/backoff 窗內 DB 誤顯 `failed`（run 實仍在重試）、且 `failed` 非真終態會擾動 M12-R1 reset。判定式＝ BullMQ
+      // `shouldRetryJob` 同一式（`attemptsMade + 1 < attempts` 取反）。非最終 attempt 不覆寫狀態（維持 `running`）。
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
       this.logger.error(`custom-classify run ${runId} failed: ${msg}`);
-      await this.runRepo.markStatus(runId, 'failed', { error: msg }).catch(() => undefined);
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      if (isFinalAttempt) {
+        await this.runRepo.markStatus(runId, 'failed', { error: msg }).catch(() => undefined);
+      }
       throw error;
     }
   }

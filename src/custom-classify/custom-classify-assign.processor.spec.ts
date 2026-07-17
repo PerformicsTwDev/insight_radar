@@ -58,7 +58,10 @@ function build(opts: BuildOpts = {}) {
 
 const JOB_LABELS = [{ label: 'transactional', description: 'buy' }];
 
-function makeJob(over: Partial<CustomClassifyJobPayload> = {}): {
+function makeJob(
+  over: Partial<CustomClassifyJobPayload> = {},
+  attempt: { attemptsMade?: number; attempts?: number } = {},
+): {
   j: Job<CustomClassifyJobPayload>;
   jobUpdate: jest.Mock;
 } {
@@ -74,6 +77,10 @@ function makeJob(over: Partial<CustomClassifyJobPayload> = {}): {
       ...over,
     },
     updateProgress: jobUpdate,
+    // 預設為**最終** attempt（4+1 >= 5）→ 失敗即標 failed（既有失敗測試沿用此語意）。傳入 `{ attempts: undefined }`
+    // 可測「未設 attempts → `?? 1` 退位」。
+    attemptsMade: attempt.attemptsMade ?? 4,
+    opts: { attempts: 'attempts' in attempt ? attempt.attempts : 5 },
   } as unknown as Job<CustomClassifyJobPayload>;
   return { j, jobUpdate };
 }
@@ -147,12 +154,32 @@ describe('CustomClassifyAssignProcessor (T12.8 / FR-34 / AC-34.2)', () => {
       expect(jobUpdate).toHaveBeenCalledTimes(4);
     });
 
-    it('an infra error → marks failed and rethrows (BullMQ retries)', async () => {
+    it('FINAL attempt infra error → marks failed (true terminal) and rethrows', async () => {
       const { processor, markStatus, saveAssignments } = build({ loadError: new Error('db down') });
-      await expect(processor.process(makeJob().j)).rejects.toThrow('db down');
+      await expect(
+        processor.process(makeJob({}, { attemptsMade: 4, attempts: 5 }).j),
+      ).rejects.toThrow('db down');
       expect(markStatus).toHaveBeenNthCalledWith(1, 'run-1', 'running');
       expect(markStatus).toHaveBeenCalledWith('run-1', 'failed', { error: 'db down' });
       expect(saveAssignments).not.toHaveBeenCalled();
+    });
+
+    it('NON-final attempt infra error → does NOT mark failed (stays running for retry) + rethrows (M12-R9)', async () => {
+      const { processor, markStatus, saveAssignments } = build({ loadError: new Error('db down') });
+      await expect(
+        processor.process(makeJob({}, { attemptsMade: 0, attempts: 5 }).j),
+      ).rejects.toThrow('db down');
+      expect(markStatus).toHaveBeenCalledTimes(1); // only 'running'; NO 'failed' mark on a non-final attempt
+      expect(markStatus).toHaveBeenNthCalledWith(1, 'run-1', 'running');
+      expect(saveAssignments).not.toHaveBeenCalled();
+    });
+
+    it('no attempts configured → first failure is terminal via the ?? 1 fallback (M12-R9)', async () => {
+      const { processor, markStatus } = build({ loadError: new Error('db down') });
+      await expect(
+        processor.process(makeJob({}, { attemptsMade: 0, attempts: undefined }).j),
+      ).rejects.toThrow('db down');
+      expect(markStatus).toHaveBeenCalledWith('run-1', 'failed', { error: 'db down' }); // 0+1 >= 1
     });
 
     it('a best-effort job.updateProgress failure does not abort the run', async () => {
