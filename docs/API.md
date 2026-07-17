@@ -53,7 +53,7 @@
 | 18  | GET    | `/api/v1/tracking-lists`                                                      | 追蹤清單列表                                 | 200                        |
 | 19  | GET    | `/api/v1/tracking-lists/:listId`                                              | 清單詳情                                     | 200                        |
 | 20  | GET    | `/api/v1/tracking-lists/:listId/series`                                       | 搜量時序（月粒度快照，FR-30）                | 200                        |
-| 21  | POST   | `/api/v1/tracking-lists/:listId/members`                                      | 加成員（normalizedText 去重聯集，FR-28）     | **201**                    |
+| 21  | POST   | `/api/v1/tracking-lists/:listId/members`                                      | 加成員（normalizedText 去重聯集，FR-28）     | 200                        |
 | 22  | DELETE | `/api/v1/tracking-lists/:listId/members/:normalizedText`                      | 移除成員                                     | 200                        |
 | 23  | PATCH  | `/api/v1/tracking-lists/:listId`                                              | 改名（同 owner 名稱唯一→409）                | 200                        |
 | 24  | DELETE | `/api/v1/tracking-lists/:listId`                                              | 刪除清單（級聯搜量快照）                     | 200                        |
