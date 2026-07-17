@@ -12,6 +12,7 @@ export const CacheNamespace = {
   SESSION: 'session',
   AI_INSIGHT: 'ai_insight',
   JOURNEY: 'journey',
+  CUSTOM_CLASSIFY: 'custom_classify',
 } as const;
 
 export type CacheNamespace = (typeof CacheNamespace)[keyof typeof CacheNamespace];

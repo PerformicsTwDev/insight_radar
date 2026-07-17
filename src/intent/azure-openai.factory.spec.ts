@@ -12,6 +12,8 @@ const CONFIG: AzureConfig = {
   journeyLlmBatchSize: 30,
   journeyMaxKeywords: 5000,
   customClassifyMaxLabels: 12,
+  customClassifyLlmBatchSize: 30,
+  customClassifyMaxKeywords: 5000,
   maxRetries: 5,
 };
 

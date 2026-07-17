@@ -61,6 +61,7 @@ function buildCache(metricsCtx?: JobMetricsContext) {
     journeySchemaVersion: 'v1',
     journeyTtlMs: 1,
     customClassifySchemaVersion: 'v1',
+    customClassifyTtlMs: 1,
   };
   // DB canonical 替身（keywords）：findMany 依 geo/language + normalizedText∈ 過濾；記錄 upsert。
   const dbRows: KeywordRow[] = [];

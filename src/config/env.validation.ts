@@ -128,6 +128,14 @@ export const validationSchema = Joi.object({
   CUSTOM_CLASSIFY_SCHEMA_VERSION: Joi.string()
     .pattern(/^v\d+$/)
     .default('v1'),
+  // 自訂分類每 prompt 關鍵字數（沿用 intent/journey 批量慣例，預設 30；並發沿用 LLM_CONCURRENCY，FR-34）。
+  CUSTOM_CLASSIFY_LLM_BATCH_SIZE: Joi.number().integer().min(1).default(30),
+  // 自訂分類 async job 單次歸類的關鍵字數上限（成本護欄，預設 5000；超過→413，FR-34）。
+  CUSTOM_CLASSIFY_MAX_KEYWORDS: Joi.number().integer().min(1).default(5000),
+  // 自訂分類 worker 並發（BullMQ；預設 3，同 topics/journey）。
+  CUSTOM_CLASSIFY_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3),
+  // 自訂分類階段二歸類 Redis 快取 TTL（毫秒，預設 60 天）；快取綁 normalizedText + 版本，TTL 僅記憶體逐出。
+  CACHE_TTL_CUSTOM_CLASSIFY_MS: Joi.number().integer().min(1).default(5184000000),
   WORKER_CONCURRENCY: Joi.number().integer().min(1).default(5),
   JOB_ATTEMPTS: Joi.number().integer().min(1).default(5),
   JOB_BACKOFF_MS: Joi.number().integer().min(0).default(3000),

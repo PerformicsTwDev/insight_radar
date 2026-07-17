@@ -10,5 +10,8 @@ export const TRACKING_REFRESH_QUEUE = 'tracking-refresh';
 /** 購買歷程分類 BullMQ queue 名稱（T12.6；整批 snapshot LLM 貼標 async job）。 */
 export const JOURNEY_QUEUE = 'journey';
 
+/** 自訂分類階段二歸類 BullMQ queue 名稱（T12.8；整批 snapshot LLM 貼標 async job）。 */
+export const CUSTOM_CLASSIFY_QUEUE = 'custom-classify';
+
 /** BullMQ 連線的 DI token（正式為 IORedis、測試可 override 成 ioredis-mock）。 */
 export const BULL_CONNECTION = 'BullConnection';
