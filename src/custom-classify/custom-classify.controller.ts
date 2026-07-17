@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   HttpCode,
   HttpStatus,
   Param,
@@ -41,5 +42,19 @@ export class CustomClassifyController {
     @CurrentActor() actor: AuthenticatedUser,
   ): Promise<CustomClassification> {
     return this.service.generateLabels(id, { name: dto.name, instruction: dto.instruction }, actor);
+  }
+
+  /**
+   * 刪除自訂分類定義 + 級聯（T12.9，FR-34/AC-34.5）。`:id`/`:cid` 經 `ParseUUIDPipe`（非 UUID→400）；owner/存在性
+   * 404 由 `CustomClassifyService.remove`（`assertOwnedRow` 單點 S8）產生；動態 `custom:{cid}` view 免註銷（刪列後自然 404）。
+   */
+  @Delete(':id/custom-classifications/:cid')
+  @HttpCode(HttpStatus.OK)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('cid', ParseUUIDPipe) cid: string,
+    @CurrentActor() actor: AuthenticatedUser,
+  ): Promise<{ classificationId: string }> {
+    return this.service.remove(id, cid, actor);
   }
 }

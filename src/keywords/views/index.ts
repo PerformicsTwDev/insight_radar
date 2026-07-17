@@ -17,6 +17,8 @@ export { cpcHistogramView } from './cpc-histogram.view';
 export { serpQuestionsView, intentTopicsView } from './placeholder-view';
 export { journeyView } from './journey.view';
 export { journeyFunnelView } from './journey-funnel.view';
+// 動態 view 工廠（`custom:{cid}`，T12.9）：**不**入 BUILTIN_VIEWS（per-cid、由 SnapshotQueryService 動態解析）。
+export { customView } from './custom.view';
 
 /**
  * 本期內建 view（新增 dashboard 表 = 在此多加一個 ViewDefinition，免新 endpoint / 免 migration）。

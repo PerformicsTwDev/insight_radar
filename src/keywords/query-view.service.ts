@@ -58,7 +58,20 @@ export class QueryViewService {
   ): ViewResult {
     // 解析 view + feature-gating（unknown → 400、未 ready → 409），先於白名單/build。
     const view = this.assertExecutable(request.view, features);
+    return this.queryWithView(rows, request, limits, view);
+  }
 
+  /**
+   * 白名單 + build，給**已解析的 ViewDefinition**（繞過 `registry.get` / feature-gating）。供 registry 路徑
+   * （{@link query}）與**動態 view** 路徑（如 `custom:{cid}`，由 `SnapshotQueryService` 解析後直接傳入；其
+   * 存在性/owner/readiness 已於 load path 把關）共用同一驗證+build 單點。
+   */
+  queryWithView(
+    rows: SnapshotRowData[],
+    request: QueryRequest,
+    limits: QueryLimits,
+    view: ViewDefinition,
+  ): ViewResult {
     // 白名單：select / filters / sort 皆須為該 view 宣告的允許集子集。
     const badSelect = (request.select ?? []).filter((key) => !view.allowedSelect.includes(key));
     if (badSelect.length > 0) {
