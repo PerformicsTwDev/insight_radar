@@ -290,14 +290,22 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       return { service, ccrFindFirst, jrFindFirst };
     }
 
-    it('custom:{cid} → latest COMPLETED CustomClassifyRun.id', async () => {
+    const CID_UUID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+    it('custom:{cid} → latest COMPLETED CustomClassifyRun.id, owner-scoped by keywordAnalysisId', async () => {
       const { service, ccrFindFirst } = buildVersion({ customRun: { id: 'run-c' } });
-      expect(await service.resolveViewDataVersion('an-1', 'custom:cid-1')).toBe('run-c');
+      expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`)).toBe('run-c');
       expect(ccrFindFirst).toHaveBeenCalledWith({
-        where: { classificationId: 'cid-1', status: 'completed' },
+        where: { classificationId: CID_UUID, keywordAnalysisId: 'an-1', status: 'completed' },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
+    });
+
+    it('custom:{non-uuid cid} → "" WITHOUT hitting Prisma (no P2023 → 500; M12-R3 blocker fix)', async () => {
+      const { service, ccrFindFirst } = buildVersion({ customRun: { id: 'run-c' } });
+      expect(await service.resolveViewDataVersion('an-1', 'custom:not-a-uuid')).toBe('');
+      expect(ccrFindFirst).not.toHaveBeenCalled(); // guarded before the @db.Uuid query
     });
 
     it('journey / journey_funnel → latest COMPLETED/PARTIAL JourneyRun.id', async () => {
@@ -311,9 +319,10 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       });
     });
 
-    it('returns "" when a dynamic view has no completed run yet', async () => {
-      const { service } = buildVersion(); // both findFirst → null
-      expect(await service.resolveViewDataVersion('an-1', 'custom:cid-1')).toBe('');
+    it('returns "" when a dynamic view has no completed run yet (valid cid, null run)', async () => {
+      const { service, ccrFindFirst } = buildVersion(); // both findFirst → null
+      expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`)).toBe('');
+      expect(ccrFindFirst).toHaveBeenCalled(); // valid UUID → query ran, returned null
       expect(await service.resolveViewDataVersion('an-1', 'journey')).toBe('');
     });
 

@@ -105,9 +105,16 @@ export class SnapshotQueryService {
    * 才與物化資料同步（避免「版本先於資料」翻轉致重跑後再度回舊 insight）。
    */
   async resolveViewDataVersion(analysisId: string, view: string): Promise<string> {
-    if (view.startsWith('custom:')) {
+    if (view.startsWith(CUSTOM_VIEW_PREFIX)) {
+      const cid = view.slice(CUSTOM_VIEW_PREFIX.length);
+      // 非 UUID cid → 直接回 ''（避免 Prisma UUID 欄位 P2023 → 500；比照 queryCustomView 的 UUID_RE 守衛，M12-R3 blocker）。
+      if (!UUID_RE.test(cid)) {
+        return '';
+      }
+      // owner-scope（S8 精神）：以 run 自身的 keywordAnalysisId 綁定 → cid 不屬此分析 → 無匹配 run → ''（版本 lookup
+      // 不越權讀外分析的 run；cache-miss 時後續 query() 仍以單點 404）。keywordAnalysisId 有 @@index。
       const run = await this.prisma.customClassifyRun.findFirst({
-        where: { classificationId: view.slice('custom:'.length), status: 'completed' },
+        where: { classificationId: cid, keywordAnalysisId: analysisId, status: 'completed' },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
