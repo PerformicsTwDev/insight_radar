@@ -17,7 +17,24 @@
         "type": "object"
       },
       "AiInsightDto": {
-        "properties": {},
+        "properties": {
+          "filters": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FilterSpecDto"
+              }
+            ],
+            "description": "套用於該 view 的篩選（共用 /query 的 FilterSpec；聚合僅由 (view, filters) 決定，AC-32.2）"
+          },
+          "view": {
+            "description": "要總結的 view（view-router 白名單，如 keywords / journey / journey_funnel / custom:{cid}）",
+            "example": "keywords",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view"
+        ],
         "type": "object"
       },
       "CreateKeywordAnalysisDto": {
@@ -105,6 +122,10 @@
         "type": "object"
       },
       "CustomClassifyDto": {
+        "properties": {},
+        "type": "object"
+      },
+      "FilterSpecDto": {
         "properties": {},
         "type": "object"
       },
@@ -526,9 +547,22 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "{ view, insight, generatedAt }"
+          },
+          "400": {
+            "description": "未知 view / 非 UUID id / 未宣告欄位（whitelist forbidNonWhitelisted）"
+          },
+          "404": {
+            "description": "未知或非 owner 的 analysis（owner 過濾單點 S8）"
+          },
+          "409": {
+            "description": "snapshot 未就緒 / feature 未 ready"
+          },
+          "502": {
+            "description": "AI_INSIGHT_GENERATION_FAILED（LLM 失敗，不回半截摘要）"
           }
         },
+        "summary": "per-view AI 洞察（同步 200；LLM 失敗 → 502）",
         "tags": [
           "ai-insight"
         ]

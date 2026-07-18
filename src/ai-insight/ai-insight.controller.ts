@@ -8,7 +8,14 @@ import {
   Post,
   UseFilters,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import { CurrentActor } from '../common/current-actor.decorator';
 import { AiInsightGenerationFilter } from './ai-insight-generation.filter';
@@ -35,6 +42,17 @@ export class AiInsightController {
 
   @Post(':id/ai-insight')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'per-view AI 洞察（同步 200；LLM 失敗 → 502）' })
+  @ApiOkResponse({ description: '{ view, insight, generatedAt }' })
+  @ApiBadRequestResponse({
+    description: '未知 view / 非 UUID id / 未宣告欄位（whitelist forbidNonWhitelisted）',
+  })
+  @ApiNotFoundResponse({ description: '未知或非 owner 的 analysis（owner 過濾單點 S8）' })
+  @ApiResponse({ status: 409, description: 'snapshot 未就緒 / feature 未 ready' })
+  @ApiResponse({
+    status: 502,
+    description: 'AI_INSIGHT_GENERATION_FAILED（LLM 失敗，不回半截摘要）',
+  })
   generate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AiInsightDto,
