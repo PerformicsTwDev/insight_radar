@@ -6,39 +6,9 @@ import {
   IsNotEmpty,
   IsString,
   MaxLength,
-  registerDecorator,
-  type ValidationOptions,
-  ValidatorConstraint,
-  type ValidatorConstraintInterface,
   ValidateNested,
 } from 'class-validator';
-import { UNCLASSIFIED_LABEL } from './custom-classify-assign.schema';
-
-/**
- * 保留字守衛（M12-R4）：確認標籤禁與後處理 gap-fallback sentinel `unclassified` 同名——否則該 label 同時進 LLM enum
- * 又是缺漏補值，`custom:{cid}` view 的桶會混算兩類、灌大計數。比對 `trim().toLowerCase()`（大小寫/空白不敏感，杜絕影射）。
- */
-@ValidatorConstraint({ name: 'isNotReservedLabel', async: false })
-export class IsNotReservedLabelConstraint implements ValidatorConstraintInterface {
-  validate(value: unknown): boolean {
-    return typeof value !== 'string' || value.trim().toLowerCase() !== UNCLASSIFIED_LABEL;
-  }
-  defaultMessage(): string {
-    return `label "${UNCLASSIFIED_LABEL}" is reserved (system gap-fallback sentinel) and cannot be a confirmed label`;
-  }
-}
-
-function IsNotReservedLabel(options?: ValidationOptions) {
-  return (object: object, propertyName: string): void => {
-    registerDecorator({
-      target: object.constructor,
-      propertyName,
-      options,
-      constraints: [],
-      validator: IsNotReservedLabelConstraint,
-    });
-  };
-}
+import { IsNotReservedLabel } from '../common/validators/is-not-reserved-label.validator';
 
 /**
  * 確認後的單一標籤（T12.8，FR-34 / AC-34.2）。沿用階段一形狀 `{ label, description }`（人可增刪後回送）。
