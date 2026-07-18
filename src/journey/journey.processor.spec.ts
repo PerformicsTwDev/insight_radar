@@ -107,6 +107,7 @@ describe('JourneyProcessor (T12.6 / FR-33 / AC-33.6)', () => {
       expect(findMany).toHaveBeenCalledWith({
         where: { snapshotId: 'snap-1' },
         orderBy: { rowIndex: 'asc' },
+        select: { data: true }, // M12-C2: only .data is used
       });
       expect(classify).toHaveBeenCalledWith(['a', 'b']); // original text, ordered by rowIndex
       expect(saveAssignments).toHaveBeenCalledWith({

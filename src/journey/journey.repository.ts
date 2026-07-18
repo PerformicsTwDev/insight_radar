@@ -29,14 +29,20 @@ export class JourneyRepository {
       return;
     }
 
-    await this.prisma.$transaction(
-      [...byNt].map(([normalizedText, stage]) =>
-        this.prisma.keywordJourneyAssignment.upsert({
-          where: { snapshotId_normalizedText: { snapshotId, normalizedText } },
-          create: { analysisId, snapshotId, normalizedText, stage },
-          update: { stage },
-        }),
-      ),
-    );
+    // bulk 覆寫（M12-C4，鏡像 custom-classify 的 saveAssignments）：單一 $transaction 內 snapshot-scoped
+    // `deleteMany` 清舊 → `createMany` 批次插入，取代原「每字一 upsert」（≤5000 statements → 2）。snapshot 固定、
+    // 每 run 分類其全部字 → staged 恆涵蓋全集，故 delete+create 與 upsert-all 同終態（且順帶清孤兒）。
+    await this.prisma.$transaction([
+      this.prisma.keywordJourneyAssignment.deleteMany({ where: { snapshotId } }),
+      this.prisma.keywordJourneyAssignment.createMany({
+        data: [...byNt].map(([normalizedText, stage]) => ({
+          analysisId,
+          snapshotId,
+          normalizedText,
+          stage,
+        })),
+        skipDuplicates: true,
+      }),
+    ]);
   }
 }

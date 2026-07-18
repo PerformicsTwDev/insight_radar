@@ -5,6 +5,7 @@ import {
   type IntentLabeler,
   type ParseChatResult,
 } from '../intent/intent-labeler.port';
+import { sanitizePositiveInt } from '../common/sanitize-positive-int';
 import { type ChunkOutcome, resilientChunk } from '../intent/resilient-batch';
 import { JourneyCache } from './journey-cache';
 import { postProcessJourney, type StagedKeyword } from './journey-postprocess';
@@ -114,10 +115,4 @@ export class JourneyService {
       maxCompletionTokens: MAX_COMPLETION_TOKENS,
     });
   }
-}
-
-/** floor 後須為有限正整數，否則回退預設（防 0 致無限迴圈 / 並發 0）。 */
-function sanitizePositiveInt(value: number | undefined, fallback: number): number {
-  const floored = Math.floor(value ?? fallback);
-  return Number.isFinite(floored) && floored >= 1 ? floored : fallback;
 }

@@ -131,6 +131,7 @@ describe('CustomClassifyAssignProcessor (T12.8 / FR-34 / AC-34.2)', () => {
       expect(findMany).toHaveBeenCalledWith({
         where: { snapshotId: 'snap-1' },
         orderBy: { rowIndex: 'asc' },
+        select: { data: true }, // M12-C2: only .data is used
       });
       // classify with (cid, confirmed labels, original keyword text ordered by rowIndex)
       expect(classifyByLabels).toHaveBeenCalledWith(

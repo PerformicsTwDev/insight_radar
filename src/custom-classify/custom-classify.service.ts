@@ -129,6 +129,7 @@ export class CustomClassifyService {
       where: { snapshotId },
       orderBy: { rowIndex: 'asc' },
       take: SAMPLE_SIZE,
+      select: { data: true }, // 只取 data（樣本僅用 .text；避免過取，M12-C2）
     });
     return rows.map((row) => (row.data as unknown as SnapshotRowData).text);
   }

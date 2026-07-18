@@ -5,7 +5,7 @@ import { createPrismaTestApp } from '../utils/create-prisma-test-app';
 
 /**
  * TC-69 部分（T12.5 · FR-33/AC-33.5 · Testcontainers）：購買歷程分類 snapshot-scoped 持久化。
- * 驗 upsert 往返、同 snapshot 覆寫、normalizedText 去重、跨 snapshot 獨立、**不覆寫 keyword_intents**（分表互補 S10）。
+ * 驗 bulk delete+create 往返（M12-C4）、同 snapshot 覆寫、normalizedText 去重、跨 snapshot 獨立、**不覆寫 keyword_intents**（分表互補 S10）。
  */
 const ANALYSIS = '11111111-1111-1111-1111-111111111111';
 const SNAP_A = '22222222-2222-2222-2222-2222222222aa';
@@ -53,7 +53,7 @@ describe('JourneyRepository (integration · Testcontainers, TC-69 部分)', () =
     ]);
   });
 
-  it('normalizes the keyword to the dedup key and upserts (re-run overwrites the stage in place)', async () => {
+  it('normalizes the keyword to the dedup key; a re-run overwrites the stage (bulk delete+create)', async () => {
     await repo.saveAssignments({
       analysisId: ANALYSIS,
       snapshotId: SNAP_A,
