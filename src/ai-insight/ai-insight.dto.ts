@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsOptional, IsString, ValidateNested } from 'class-validator';
 import { FilterSpecDto } from '../keywords/dto/filter-spec.dto';
@@ -11,9 +12,19 @@ import { FilterSpecDto } from '../keywords/dto/filter-spec.dto';
  * `SnapshotQueryService`/`QueryViewService` 於服務層把關（unknown-view→400）。
  */
 export class AiInsightDto {
+  @ApiProperty({
+    description:
+      '要總結的 view（view-router 白名單，如 keywords / journey / journey_funnel / custom:{cid}）',
+    example: 'keywords',
+  })
   @IsString()
   view!: string;
 
+  @ApiPropertyOptional({
+    description:
+      '套用於該 view 的篩選（共用 /query 的 FilterSpec；聚合僅由 (view, filters) 決定，AC-32.2）',
+    type: () => FilterSpecDto,
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => FilterSpecDto)
