@@ -20,6 +20,7 @@ const CONFIG: AiInsightConfig = {
   deployment: 'gpt-4o-mini',
   cacheTtlMs: 5184000000,
   maxRows: 200,
+  queryMaxPageSize: 200,
 };
 const AGGREGATE = {
   view: 'keywords',
@@ -32,7 +33,7 @@ function ok(insight = 'Brand terms dominate this view.'): ParseChatResult<AiInsi
   return { parsed: { insight }, refusal: null };
 }
 
-function build(): {
+function build(configOverride: Partial<AiInsightConfig> = {}): {
   service: AiInsightService;
   parseChat: jest.Mock<Promise<ParseChatResult<AiInsightPayload>>, [ParseChatParams]>;
   resolveReadySnapshotId: jest.Mock;
@@ -67,7 +68,10 @@ function build(): {
     buildKey: (ns: string, ...parts: (string | number)[]) => [ns, ...parts].join(':'),
   } as unknown as CacheService;
 
-  const service = new AiInsightService(labeler, snapshotQuery, cache, CONFIG);
+  const service = new AiInsightService(labeler, snapshotQuery, cache, {
+    ...CONFIG,
+    ...configOverride,
+  });
   return { service, parseChat, resolveReadySnapshotId, query, resolveViewDataVersion, get, set };
 }
 
@@ -122,6 +126,30 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
     const user = parseChat.mock.calls[0][0].messages.find((m) => m.role === 'user');
     expect(user?.content).toContain('Coverage:'); // honest bound disclosed, not presented as whole-view
     expect(user?.content).toContain('1200'); // total M
+  });
+
+  it('#516: clamps pageSize to QUERY_MAX_PAGE_SIZE when AI_INSIGHT_MAX_ROWS is larger (avoids a 400)', async () => {
+    // /query rejects pageSize > maxPageSize with a 400; passing an over-large maxRows would break every
+    // table-grain /ai-insight. Clamp to min(maxRows, queryMaxPageSize).
+    const { service, query, parseChat } = build({ maxRows: 500, queryMaxPageSize: 100 });
+    parseChat.mockResolvedValue(ok());
+    await service.generate('an-1', { view: 'keywords', filters: { volumeMin: 1 } }, ACTOR);
+    expect(query).toHaveBeenCalledWith(
+      'an-1',
+      { view: 'keywords', filters: { volumeMin: 1 }, pagination: { pageSize: 100 } },
+      ACTOR,
+    );
+  });
+
+  it('#516: uses AI_INSIGHT_MAX_ROWS when it is <= QUERY_MAX_PAGE_SIZE (no clamp)', async () => {
+    const { service, query, parseChat } = build({ maxRows: 50, queryMaxPageSize: 200 });
+    parseChat.mockResolvedValue(ok());
+    await service.generate('an-1', { view: 'keywords', filters: { volumeMin: 1 } }, ACTOR);
+    expect(query).toHaveBeenCalledWith(
+      'an-1',
+      { view: 'keywords', filters: { volumeMin: 1 }, pagination: { pageSize: 50 } },
+      ACTOR,
+    );
   });
 
   it('AC-32.2: builds the exact cache key ai_insight:v{ver}:{dep}:{snapshotId}:{view}:sha256(canonical(filters))', async () => {

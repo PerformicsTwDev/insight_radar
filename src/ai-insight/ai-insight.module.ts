@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import type { ConfigType } from '@nestjs/config';
 import { azureConfig } from '../config/azure.config';
 import { cacheConfig } from '../config/cache.config';
+import { queryConfig } from '../config/query.config';
 import { IntentModule } from '../intent/intent.module';
 import { KeywordsModule } from '../keywords/keywords.module';
 import { AiInsightController } from './ai-insight.controller';
@@ -20,6 +21,7 @@ import { AI_INSIGHT_CONFIG, AiInsightService } from './ai-insight.service';
     KeywordsModule,
     ConfigModule.forFeature(cacheConfig),
     ConfigModule.forFeature(azureConfig),
+    ConfigModule.forFeature(queryConfig),
   ],
   controllers: [AiInsightController],
   providers: [
@@ -29,13 +31,15 @@ import { AI_INSIGHT_CONFIG, AiInsightService } from './ai-insight.service';
       useFactory: (
         cache: ConfigType<typeof cacheConfig>,
         azure: ConfigType<typeof azureConfig>,
+        query: ConfigType<typeof queryConfig>,
       ) => ({
         schemaVersion: cache.aiInsightSchemaVersion,
         deployment: azure.deployment,
         cacheTtlMs: cache.aiInsightTtlMs,
         maxRows: cache.aiInsightMaxRows,
+        queryMaxPageSize: query.maxPageSize,
       }),
-      inject: [cacheConfig.KEY, azureConfig.KEY],
+      inject: [cacheConfig.KEY, azureConfig.KEY, queryConfig.KEY],
     },
   ],
   exports: [AiInsightService],

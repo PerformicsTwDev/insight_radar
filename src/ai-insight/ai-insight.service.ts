@@ -30,6 +30,8 @@ export interface AiInsightConfig {
   cacheTtlMs: number;
   /** table-grain view 洞察的有界代表樣本上限（top-N by volume；M12-R2/AC-32.1）。 */
   maxRows: number;
+  /** `/query` 允許的最大 pageSize（= `QUERY_MAX_PAGE_SIZE`）；用於 clamp `maxRows`，避免超限被 400（#516）。 */
+  queryMaxPageSize: number;
 }
 
 /**
@@ -76,10 +78,14 @@ export class AiInsightService {
     // 決定 → 與 filters-only 快取 key 一致）。table-grain view 的 `/query` 是分頁列（預設 50）→ 只帶 50 列會讓 LLM
     // 把有界樣本當全體（M12-R2）；故固定 `pageSize=maxRows`（常數、非請求衍生 → 不動快取 key）取 **top-N by volume**
     // （paginate 預設 sort=`avgMonthlySearches` desc）。chart-grain view 本即全集聚合、`pageSize` 對其 group 無截斷。
+    // clamp 至 `/query` 允許的最大 pageSize（#516）：`SnapshotQueryService` 對 `pageSize > QUERY_MAX_PAGE_SIZE`
+    // 是**拒絕 400**（非 clamp），故 `AI_INSIGHT_MAX_ROWS > QUERY_MAX_PAGE_SIZE`（誤設）會使所有 table view 洞察 400；
+    // 取較小值 graceful degrade（至多取 query 允許的最大頁；預設兩者同 200 → 無 clamp）。
+    const pageSize = Math.min(this.config.maxRows, this.config.queryMaxPageSize);
     const queryRequest: QueryRequest = {
       view: request.view,
       filters: request.filters,
-      pagination: { pageSize: this.config.maxRows },
+      pagination: { pageSize },
     };
     const aggregate: ViewResult = await this.snapshotQuery.query(analysisId, queryRequest, actor);
     const insight = await this.summarize(request.view, aggregate);
