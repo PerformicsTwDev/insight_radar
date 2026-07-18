@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { LengthFinishReasonError } from 'openai/core/error';
 import { normalizeText } from '../google-ads/normalize';
 import type {
@@ -150,6 +151,29 @@ describe('JourneyService.classify (T12.5 / FR-33 / AC-33.1~33.3/33.5 / TC-69 部
     const out = await service.classify(['x']);
     expect(out).toEqual([{ keyword: 'x', stage: 'need_definition' }]); // fallback
     expect(mset).not.toHaveBeenCalled(); // refusal → nothing collected → no writeback
+  });
+
+  it('M12-#484: warns (observability) when keywords fall back via refusal/filter, with the count', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const { service } = build({ behave: () => ({ parsed: null, refusal: 'blocked' }) });
+      await service.classify(['x', 'y']);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('2/2 keyword(s) fell back to need_definition');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('M12-#484: does NOT warn when every keyword classifies cleanly', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const { service } = build(); // default: okStage('need_definition') → collected, no needsReview
+      await service.classify(['x']);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('delegates batch resilience: a length error splits the batch (shared resilientChunk wiring)', async () => {
