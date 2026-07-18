@@ -81,6 +81,16 @@ export class CustomClassifyAssignProcessor
       await this.reportProgress(job, runId, 'classifying', 40);
       const assigned = await this.assign.classifyByLabels(classificationId, labels, keywords);
 
+      // 協作式取消（M12-#512，封閉 M12-R5 DELETE active-race 殘留）：`queue.remove` 無法中止 active job，故 DELETE
+      // 可能於此 job 的 classify 窗內刪掉 run/classification。寫入前探 run 是否仍在——已被刪 → 中止：不寫 orphan
+      // `keyword_custom_assignments`（三表無 FK cascade）、不 markStatus（run 已無）、直接 no-op 完成（不重試、不留死列）。
+      if (!(await this.runRepo.exists(runId))) {
+        this.logger.warn(
+          `custom-classify run ${runId} was cancelled (deleted mid-flight); skipping persist`,
+        );
+        return { status: 'cancelled', keywordCount: 0 };
+      }
+
       await this.reportProgress(job, runId, 'persisting', 80);
       await this.assignments.saveAssignments(
         classificationId,

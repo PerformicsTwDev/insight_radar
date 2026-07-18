@@ -97,6 +97,15 @@ export class CustomClassifyRunRepository {
     });
   }
 
+  /** run row 是否仍存在（協作式取消探測，M12-#512：processor 於寫入前查——run 被 DELETE 於 active 窗刪 → 中止）。 */
+  async exists(runId: string): Promise<boolean> {
+    const row = await this.prisma.customClassifyRun.findUnique({
+      where: { id: runId },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
   /** 更新狀態（+ 選配 keywordCount/error）。undefined 欄位 Prisma 略過、不覆寫既有值。 */
   async markStatus(
     runId: string,
