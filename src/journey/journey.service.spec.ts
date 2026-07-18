@@ -159,7 +159,7 @@ describe('JourneyService.classify (T12.5 / FR-33 / AC-33.1~33.3/33.5 / TC-69 部
       const { service } = build({ behave: () => ({ parsed: null, refusal: 'blocked' }) });
       await service.classify(['x', 'y']);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0][0]).toContain('2/2 keyword(s) fell back to need_definition');
+      expect(warn.mock.calls[0][0]).toContain('2 keyword(s) needed review');
     } finally {
       warn.mockRestore();
     }
