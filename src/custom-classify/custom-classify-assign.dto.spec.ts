@@ -1,11 +1,7 @@
 import 'reflect-metadata'; // 裝飾器 metadata（Nest app 於 bootstrap 匯入；unit 測試須自帶）
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import {
-  ConfirmedLabelDto,
-  CustomClassifyAssignDto,
-  IsNotReservedLabelConstraint,
-} from './custom-classify-assign.dto';
+import { ConfirmedLabelDto, CustomClassifyAssignDto } from './custom-classify-assign.dto';
 import { UNCLASSIFIED_LABEL } from './custom-classify-assign.schema';
 
 /**
@@ -34,20 +30,8 @@ describe('CustomClassifyAssignDto reserved-label guard (M12-R4)', () => {
     expect(await labelErrors('transactional')).not.toContain('isNotReservedLabel');
   });
 
-  describe('IsNotReservedLabelConstraint (direct)', () => {
-    const c = new IsNotReservedLabelConstraint();
-
-    it('passes a non-string value through (defers to @IsString/@IsNotEmpty)', () => {
-      expect(c.validate(123)).toBe(true);
-      expect(c.validate(undefined)).toBe(true);
-      expect(c.validate(null)).toBe(true);
-    });
-
-    it('reports a message naming the reserved word', () => {
-      expect(c.defaultMessage()).toContain(UNCLASSIFIED_LABEL);
-      expect(c.defaultMessage()).toContain('reserved');
-    });
-  });
+  // 直接 constraint 測試（非字串分支 + 訊息 + factory）已移至
+  // `src/common/validators/is-not-reserved-label.validator.spec.ts`（在 coverage gate 內，M12-R519）。
 
   it('exports ConfirmedLabelDto (shape guard)', () => {
     expect(new ConfirmedLabelDto()).toBeInstanceOf(ConfirmedLabelDto);
