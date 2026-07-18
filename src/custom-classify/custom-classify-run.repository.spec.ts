@@ -149,4 +149,22 @@ describe('CustomClassifyRunRepository (T12.8 / FR-34 / AC-34.2)', () => {
       expect(await repo.findInProgressRunByClassification('cid-1')).toBeNull();
     });
   });
+
+  describe('exists (M12-#512 cooperative-cancellation probe)', () => {
+    it('true when the run row is present', async () => {
+      const { repo, customClassifyRun } = build({
+        findUnique: jest.fn(() => Promise.resolve({ id: 'run-1' })),
+      });
+      expect(await repo.exists('run-1')).toBe(true);
+      expect(customClassifyRun.findUnique).toHaveBeenCalledWith({
+        where: { id: 'run-1' },
+        select: { id: true },
+      });
+    });
+
+    it('false when the run row is gone (deleted mid-flight)', async () => {
+      const { repo } = build({ findUnique: jest.fn(() => Promise.resolve(null)) });
+      expect(await repo.exists('run-x')).toBe(false);
+    });
+  });
 });

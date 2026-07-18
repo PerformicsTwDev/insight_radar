@@ -11,6 +11,7 @@ interface BuildOpts {
   rows?: { text: string }[];
   assigned?: AssignedKeyword[];
   loadError?: Error;
+  runExists?: boolean; // M12-#512: run row still present before persist (default true)
 }
 function build(opts: BuildOpts = {}) {
   const findMany = jest.fn(() =>
@@ -41,7 +42,8 @@ function build(opts: BuildOpts = {}) {
   const updateProgress = jest.fn((_runId: string, _progress: unknown) =>
     Promise.resolve(undefined),
   );
-  const runRepo = { markStatus, updateProgress } as unknown as CustomClassifyRunRepository;
+  const exists = jest.fn(() => Promise.resolve(opts.runExists ?? true));
+  const runRepo = { markStatus, updateProgress, exists } as unknown as CustomClassifyRunRepository;
 
   const processor = new CustomClassifyAssignProcessor(prisma, assign, assignments, runRepo, {
     queueConcurrency: 3,
@@ -53,6 +55,7 @@ function build(opts: BuildOpts = {}) {
     saveAssignments,
     markStatus,
     updateProgress,
+    exists,
   };
 }
 
@@ -153,6 +156,17 @@ describe('CustomClassifyAssignProcessor (T12.8 / FR-34 / AC-34.2)', () => {
         'done',
       ]);
       expect(jobUpdate).toHaveBeenCalledTimes(4);
+    });
+
+    it('M12-#512: run deleted mid-flight (DELETE cancelled it) → skips persist, no orphan, no-op completes', async () => {
+      const { processor, exists, saveAssignments, markStatus } = build({ runExists: false });
+      const result = await processor.process(makeJob().j);
+
+      expect(exists).toHaveBeenCalledWith('run-1'); // cooperative-cancellation probe before persist
+      expect(result).toEqual({ status: 'cancelled', keywordCount: 0 });
+      expect(saveAssignments).not.toHaveBeenCalled(); // no orphan keyword_custom_assignments written
+      expect(markStatus).toHaveBeenCalledTimes(1); // only 'running'; NOT 'completed' (run row is gone)
+      expect(markStatus).toHaveBeenNthCalledWith(1, 'run-1', 'running');
     });
 
     it('FINAL attempt infra error → marks failed (true terminal) and rethrows', async () => {
