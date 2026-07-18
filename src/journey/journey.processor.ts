@@ -119,6 +119,7 @@ export class JourneyProcessor
     const rows = await this.prisma.snapshotRow.findMany({
       where: { snapshotId },
       orderBy: { rowIndex: 'asc' },
+      select: { data: true }, // 只取 data（各字僅用 .text；避免 5000 列過取，M12-C2）
     });
     return rows.map((row) => (row.data as unknown as SnapshotRowData).text);
   }

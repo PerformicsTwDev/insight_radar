@@ -1,6 +1,7 @@
 import { AsyncResource } from 'node:async_hooks';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import pLimit from 'p-limit';
+import { sanitizePositiveInt } from '../common/sanitize-positive-int';
 import { IntentCache } from './intent-cache';
 import { INTENT_LABELER, type IntentLabeler, type ParseChatResult } from './intent-labeler.port';
 import { type ChunkOutcome as ResilientChunkOutcome, resilientChunk } from './resilient-batch';
@@ -167,10 +168,4 @@ export class IntentService {
       maxCompletionTokens: MAX_COMPLETION_TOKENS,
     });
   }
-}
-
-/** floor 後須為有限正整數，否則回退預設（防 0 致無限迴圈 / 並發 0）。 */
-function sanitizePositiveInt(value: number | undefined, fallback: number): number {
-  const floored = Math.floor(value ?? fallback);
-  return Number.isFinite(floored) && floored >= 1 ? floored : fallback;
 }
