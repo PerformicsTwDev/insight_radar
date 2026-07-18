@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import pLimit from 'p-limit';
 import {
   INTENT_LABELER,
@@ -41,6 +41,7 @@ export interface JourneyServiceConfig {
  */
 @Injectable()
 export class JourneyService {
+  private readonly logger = new Logger(JourneyService.name);
   private readonly batchSize: number;
   private readonly llmConcurrency: number;
   /**
@@ -88,6 +89,20 @@ export class JourneyService {
       tasks.push(this.limit(() => this.classifyChunkAndCache(chunk)));
     }
     const outcomes = await Promise.all(tasks);
+
+    // 觀測性（M12-#484）：被降級（refusal / content_filter / 拆到底仍 malformed）的關鍵字會靜默補
+    // `need_definition`；記其數量供監控（不外洩多筆內容，只採樣少量第一方關鍵字文字輔助排查）。
+    // 註：`needsReview` 是 resilientChunk 回報的降級清單；不含「拆到 size-1 仍 length error」那條（該條也補
+    // need_definition 卻回 needsReview:[]，共用 intent 邏輯的已知盲點）→ 故此為**下界**，用「needed review」措辭、
+    // 不宣稱是全部 fallback 數（完整化 needsReview 另立 follow-up）。
+    const needsReview = outcomes.flatMap((o) => o.needsReview);
+    if (needsReview.length > 0) {
+      const sample = needsReview.slice(0, 5).join(', ');
+      this.logger.warn(
+        `journey classify: ${needsReview.length} keyword(s) needed review ` +
+          `(refusal/content_filter/malformed) and fell back to need_definition; sample: ${sample}`,
+      );
+    }
 
     const collected = [...cachedCollected, ...outcomes.flatMap((o) => o.collected)];
     return postProcessJourney(keywords, { results: collected });
