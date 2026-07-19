@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
@@ -32,7 +33,9 @@ const HTTP_TOO_EARLY = 425;
  * TopicsService（T8.10，FR-15）。`create` = **enqueue-only**（NFR-1，不呼叫任何外部 API）：
  * 檢查該分析的不可變 snapshot 是否 ready（未知→404、進行中→425、失敗/取消→409）→ 以 snapshot.checksum +
  * canonical params 算 idempotency key → `TopicRepository.createRun`（命中回同一 topicJobId、不重跑）→
- * `topics` queue.add。分群/embedding/命名/SERP 皆在 worker（T8.9）。入列失敗補償刪除孤兒 run。
+ * `topics` queue.add（`enqueueReusingJobId` 安全重用 jobId；terminal-failed → reset queued 重入列）。分群/
+ * embedding/命名/SERP 皆在 worker（T8.9）。入列失敗 → 標 run `failed`（**非** delete，#283 / M8-R3：保並發
+ * idempotent 202 已回的 jobId 有效、可再 reset 重入列）。
  */
 @Injectable()
 export class TopicsService {
@@ -97,7 +100,8 @@ export class TopicsService {
       params: params as unknown as Prisma.InputJsonValue,
     });
 
-    // idempotency 命中（created=false）→ 既有 run（已入列/處理中/完成），不重複 enqueue。
+    // idempotency 命中（created=false）→ 既有 run（已入列/處理中/完成），不重複 enqueue。`created=true`
+    // 亦含 terminal-`failed` 被 reset 重入列的 run（M8-R3）——沿用同一 jobId=runId。
     if (created) {
       const payload: TopicJobPayload = {
         runId,
@@ -108,24 +112,51 @@ export class TopicsService {
         params,
       };
       try {
-        await this.queue.add(TOPICS_QUEUE, payload, {
-          jobId: runId,
-          attempts: this.queueCfg.jobAttempts,
-          backoff: {
-            type: 'exponential',
-            delay: this.queueCfg.jobBackoffMs,
-            jitter: this.queueCfg.jobBackoffJitter,
-          },
-        });
+        await this.enqueueReusingJobId(runId, payload);
       } catch (error) {
-        // 入列失敗（Redis 短暫不可用）→ 補償刪除孤兒 run（否則 idempotencyKey 卡住、永不重跑）。
+        // 入列失敗（Redis 短暫不可用/ active 舊 job finalizing）→ 標 run `failed`（**非** delete，#283 / M8-R3，
+        // 鏡像 M12-R7）：刪除會使並發 idempotent 202 已回同一 runId 給另一 client 者永久 404、job 永不執行；
+        // 標 failed 則可由後續重送於 `createRun` reset 重入列（可恢復），並發輪詢見 `failed`（非 404）。
         this.logger.error(`enqueue topics job failed: ${scrubSecrets(String(error))}`);
-        await this.prisma.topicRun.delete({ where: { id: runId } });
+        await this.repo.markStatus(runId, 'failed', {
+          error: `enqueue failed: ${scrubSecrets(String(error))}`,
+        });
         throw error;
       }
     }
 
     return { topicJobId: runId };
+  }
+
+  /**
+   * 以 jobId=runId 入列，安全處理「reset 沿用同一 jobId」與 BullMQ dedup 語意（M8-R3；與 custom-classify M12-R1
+   * 同構）：
+   * - 無同 id 舊 job → 直接 add（全新 run 常態）。
+   * - 有且**非 active**（failed/completed/delayed/waiting）→ `job.remove()` 後 add（可移除、重用 jobId）；否則
+   *   同 jobId `add` 會靜默 dedup 成 no-op → run 卡 queued（不可恢復）。
+   * - 有且 **active**（舊 attempt 仍持鎖，其 DB `failed` 早於 BullMQ finalize）→ 丟可重試 `503`：**不**盲 add
+   *   （會 dedup no-op）。呼叫端 catch 標 `failed`（維持 reset-eligible），client 稍後重試——屆時舊 job 已 finalize。
+   */
+  private async enqueueReusingJobId(runId: string, payload: TopicJobPayload): Promise<void> {
+    const stale = await this.queue.getJob(runId);
+    if (stale) {
+      const state = await stale.getState();
+      if (state === 'active') {
+        throw new ServiceUnavailableException(
+          `topics run ${runId} is finalizing a prior attempt; retry shortly`,
+        );
+      }
+      await stale.remove();
+    }
+    await this.queue.add(TOPICS_QUEUE, payload, {
+      jobId: runId,
+      attempts: this.queueCfg.jobAttempts,
+      backoff: {
+        type: 'exponential',
+        delay: this.queueCfg.jobBackoffMs,
+        jitter: this.queueCfg.jobBackoffJitter,
+      },
+    });
   }
 
   /**

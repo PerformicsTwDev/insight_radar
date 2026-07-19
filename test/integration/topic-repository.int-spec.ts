@@ -235,5 +235,40 @@ describe('TopicRepository (integration · Testcontainers, TC-45)', () => {
       const row = await prisma.topicRun.findUniqueOrThrow({ where: { id: runId } });
       expect(row.progress).toEqual({ phase: 'embed', percent: 40 });
     });
+
+    it('createRun resets a terminal-failed run to queued and re-enqueues (created=true, M8-R3)', async () => {
+      const { runId } = await repo.createRun(runInput('key-reset'));
+      // 模擬 enqueue-fail 補償：標 failed（+ 殘留 error/counts）。
+      await repo.markStatus(runId, 'failed', { clusterCount: 1, error: 'enqueue failed: boom' });
+
+      // 後續重送同 key → reset 同一 runId 回 queued、created=true（服務據此重入列）。
+      const again = await repo.createRun(runInput('key-reset'));
+      expect(again).toEqual({ runId, created: true });
+
+      const row = await prisma.topicRun.findUniqueOrThrow({ where: { id: runId } });
+      expect(row.status).toBe('queued');
+      expect(row.error).toBeNull();
+      expect(row.clusterCount).toBeNull();
+      // 未新建列——沿用同一 runId。
+      expect(await prisma.topicRun.count({ where: { idempotencyKey: 'key-reset' } })).toBe(1);
+    });
+
+    it('a concurrent idempotent run is NOT orphaned when the creator compensates on enqueue failure (#283)', async () => {
+      const input = runInput('key-race');
+      // 請求 A：建立 run（created=true）。
+      const a = await repo.createRun(input);
+      // 請求 B（並發、同 key）：命中既有 → created=false、回同一 runId（已對其 client 回 202 {topicJobId}）。
+      const b = await repo.createRun(input);
+      expect(b).toEqual({ runId: a.runId, created: false });
+
+      // 請求 A 的入列失敗補償（**新**路徑）：markStatus('failed')，**非** delete。
+      await repo.markStatus(a.runId, 'failed', { error: 'enqueue failed: redis down' });
+
+      // B 已回的 runId 仍可查（非 404）——舊 compensation-delete 路徑會使此為 null（孤兒 → spurious 404）。
+      const latest = await repo.findLatestRunByAnalysis(input.keywordAnalysisId);
+      expect(latest).not.toBeNull();
+      expect(latest?.id).toBe(a.runId);
+      expect(latest?.status).toBe('failed');
+    });
   });
 });

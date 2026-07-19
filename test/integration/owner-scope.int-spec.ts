@@ -78,6 +78,8 @@ describe('owner scope isolation (integration · Testcontainers, TC-62 / FR-27)',
     const queueStub = {
       add: jest.fn().mockResolvedValue({ id: 'job' }),
       remove: jest.fn().mockResolvedValue(undefined),
+      // 全新 runId → 無同 id 舊 job（TopicsService.enqueueReusingJobId 走直接 add 路徑，M8-R3）。
+      getJob: jest.fn().mockResolvedValue(null),
     } as unknown as Queue;
     const cacheStub = {
       buildKey: (ns: string, ...parts: (string | number)[]) => [ns, ...parts].join(':'),

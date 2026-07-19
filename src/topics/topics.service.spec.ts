@@ -11,9 +11,11 @@ import { TopicsService } from './topics.service';
 
 interface Deps {
   add: jest.Mock;
+  getJob: jest.Mock;
   findUnique: jest.Mock;
   deleteRun: jest.Mock;
   createRun: jest.Mock<Promise<CreateTopicRunResult>, [unknown]>;
+  markStatus: jest.Mock;
   findLatestRunByAnalysis: jest.Mock;
   loadClusters: jest.Mock;
   loadAssignments: jest.Mock;
@@ -23,21 +25,24 @@ interface Deps {
 function makeService(): { service: TopicsService; deps: Deps } {
   const deps: Deps = {
     add: jest.fn().mockResolvedValue(undefined),
+    getJob: jest.fn().mockResolvedValue(null), // 預設無同 id 舊 job（全新 run 常態）
     findUnique: jest.fn(),
     deleteRun: jest.fn().mockResolvedValue(undefined),
     createRun: jest.fn<Promise<CreateTopicRunResult>, [unknown]>(),
+    markStatus: jest.fn().mockResolvedValue(undefined),
     findLatestRunByAnalysis: jest.fn(),
     loadClusters: jest.fn().mockResolvedValue([]),
     loadAssignments: jest.fn().mockResolvedValue([]),
     loadKeywordTexts: jest.fn().mockResolvedValue(new Map()),
   };
-  const queue = { add: deps.add } as unknown as Queue;
+  const queue = { add: deps.add, getJob: deps.getJob } as unknown as Queue;
   const prisma = {
     keywordAnalysis: { findUnique: deps.findUnique },
     topicRun: { delete: deps.deleteRun },
   } as unknown as PrismaService;
   const repo = {
     createRun: deps.createRun,
+    markStatus: deps.markStatus,
     findLatestRunByAnalysis: deps.findLatestRunByAnalysis,
     loadClusters: deps.loadClusters,
     loadAssignments: deps.loadAssignments,
@@ -178,14 +183,57 @@ describe('TopicsService.create (T8.10 / TC-48)', () => {
     await expect(service.create('a-1', {}, ACTOR)).resolves.toEqual({ topicJobId: 'run-2' });
   });
 
-  it('compensates by deleting the run when enqueue fails', async () => {
+  it('marks the run failed (never deletes) when enqueue fails — orphan-safe for concurrent idempotent runs (#283 / M8-R3)', async () => {
     const { service, deps } = makeService();
     deps.findUnique.mockResolvedValue(analysis('completed'));
     deps.createRun.mockResolvedValue({ runId: 'run-3', created: true });
     deps.add.mockRejectedValue(new Error('redis down'));
 
     await expect(service.create('a-1', {}, ACTOR)).rejects.toThrow('redis down');
-    expect(deps.deleteRun).toHaveBeenCalledWith({ where: { id: 'run-3' } });
+    // #283：**不得** delete——並發 idempotent 202 已回同一 runId 給另一 client，刪掉會使其永久 404、job 永不執行。
+    expect(deps.deleteRun).not.toHaveBeenCalled();
+    // 改標 failed（可恢復：後續重送於 createRun reset 重入列；並發輪詢見 failed 非 404；鏡像 M12-R7）。
+    expect(deps.markStatus).toHaveBeenCalledTimes(1);
+    const [runId, status, outcome] = deps.markStatus.mock.calls[0] as [
+      string,
+      string,
+      { error: string },
+    ];
+    expect(runId).toBe('run-3');
+    expect(status).toBe('failed');
+    expect(outcome.error).toContain('enqueue failed');
+  });
+
+  it('re-enqueues a reset run by reusing jobId: removes a stale non-active job first (M8-R3 / M12-R1)', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('completed'));
+    // createRun reset 了一個 terminal-failed run → created=true，沿用同一 runId（jobId）。
+    deps.createRun.mockResolvedValue({ runId: 'run-r', created: true });
+    const remove = jest.fn().mockResolvedValue(undefined);
+    deps.getJob.mockResolvedValue({
+      getState: jest.fn().mockResolvedValue('failed'),
+      remove,
+    });
+
+    await expect(service.create('a-1', {}, ACTOR)).resolves.toEqual({ topicJobId: 'run-r' });
+    // 先移除非 active 的舊 job，才能以同 jobId 重加（否則 BullMQ dedup → no-op → run 卡 queued）。
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(deps.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('503 (retryable) + marks failed when a stale job is still active (finalizing a prior attempt)', async () => {
+    const { service, deps } = makeService();
+    deps.findUnique.mockResolvedValue(analysis('completed'));
+    deps.createRun.mockResolvedValue({ runId: 'run-a', created: true });
+    deps.getJob.mockResolvedValue({
+      getState: jest.fn().mockResolvedValue('active'),
+      remove: jest.fn(),
+    });
+
+    // active 舊 job 仍持鎖 → 不盲 add（會 dedup no-op）→ 丟 503 retryable；呼叫端標 failed 維持 reset-eligible。
+    expect(await statusOf(service.create('a-1', {}, ACTOR))).toBe(503);
+    expect(deps.add).not.toHaveBeenCalled();
+    expect(deps.markStatus).toHaveBeenCalledWith('run-a', 'failed', expect.anything());
   });
 });
 

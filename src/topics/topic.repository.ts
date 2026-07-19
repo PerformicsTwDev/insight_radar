@@ -54,12 +54,32 @@ export class TopicRepository {
   /**
    * 建立分群 run（狀態 queued）。idempotency：`idempotencyKey` 命中既有 → 回既有 runId（`created=false`），
    * 不重複建立。並發同 key（都未先查到）以 DB `@unique` 為最終仲裁（P2002 → 回既有）。
+   *
+   * **terminal-`failed` → 可重入列（M8-R3，鏡像 custom-classify M12-R1）**：reset 為 queued（沿用同一 runId、清
+   * error/progress/counts）、回 `created=true` 使服務重跑。本專案 topic run 的 `failed` 僅來自「enqueue 失敗補償」
+   * （processor 失敗走 rethrow→BullMQ 重試 / 降級走 `partial`，皆不寫 DB `failed`），故 failed run 必無對應 job →
+   * 後續重送 reset 重入列即可恢復（否則 idempotencyKey 永久占用、run 卡 failed）。非原子（findUnique + update 兩段）：
+   * 兩並發呼叫可能都見 failed 並各自 reset+enqueue——但服務以 jobId=runId 的 BullMQ dedup 保證只有一個 job 實跑，
+   * 屬「良性重複工」非正確性問題。
    */
   async createRun(input: CreateTopicRunInput): Promise<CreateTopicRunResult> {
     const existing = await this.prisma.topicRun.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
     });
     if (existing) {
+      if (existing.status === 'failed') {
+        await this.prisma.topicRun.update({
+          where: { id: existing.id },
+          data: {
+            status: 'queued',
+            progress: {},
+            error: null,
+            clusterCount: null,
+            noiseCount: null,
+          },
+        });
+        return { runId: existing.id, created: true };
+      }
       return { runId: existing.id, created: false };
     }
     try {
