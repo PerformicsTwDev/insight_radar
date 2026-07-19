@@ -217,6 +217,64 @@ describe('TC-66: assembleVolumeSeries (unit · FR-30 · AC-30.1~30.5)', () => {
     });
   });
 
+  describe('latest is derived from the unfiltered per-member set, not the windowed one (AC-30.5 · #471-1)', () => {
+    it("windowed set excludes the member's most-recent → latest reflects the unfiltered most-recent", () => {
+      const members = [member({ normalizedText: 'coffee' })];
+      // windowed（呼叫端已依 ?to= 過濾）僅到 T1；但成員實際最新快照在 T2（在 to 視窗之外）。
+      const windowed = [
+        snap({ normalizedText: 'coffee', fetchedAt: T0, avgMonthlySearches: 10 }),
+        snap({ normalizedText: 'coffee', fetchedAt: T1, avgMonthlySearches: 20 }),
+      ];
+      const unfilteredLatest = [
+        snap({
+          normalizedText: 'coffee',
+          fetchedAt: T2,
+          avgMonthlySearches: 30,
+          cpcLowMicros: 3000000n,
+        }),
+      ];
+
+      const res = assembleVolumeSeries(LIST, members, windowed, unfilteredLatest);
+      const coffee = res.members[0];
+
+      // axis/series 仍受 windowed 界定（chart 尊重 to 視窗）
+      expect(res.axis).toEqual([T0, T1]);
+      expect(coffee.series.map((p) => p.avgMonthlySearches)).toEqual([10, 20]);
+      // 但成員表 latest = 成員自身**實際**最新（T2，unfiltered），非 windowed 內最新（T1）
+      expect(coffee.latest).toEqual({
+        fetchedAt: T2,
+        avgMonthlySearches: 30,
+        competition: 'MEDIUM',
+        cpc: 3,
+      });
+    });
+
+    it('empty window but member has snapshots → empty series, yet latest still populated (member table survives)', () => {
+      const members = [member({ normalizedText: 'coffee' })];
+      const unfilteredLatest = [
+        snap({ normalizedText: 'coffee', fetchedAt: T2, avgMonthlySearches: 30 }),
+      ];
+
+      const res = assembleVolumeSeries(LIST, members, [], unfilteredLatest);
+
+      expect(res.axis).toEqual([]); // windowed 空 → 空狀態 chart
+      expect(res.summary.latestFetchedAt).toBeNull();
+      expect(res.members[0].series).toEqual([]);
+      expect(res.members[0].latest).toMatchObject({ fetchedAt: T2, avgMonthlySearches: 30 });
+    });
+
+    it('latestSnapshots defaults to the windowed set when omitted (un-windowed callers unaffected)', () => {
+      const members = [member({ normalizedText: 'coffee' })];
+      const snapshots = [
+        snap({ normalizedText: 'coffee', fetchedAt: T0, avgMonthlySearches: 10 }),
+        snap({ normalizedText: 'coffee', fetchedAt: T1, avgMonthlySearches: 20 }),
+      ];
+
+      const res = assembleVolumeSeries(LIST, members, snapshots);
+      expect(res.members[0].latest).toMatchObject({ fetchedAt: T1, avgMonthlySearches: 20 });
+    });
+  });
+
   describe('cpc derivation = cpcLow ÷ 1e6, null micros → null (correctness single-point)', () => {
     it('non-null micros → micros/1e6; null micros → null; 0 → 0 (never fabricates 0)', () => {
       const members = [member({ normalizedText: 'coffee' })];

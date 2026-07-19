@@ -249,6 +249,30 @@ describe('TrackingList series (integration · Testcontainers · TC-66 · FR-30/2
       expect(res.axis).toEqual([T0, T1]);
     });
 
+    it('to bounds the chart window but latest stays the member actual most-recent (#471-1 · AC-30.5)', async () => {
+      const listId = await seed(); // snapshots at T0(10), T1(20), T2(30)
+      const res = await service.getSeries(listId, { to: T1 }, SESSION_A);
+      // chart 尊重 to：axis 只到 T1
+      expect(res.axis).toEqual([T0, T1]);
+      expect(res.summary.latestFetchedAt).toEqual(T1);
+      // 但成員表 latest = 成員實際最新（T2，在 to 之外），非 windowed 內最新（T1）
+      expect(res.members[0].latest).toMatchObject({ fetchedAt: T2, avgMonthlySearches: 30 });
+    });
+
+    it('window excluding all snapshots → empty series but latest still the member most-recent (#471-1)', async () => {
+      const listId = await seed(); // snapshots at T0/T1/T2
+      const res = await service.getSeries(
+        listId,
+        { from: new Date('2027-01-01T00:00:00.000Z') },
+        SESSION_A,
+      );
+      expect(res.axis).toEqual([]); // 空狀態 chart（不回假 0 線）
+      expect(res.summary.latestFetchedAt).toBeNull();
+      expect(res.members[0].series).toEqual([]);
+      // member table 非 windowed：latest 仍為實際最新 T2
+      expect(res.members[0].latest).toMatchObject({ fetchedAt: T2, avgMonthlySearches: 30 });
+    });
+
     it('both from and to → closed interval [from,to] inclusive', async () => {
       const listId = await seed();
       const res = await service.getSeries(listId, { from: T1, to: T1 }, SESSION_A);
