@@ -6,6 +6,7 @@ import {
   collectUnknownFields,
   pickAlias,
 } from './coalesce';
+import { failResult } from './map-result';
 import { normalizeCount } from './normalize-count';
 import { normalizeChineseDateTime } from './normalize-datetime';
 import { normalizePostKey } from './post-key';
@@ -90,18 +91,14 @@ function mapMetric(
   return count;
 }
 
-function failed(raw: unknown, reason: string): MapResult<SocialPostCanonical> {
-  return { mapStatus: 'failed', canonical: null, raw, reasons: [reason] };
-}
-
 export function mapSocialPost(input: MapperInput): MapResult<SocialPostCanonical> {
   const raw = input.payload;
   if (!input.platform) {
-    return failed(raw, 'missing_platform');
+    return failResult(raw, 'missing_platform');
   }
   const record = asRecord(raw);
   if (!record) {
-    return failed(raw, 'payload_not_object');
+    return failResult(raw, 'payload_not_object');
   }
 
   const reasons: string[] = [];

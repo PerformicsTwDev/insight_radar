@@ -7,6 +7,7 @@ import {
   normalizeReferences,
   pickAlias,
 } from './coalesce';
+import { failResult } from './map-result';
 
 /**
  * AI 線 mapper 骨架（FR-37/39；Design §18.3）——raw payload → `AiSearchCapture` 中立形狀（純函式）。
@@ -44,18 +45,14 @@ function toBlocks(value: unknown, reasons: string[]): unknown[] {
   return [value];
 }
 
-function failed(raw: unknown, reason: string): MapResult<AiSearchCanonical> {
-  return { mapStatus: 'failed', canonical: null, raw, reasons: [reason] };
-}
-
 export function mapAiCapture(input: MapperInput): MapResult<AiSearchCanonical> {
   const raw = input.payload;
   if (!input.channel) {
-    return failed(raw, 'missing_channel');
+    return failResult(raw, 'missing_channel');
   }
   const record = asRecord(raw);
   if (!record) {
-    return failed(raw, 'payload_not_object');
+    return failResult(raw, 'payload_not_object');
   }
 
   const reasons: string[] = [];

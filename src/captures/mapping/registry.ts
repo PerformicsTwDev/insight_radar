@@ -1,6 +1,7 @@
 import { CAPTURE_CHANNELS, CAPTURE_PLATFORMS } from '../dto/capture-ingest.dto';
 import { mapAiCapture } from './ai-mapper';
 import type { CanonicalCapture, MapperInput, MapResult } from './canonical.types';
+import { failResult } from './map-result';
 import { mapSocialPost } from './social-mapper';
 
 /**
@@ -70,10 +71,6 @@ export function createDefaultRegistry(): MapperRegistry {
 /** 模組級預設 registry（`normalize` 預設用）。 */
 export const defaultRegistry: MapperRegistry = createDefaultRegistry();
 
-function failed(raw: unknown, reason: string): MapResult<CanonicalCapture> {
-  return { mapStatus: 'failed', canonical: null, raw, reasons: [reason] };
-}
-
 /**
  * 中立化單筆 raw capture（AC-37.1/37.4）：channel（AI）XOR platform（Social）決定 discriminator 與分派的線；
  * 未知/缺 discriminator 或未註冊 mapper → `failed`（raw 保留、**不拋**、不阻斷同批他筆——呼叫端逐筆 `map`）。
@@ -84,15 +81,15 @@ export function normalize(
 ): MapResult<CanonicalCapture> {
   const raw = input.payload;
   if (input.channel && input.platform) {
-    return failed(raw, 'ambiguous_discriminator');
+    return failResult(raw, 'ambiguous_discriminator');
   }
   const discriminator = input.channel ?? input.platform;
   if (!discriminator) {
-    return failed(raw, 'missing_discriminator');
+    return failResult(raw, 'missing_discriminator');
   }
   const mapper = registry.resolve(input.source, discriminator, input.schemaVersion);
   if (!mapper) {
-    return failed(raw, 'no_mapper_registered');
+    return failResult(raw, 'no_mapper_registered');
   }
   return mapper(input);
 }
