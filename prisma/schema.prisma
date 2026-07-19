@@ -340,3 +340,13 @@ model VolumeSnapshot {
   @@index([listId, normalizedText, fetchedAt])
   @@map("volume_snapshots")
 }
+
+// 排程刷新 sweep 的 DB 租約鎖（single-flight，#470/NFR-16；Design §17.3）。sweep 為 append-only + partial
+// 韌性（AC-29.5）不可包進單一長交易，故用租約：scheduled job 進場原子搶租約，搶到才 sweep、否則跳過，
+// finally 釋放；TTL（TRACKING_SWEEP_LEASE_MS）為 crash 復原上界。單列（固定 name='scheduled-refresh'）。
+model TrackingSweepLease {
+  name        String   @id
+  leasedUntil DateTime @map("leased_until") @db.Timestamptz
+
+  @@map("tracking_sweep_leases")
+}

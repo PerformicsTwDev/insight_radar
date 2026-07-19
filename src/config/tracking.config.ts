@@ -34,6 +34,13 @@ export interface TrackingConfig {
    * `listId` 欄）→ `remove()` 於 `false` 時**顯式** `deleteMany({listId})`；`true` 則跳過、保留孤立快照。
    */
   keepSeriesOnDelete: boolean;
+  /**
+   * 排程刷新 sweep 的 DB 租約鎖 TTL（毫秒；single-flight，#470/NFR-16；預設 3600000＝1h）。scheduled job 進場
+   * 原子搶 `tracking_sweep_leases` 租約（搶到才 sweep、否則跳過），`finally` 釋放；此 TTL 為 **crash 復原上界**
+   * （持有者崩潰未釋放 → TTL 到期後下次 cron 可再搶）。**須 ≥ 預期 sweep 時長**（否則租約先到期→重疊；殘留窄窗，
+   * Design §17.3）。防排程堆積（sweep 久於 cron → 下一 job 準時入列雙刷）與跨實例並發、雙耗 Ads 配額。
+   */
+  sweepLeaseMs: number;
 }
 
 export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
@@ -43,4 +50,5 @@ export const trackingConfig = registerAs('tracking', (): TrackingConfig => ({
   backfillMonths: Number(process.env.TRACKING_BACKFILL_MONTHS),
   refreshCron: String(process.env.TRACKING_REFRESH_CRON),
   keepSeriesOnDelete: process.env.TRACKING_KEEP_SERIES_ON_DELETE === 'true',
+  sweepLeaseMs: Number(process.env.TRACKING_SWEEP_LEASE_MS),
 }));

@@ -159,6 +159,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
       backfillMonths,
       refreshCron: '0 3 * * *',
       keepSeriesOnDelete: false,
+      sweepLeaseMs: 3600000,
     });
     svc.now = () => T0;
     return { fake, svc, scheduleCids };
@@ -376,6 +377,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
         backfillMonths: 12,
         refreshCron: '0 3 * * *',
         keepSeriesOnDelete: false,
+        sweepLeaseMs: 3600000,
       });
       const before = Date.now();
       const listId = await seedList([{ text: 'Coffee', normalizedText: 'coffee' }]);

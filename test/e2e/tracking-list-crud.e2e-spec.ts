@@ -270,6 +270,13 @@ function makeFakeTrackingDb(users: UserRow[]) {
     volumeSnapshot: {
       deleteMany: (): Promise<{ count: number }> => Promise.resolve({ count: 0 }),
     },
+    // 互動式交易替身（#470）：create 的並發上限守門於單一 tx 內取 per-owner advisory lock；此 in-memory 替身
+    // 以「同一 db 物件當 tx」忠實回放（測試單執行緒、無真並發），`$executeRaw` 為 advisory-lock 的 no-op。
+    // 真並發語意由 tracking-concurrency.int-spec（真 PG）驗；此處只需讓 create 的 tx 路徑可執行。
+    $executeRaw: (): Promise<number> => Promise.resolve(0),
+    $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+      return fn(this);
+    },
   };
 }
 

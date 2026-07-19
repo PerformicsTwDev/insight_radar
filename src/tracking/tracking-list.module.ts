@@ -6,6 +6,7 @@ import { GoogleAdsModule } from '../google-ads/google-ads.module';
 import { QueueModule } from '../queue/queue.module';
 import { TRACKING_REFRESH_QUEUE } from '../queue/queue.constants';
 import { TopicsModule } from '../topics/topics.module';
+import { SweepLeaseService } from './sweep-lease.service';
 import { TrackingListController } from './tracking-list.controller';
 import { TrackingListService } from './tracking-list.service';
 import { TrackingRefreshProcessor } from './tracking-refresh.processor';
@@ -35,6 +36,7 @@ import { VolumeRefreshService } from './volume-refresh.service';
     VolumeRefreshService,
     TrackingRefreshService,
     TrackingRefreshProcessor,
+    SweepLeaseService,
   ],
   exports: [TrackingListService],
 })

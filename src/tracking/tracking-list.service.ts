@@ -74,6 +74,16 @@ type ListRow = {
 };
 
 /**
+ * Postgres advisory-lock class ids（#470，並發上限守門的原子化）——以 `pg_advisory_xact_lock(class, objid)`
+ * 的第一參數區隔用途，`objid=hashtext(key)`（int4）。xact 級 lock 於交易結束自動釋放（連線由互動式交易 pin，
+ * pool-safe）；`hashtext` 罕見碰撞僅致額外序列化、不失正確性。
+ */
+const CREATE_LOCK_CLASS = 1; // per-owner：序列化同 owner 建立（清單上限 AC-28.7）
+const MEMBER_LOCK_CLASS = 2; // per-list：序列化同清單加成員（成員上限 AC-28.7）
+/** null owner（apiKey 機器 actor）的 advisory-lock sentinel 鍵（hashtext 不接受 NULL）。 */
+const NULL_OWNER_LOCK_KEY = 'tracking:null-owner';
+
+/**
  * TrackingListService（T11.2，FR-28）——追蹤清單 CRUD + **owner scope 強制**。
  *
  * owner 過濾唯一單點＝T10.6 helper（`ownerIdOf` 建立歸屬、`ownerWhere` 列表/計數過濾、`assertOwnedRow`
@@ -96,16 +106,21 @@ export class TrackingListService {
    */
   async create(dto: CreateTrackingListDto, actor: AuthenticatedUser): Promise<TrackingListView> {
     const ownerId = ownerIdOf(actor);
-    // 清單上限（AC-28.7）：以該 owner bucket 現有清單數把關（session→自己、apiKey→null bucket）。
-    const listCount = await this.prisma.trackingList.count({ where: { ownerId } });
-    if (listCount >= this.config.maxLists) {
-      throw new ConflictException(listLimitMessage(this.config.maxLists));
-    }
     try {
-      const row = await this.prisma.trackingList.create({
-        data: { ownerId, name: dto.name, geo: dto.geo, language: dto.language },
+      // 清單上限（AC-28.7）原子化（#470，create TOCTOU）：count→insert 於**單一互動式交易**內，並先取
+      // **per-owner advisory lock** 序列化同 owner 並發建立——否則兩並發皆讀 count<max 後各自 insert →
+      // 越過 TRACKING_MAX_LISTS（保護 Ads 配額，NFR-16）。xact lock 交易結束自動釋放。
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CREATE_LOCK_CLASS}::int4, hashtext(${ownerId ?? NULL_OWNER_LOCK_KEY}))`;
+        const listCount = await tx.trackingList.count({ where: { ownerId } });
+        if (listCount >= this.config.maxLists) {
+          throw new ConflictException(listLimitMessage(this.config.maxLists));
+        }
+        const row = await tx.trackingList.create({
+          data: { ownerId, name: dto.name, geo: dto.geo, language: dto.language },
+        });
+        return toView(row);
       });
-      return toView(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw duplicateName(dto.name);
@@ -241,37 +256,45 @@ export class TrackingListService {
       }
     }
 
-    // 聯集去重（AC-28.4）：以 normalizedText 對「現有成員 ∪ 本批」去重（已存在 / 批內重複 → 不重複建立）。
-    const existing = new Set(
-      (
-        await this.prisma.trackingListMember.findMany({
-          where: { listId },
-          select: { normalizedText: true },
-        })
-      ).map((member) => member.normalizedText),
-    );
-    const seen = new Set<string>();
-    const toAdd: Prisma.TrackingListMemberCreateManyInput[] = [];
-    for (const candidate of candidates) {
-      if (existing.has(candidate.normalizedText) || seen.has(candidate.normalizedText)) {
-        continue;
+    // 成員上限（AC-28.7）原子化（#470，addMembers TOCTOU）：讀現有成員 → 去重 → cap 檢查 → createMany 的
+    // 關鍵段於**單一互動式交易**內，並先取 **per-list advisory lock** 序列化同清單並發加成員——否則兩並發皆
+    // 讀 existing=N、各自加 k → 越過 TRACKING_MAX_MEMBERS_PER_LIST（保護 Ads 配額，NFR-16）。主題展開 / 語境
+    // 守門置於交易之前（關鍵段短、不含慢查詢）。**去重本即 DB 保證**（`@@id` PK + skipDuplicates），此段只補上限原子性。
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${MEMBER_LOCK_CLASS}::int4, hashtext(${listId}))`;
+
+      // 聯集去重（AC-28.4）：以 normalizedText 對「現有成員 ∪ 本批」去重（已存在 / 批內重複 → 不重複建立）。
+      const existing = new Set(
+        (
+          await tx.trackingListMember.findMany({
+            where: { listId },
+            select: { normalizedText: true },
+          })
+        ).map((member) => member.normalizedText),
+      );
+      const seen = new Set<string>();
+      const toAdd: Prisma.TrackingListMemberCreateManyInput[] = [];
+      for (const candidate of candidates) {
+        if (existing.has(candidate.normalizedText) || seen.has(candidate.normalizedText)) {
+          continue;
+        }
+        seen.add(candidate.normalizedText);
+        toAdd.push({ listId, normalizedText: candidate.normalizedText, text: candidate.text });
       }
-      seen.add(candidate.normalizedText);
-      toAdd.push({ listId, normalizedText: candidate.normalizedText, text: candidate.text });
-    }
 
-    // 上限（AC-28.7）：加入後成員數超過 TRACKING_MAX_MEMBERS_PER_LIST → 409（整批不落，保護 Ads 配額）。
-    if (existing.size + toAdd.length > this.config.maxMembersPerList) {
-      throw new ConflictException(limitMessage(this.config.maxMembersPerList));
-    }
+      // 上限（AC-28.7）：加入後成員數超過 TRACKING_MAX_MEMBERS_PER_LIST → 409（整批不落，保護 Ads 配額）。
+      if (existing.size + toAdd.length > this.config.maxMembersPerList) {
+        throw new ConflictException(limitMessage(this.config.maxMembersPerList));
+      }
 
-    // `@@id([listId, normalizedText])` 為聯集去重最終仲裁：skipDuplicates 讓並發同字不撞 P2002。
-    const { count: added } = await this.prisma.trackingListMember.createMany({
-      data: toAdd,
-      skipDuplicates: true,
+      // `@@id([listId, normalizedText])` 為聯集去重最終仲裁：skipDuplicates 讓並發同字不撞 P2002。
+      const { count: added } = await tx.trackingListMember.createMany({
+        data: toAdd,
+        skipDuplicates: true,
+      });
+      const memberCount = await tx.trackingListMember.count({ where: { listId } });
+      return { memberCount, added };
     });
-    const memberCount = await this.prisma.trackingListMember.count({ where: { listId } });
-    return { memberCount, added };
   }
 
   /**

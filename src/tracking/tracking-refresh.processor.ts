@@ -6,6 +6,7 @@ import { trackingConfig } from '../config/tracking.config';
 import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRACKING_REFRESH_QUEUE } from '../queue/queue.constants';
+import { SweepLeaseService } from './sweep-lease.service';
 import { VolumeRefreshService } from './volume-refresh.service';
 
 /** BullMQ job scheduler id（repeatable 排程刷新；upsert 冪等、重啟不重複註冊，AC-29.2）。 */
@@ -25,6 +26,8 @@ export interface TrackingRefreshJobResult {
   total: number;
   refreshed: number;
   failed: number;
+  /** 排程 sweep 因 single-flight 租約未搶到而跳過（#470；手動刷新不出現此旗標）。 */
+  skipped?: boolean;
 }
 
 /**
@@ -55,6 +58,7 @@ export class TrackingRefreshProcessor
     @InjectQueue(TRACKING_REFRESH_QUEUE) private readonly queue: Queue,
     private readonly volumeRefresh: VolumeRefreshService,
     private readonly prisma: PrismaService,
+    private readonly sweepLease: SweepLeaseService,
     @Inject(trackingConfig.KEY) private readonly config: ConfigType<typeof trackingConfig>,
   ) {
     super();
@@ -96,11 +100,37 @@ export class TrackingRefreshProcessor
   }
 
   /**
-   * 處理刷新 job：解析目標清單集合（手動 → 單清單；排程 → 全部）後逐一刷新。**partial 韌性（AC-29.5）**：
-   * 單一清單失敗只記 `failed` + warn、續刷其餘（整批不 throw）；回摘要供觀測/測試斷言。
+   * 處理刷新 job：
+   * - **手動（帶 `listId`）**：只刷該清單（owner 守門已於入列端）；per-list single-flight 由 `jobId` 保證。
+   * - **排程 sweep（無 `listId`）**：進場先搶 **single-flight 租約**（#470）——搶到才遍歷全清單刷新、`finally`
+   *   釋放；搶不到（已有進行中 sweep：排程堆積於 cron > sweep 時、或跨實例）→ **跳過**（回 `skipped:true`），
+   *   避免重複刷新 + 雙耗 Ads 配額（NFR-16）。
+   *
+   * **partial 韌性（AC-29.5）**：單一清單失敗只記 `failed` + warn、續刷其餘（整批不 throw）；回摘要供觀測/測試斷言。
    */
   async process(job: Job<TrackingRefreshJobPayload>): Promise<TrackingRefreshJobResult> {
-    const listIds = await this.resolveListIds(job.data);
+    if (typeof job.data.listId === 'string') {
+      return this.refreshLists([job.data.listId]);
+    }
+    // 排程 sweep：single-flight 租約守門（#470，NFR-16）。搶不到 → 跳過（不重複刷新、不雙耗 Ads 配額）。
+    const acquired = await this.sweepLease.acquire();
+    if (!acquired) {
+      this.logger.log('scheduled sweep skipped: another sweep is already in progress');
+      return { total: 0, refreshed: 0, failed: 0, skipped: true };
+    }
+    try {
+      const lists = await this.prisma.trackingList.findMany({ select: { id: true } });
+      return await this.refreshLists(lists.map((list) => list.id));
+    } finally {
+      await this.sweepLease.release();
+    }
+  }
+
+  /**
+   * 逐一刷新指定清單（partial 韌性 AC-29.5）：單清單失敗只記 `failed` + warn、續刷其餘（整批不 throw）；
+   * 表面化 per-member partial（`result.failed>0` → warn，M11-R2）。手動 / 排程 sweep 共用此迴圈。
+   */
+  private async refreshLists(listIds: string[]): Promise<TrackingRefreshJobResult> {
     let refreshed = 0;
     let failed = 0;
     for (const listId of listIds) {
@@ -122,14 +152,5 @@ export class TrackingRefreshProcessor
       }
     }
     return { total: listIds.length, refreshed, failed };
-  }
-
-  /** 手動（帶 `listId`）→ 單清單；排程（無 `listId`）→ 遍歷全部清單 id（不假設呼叫端傳清單）。 */
-  private async resolveListIds(data: TrackingRefreshJobPayload): Promise<string[]> {
-    if (typeof data.listId === 'string') {
-      return [data.listId];
-    }
-    const lists = await this.prisma.trackingList.findMany({ select: { id: true } });
-    return lists.map((list) => list.id);
   }
 }
