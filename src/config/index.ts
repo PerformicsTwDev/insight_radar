@@ -15,6 +15,7 @@ export * from './serp.config';
 export * from './clustering.config';
 export * from './topics.config';
 export * from './tracking.config';
+export * from './ingest.config';
 
 import { appConfig } from './app.config';
 import { authConfig } from './auth.config';
@@ -30,6 +31,7 @@ import { serpConfig } from './serp.config';
 import { clusteringConfig } from './clustering.config';
 import { topicsConfig } from './topics.config';
 import { trackingConfig } from './tracking.config';
+import { ingestConfig } from './ingest.config';
 
 /** 供 `ConfigModule.forRoot({ load: configNamespaces })` 一次掛載所有 namespace。 */
 export const configNamespaces = [
@@ -47,4 +49,5 @@ export const configNamespaces = [
   clusteringConfig,
   topicsConfig,
   trackingConfig,
+  ingestConfig,
 ];

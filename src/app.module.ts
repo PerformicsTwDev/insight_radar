@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AiInsightModule } from './ai-insight/ai-insight.module';
 import { AuthModule } from './auth';
 import { CacheModule } from './cache';
+import { CapturesModule } from './captures/captures.module';
 import { CommonModule } from './common';
 import { CustomClassifyModule } from './custom-classify/custom-classify.module';
 import { HealthModule } from './health';
@@ -48,6 +49,7 @@ import { configNamespaces, validationSchema } from './config';
     JourneyModule,
     CustomClassifyModule,
     IdeationModule,
+    CapturesModule,
   ],
 })
 export class AppModule {}
