@@ -329,7 +329,7 @@ model VolumeSnapshot {
   normalizedText     String   @map("normalized_text")
   geo                String
   language           String
-  avgMonthlySearches Int?     @map("avg_monthly_searches") // null ≠ 0
+  avgMonthlySearches BigInt?  @map("avg_monthly_searches") // null ≠ 0; BIGINT ≥ Ads int64 (mega-term > INT4 max overflows, #469)
   monthlyVolumes     Json     @default("[]") @map("monthly_volumes")
   competition        String?
   competitionIndex   Int?     @map("competition_index")

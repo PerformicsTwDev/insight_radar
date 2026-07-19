@@ -117,6 +117,32 @@ describe('tracking schema (integration · Testcontainers, T11.1 / FR-28)', () =>
       where: { listId: list.id, normalizedText: 'kw' },
       orderBy: { fetchedAt: 'asc' },
     });
-    expect(series.map((s) => s.avgMonthlySearches)).toEqual([100, 120]);
+    expect(series.map((s) => s.avgMonthlySearches)).toEqual([100n, 120n]);
+  });
+
+  it('stores avg_monthly_searches beyond INT4 range — Ads int64 mega-term (#469 BIGINT)', async () => {
+    // Google Ads `avgMonthlySearches` is int64; a mega-term can exceed INT4 max
+    // (2,147,483,647). On the old INTEGER column this insert failed with Postgres
+    // 'integer out of range'; the column must be BIGINT so the snapshot lands and
+    // reads back exactly (value stays JS-number-safe below 2^53 at read boundaries).
+    const list = await makeList();
+    await prisma.trackingListMember.create({
+      data: { listId: list.id, normalizedText: 'kw', text: 'kw' },
+    });
+    const MEGA = 3_000_000_000; // > INT4 max; well under 2^53
+    const snap = await prisma.volumeSnapshot.create({
+      data: {
+        listId: list.id,
+        normalizedText: 'kw',
+        geo: 'TW',
+        language: 'zh-TW',
+        avgMonthlySearches: MEGA,
+      },
+    });
+    expect(snap.avgMonthlySearches).toBe(3_000_000_000n); // Prisma BigInt read-back
+    const read = await prisma.volumeSnapshot.findFirstOrThrow({
+      where: { listId: list.id, normalizedText: 'kw' },
+    });
+    expect(read.avgMonthlySearches).toBe(3_000_000_000n); // exact round-trip, no overflow
   });
 });

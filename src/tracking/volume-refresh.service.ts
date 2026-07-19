@@ -175,7 +175,10 @@ export class VolumeRefreshService {
           normalizedText,
           geo: ctx.geo,
           language: ctx.language,
-          avgMonthlySearches: observation.avgMonthlySearches,
+          // avg_monthly_searches is BIGINT (Ads int64; #469) — write as bigint. Value is
+          // always an integer count (Ads), so BigInt() is exact; null stays null (S2).
+          avgMonthlySearches:
+            observation.avgMonthlySearches === null ? null : BigInt(observation.avgMonthlySearches),
           monthlyVolumes: observation.monthlyVolumes as unknown as Prisma.InputJsonValue,
           competition: observation.competition,
           competitionIndex: kw.competitionIndex ?? null,
@@ -237,14 +240,15 @@ function indexKeywords(fetched: Keyword[]): Map<string, Keyword> {
 
 /** 最新快照列 → 觀測（micros bigint→string、monthlyVolumes Json→陣列），與新觀測同型以全欄比對。 */
 function snapshotToObservation(row: {
-  avgMonthlySearches: number | null;
+  avgMonthlySearches: bigint | null;
   competition: string | null;
   cpcLowMicros: bigint | null;
   cpcHighMicros: bigint | null;
   monthlyVolumes: Prisma.JsonValue;
 }): VolumeObservation {
   return {
-    avgMonthlySearches: row.avgMonthlySearches,
+    // BIGINT column (#469) → JS number for store-on-change compare (< 2^53 exact; null stays null).
+    avgMonthlySearches: row.avgMonthlySearches === null ? null : Number(row.avgMonthlySearches),
     competition: row.competition,
     cpcLowMicros: row.cpcLowMicros === null ? null : row.cpcLowMicros.toString(),
     cpcHighMicros: row.cpcHighMicros === null ? null : row.cpcHighMicros.toString(),
