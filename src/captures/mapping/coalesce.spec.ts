@@ -1,10 +1,18 @@
 import {
   asRecord,
+  capturedAtToIso,
   coerceString,
   collectUnknownFields,
   normalizeReferences,
   pickAlias,
 } from './coalesce';
+
+describe('capturedAtToIso', () => {
+  it('Date → ISO 字串；既有字串 → 原樣', () => {
+    expect(capturedAtToIso(new Date('2025-11-21T00:00:00.000Z'))).toBe('2025-11-21T00:00:00.000Z');
+    expect(capturedAtToIso('2025-11-21T00:00:00+08:00')).toBe('2025-11-21T00:00:00+08:00');
+  });
+});
 
 describe('asRecord', () => {
   it('物件 → 同一 record；陣列/primitive/null → null', () => {

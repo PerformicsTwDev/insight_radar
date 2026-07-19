@@ -48,6 +48,8 @@ describe('normalizeCount (AC-37.3 / FR-46 互動計數正規化)', () => {
     expect(normalizeCount('K')).toBeNull();
     expect(normalizeCount(Number.NaN)).toBeNull();
     expect(normalizeCount(Number.POSITIVE_INFINITY)).toBeNull();
+    // 超長數字字串溢位為 Infinity → null（不外漏 Infinity、不補 0）。
+    expect(normalizeCount('1'.repeat(400))).toBeNull();
     expect(normalizeCount({})).toBeNull();
     expect(normalizeCount([])).toBeNull();
     expect(normalizeCount(true)).toBeNull();
