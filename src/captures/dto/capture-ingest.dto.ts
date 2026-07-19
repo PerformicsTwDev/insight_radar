@@ -17,8 +17,8 @@ import {
  * - `source` 必為 push 來源 enum（S20；未知 → 400）。`merged` 為多來源 merge 的**內部產物**（FR-46），
  *   **不**由 client push，故不在受理 enum。
  * - `channel?`/`platform?`：AI 類帶 `channel`、Social 類帶 `platform`（S20）；給值時須在 enum 內（不猜形狀）。
- * - `schemaVersion` 必帶非空（S15）——extension 契約現況無 versioning，本端點以此欄補上缺口；**allowlist
- *   比對（`CAPTURE_ACCEPTED_SCHEMA_VERSIONS`，AC-36.3）於 T13.3 接**，本 task 僅驗「必帶非空字串」。
+ * - `schemaVersion` 必帶非空（S15）——extension 契約現況無 versioning，本端點以此欄補上缺口；DTO 僅驗「必帶
+ *   非空字串」，**allowlist 比對（`CAPTURE_ACCEPTED_SCHEMA_VERSIONS`，AC-36.3）在 service 層斷言**（不合 → 400）。
  * - `items` 非空陣列、每筆為物件（該來源原始 payload，逐筆落 `captures.payload` JSONB）。**item 內部形狀不在
  *   此驗證**（raw 層保留原始 payload、由 per-source mapper 於 T13.4 收斂）——故 items 元素**不**套巢狀 DTO，
  *   全域 whitelist 不會剝除其內部鍵。批次筆數上限（`INGEST_BATCH_MAX`，AC-36.5）於 service 層先於 DB 守門。
