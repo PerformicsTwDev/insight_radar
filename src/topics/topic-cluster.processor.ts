@@ -14,6 +14,7 @@ import {
   CLUSTERING_PROVIDER,
   type ClusteringProvider,
 } from '../clustering/clustering-provider.port';
+import { ClusteringContractError } from '../clustering/clustering.errors';
 import { topicsConfig } from '../config/topics.config';
 import { EmbeddingService } from '../embeddings/embedding.service';
 import type { SerpContext } from '../embeddings/embedding.types';
@@ -40,9 +41,18 @@ interface PipelineKeyword {
   avgMonthlySearches: number | null;
 }
 
-/** 基礎設施錯（DB 等）→ 應 rethrow 讓 BullMQ 整 job 重試（非外部階段降級）。 */
-function isInfraError(error: unknown): boolean {
+/**
+ * embed/cluster 階段的錯誤是否**不得**被吞成 partial、須 rethrow 讓其浮現為 `failed`（M8-R2）：
+ * - 基礎設施錯（Prisma DB 等）→ 暫時性、rethrow 讓 BullMQ 整 job 重試。
+ * - {@link ClusteringContractError}（cluster-service/client 契約漂移）→ **非降級、是 bug**
+ *   （clustering.errors.ts：「重試無益」）。吞成 partial 會讓其分型形同虛設、靜默遮蔽契約不同步；
+ *   須 rethrow 浮現為明確 `failed`（distinct non-partial signal），觸發告警/修正而非假裝「0 群成功」。
+ *
+ * 對比：{@link ClusteringUnavailableError}（timeout/5xx 達重試上限）為外部階段降級 → 續走 partial。
+ */
+function shouldRethrowNotPartial(error: unknown): boolean {
   return (
+    error instanceof ClusteringContractError ||
     error instanceof Prisma.PrismaClientKnownRequestError ||
     error instanceof Prisma.PrismaClientUnknownRequestError ||
     error instanceof Prisma.PrismaClientInitializationError ||
@@ -56,8 +66,9 @@ function isInfraError(error: unknown): boolean {
  *
  * **partial 降級（NFR-12）**：
  * - SERP 抓取失敗 → 降級純文字 embedding、續跑（serpDegraded）。
- * - embed/cluster 外部失敗（含 {@link ClusteringUnavailableError}）→ 標 `partial`（0 群、保留 run），**不** throw；
- *   但基礎設施錯（Prisma）→ rethrow 讓 BullMQ 整 job 重試（JOB_ATTEMPTS）。
+ * - embed/cluster 外部降級（{@link ClusteringUnavailableError}：timeout/5xx 達重試上限）→ 標 `partial`
+ *   （0 群、保留 run），**不** throw；但基礎設施錯（Prisma）與 **契約漂移**（`ClusteringContractError`，
+ *   非降級、是 bug）→ rethrow 讓其浮現為 `failed`（BullMQ 重試 JOB_ATTEMPTS），不得吞成 partial（M8-R2）。
  * - 部分群命名 degraded → 群仍持久化、run 標 `partial`。
  *
  * `autorun:false` + `onApplicationBootstrap` 接上 config 並發（同 keyword-analysis processor，M3-R2）；
@@ -157,8 +168,9 @@ export class TopicClusterProcessor
         endCluster();
         await this.reportProgress(job, runId, 'cluster', PHASE_PERCENT.cluster);
       } catch (error) {
-        if (isInfraError(error)) {
-          throw error; // 基礎設施故障 → BullMQ 整 job 重試
+        if (shouldRethrowNotPartial(error)) {
+          // infra 故障 → BullMQ 整 job 重試；契約漂移（ClusteringContractError）→ 浮現為 failed（非 partial）。
+          throw error;
         }
         return this.finalizePartial(runId, keywords.length, error, metrics); // 外部降級 → partial（0 群）
       }
@@ -246,7 +258,7 @@ export class TopicClusterProcessor
    * 回報階段進度：**同時**寫 DB（GET 輪詢真實來源）與 `job.updateProgress`（BullMQ QueueEvents → topics @Sse
    * 即時串流，M8-R8）。少了後者，SSE 只會收到終態事件、進度條永不前進（xhigh confirmed）。
    *
-   * `repo.updateProgress`（Prisma，durable）失敗 → 上拋，讓呼叫端 {@link isInfraError} 判為 infra → BullMQ 重試。
+   * `repo.updateProgress`（Prisma，durable）失敗 → 上拋，讓呼叫端 {@link shouldRethrowNotPartial} 判為 infra → BullMQ 重試。
    * `job.updateProgress`（Redis/BullMQ 進度發布）為**純觀測副作用**，**best-effort**：吞錯記 warn（同
    * {@link emitMetrics}）。否則 embed/cluster try/catch 會把 Redis 短暫失敗誤判為外部降級、把已成功的昂貴管線
    * 標成 `partial`（0 群、丟棄結果、且不重試）——違 NFR-12（partial 僅限外部階段失敗）。（M8-R12）
