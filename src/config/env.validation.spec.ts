@@ -125,6 +125,10 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       // M13 capture ingestion 預設（Design §14；AC-36.5 批次/body 上限）。
       expect(value.INGEST_BATCH_MAX).toBe(500);
       expect(value.INGEST_BODY_LIMIT_MB).toBe(10);
+      // M13 extension bridge 能力協商基準預設（Design §14；S21/NFR-21/AC-51.4）：現 confirmed 3 + 期望擴充。
+      expect(value.EXTENSION_BRIDGE_REQUIRED_FEATURES).toBe(
+        'threadsSearch,googleSerp,chatGpt,geminiApp,googleAiMode,googleSearch,facebook,dcard,ptt,readability',
+      );
     });
 
     it('fail-fasts when SESSION_SECRET is missing (M10 required secret, TC-63)', () => {

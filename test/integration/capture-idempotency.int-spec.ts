@@ -27,6 +27,7 @@ const makeConfig = (
   batchMax: 500,
   bodyLimitMb: 10,
   acceptedSchemaVersions: ['v1', 'v2'],
+  bridgeRequiredFeatures: ['threadsSearch', 'googleSerp', 'chatGpt'],
   ...over,
 });
 

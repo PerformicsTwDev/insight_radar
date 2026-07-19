@@ -26,6 +26,14 @@ export interface IngestConfig {
    * （service 層斷言，**不**靜默套預設、不猜形狀）。Joi 保證非空，故此陣列至少一員。
    */
   acceptedSchemaVersions: string[];
+  /**
+   * extension bridge **能力協商基準**（S21 / NFR-21 / AC-51.4；`EXTENSION_BRIDGE_REQUIRED_FEATURES`，逗號分隔）——
+   * 我方期望 extension `EXTERNAL_PONG.features[]` 應提供的渠道清單。前端轉發鏈以此對照 extension 實際回報：**未回報
+   * 的渠道 → not-available（gating、不硬崩、不編造，見 `captures/capability-negotiation`）**。預設含現 research-confirmed
+   * 3 渠道（`threadsSearch/googleSerp/chatGpt`）+ 期望擴充（AI 四渠道 + 社群多平台 + readability，extension 端外部
+   * 協調項 T13.6）——擴充落地前，擴充渠道於 runtime 協商標 not-available。Joi 保證非空，故此陣列至少一員。
+   */
+  bridgeRequiredFeatures: string[];
 }
 
 /** 逗號分隔 → 去空白、濾空的字串陣列（`"v1, v2" → ["v1","v2"]`）。 */
@@ -40,4 +48,5 @@ export const ingestConfig = registerAs('ingest', (): IngestConfig => ({
   batchMax: Number(process.env.INGEST_BATCH_MAX),
   bodyLimitMb: Number(process.env.INGEST_BODY_LIMIT_MB),
   acceptedSchemaVersions: parseCsv(process.env.CAPTURE_ACCEPTED_SCHEMA_VERSIONS),
+  bridgeRequiredFeatures: parseCsv(process.env.EXTENSION_BRIDGE_REQUIRED_FEATURES),
 }));
