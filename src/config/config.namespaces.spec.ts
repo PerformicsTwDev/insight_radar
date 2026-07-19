@@ -114,6 +114,7 @@ const ENV: Record<string, string> = {
   TRACKING_SWEEP_LEASE_MS: '3600000',
   INGEST_BATCH_MAX: '500',
   INGEST_BODY_LIMIT_MB: '10',
+  CAPTURE_ACCEPTED_SCHEMA_VERSIONS: 'v1, v2', // 逗號分隔（含空白）→ 去空白/濾空成陣列（S15）
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -293,10 +294,11 @@ describe('config namespaces (registerAs, typed)', () => {
     });
   });
 
-  it('ingestConfig maps capture batch + body limits env (coerced; M13)', () => {
+  it('ingestConfig maps capture batch + body limits + schemaVersion allowlist env (coerced; M13)', () => {
     expect(ingestConfig()).toEqual({
       batchMax: 500,
       bodyLimitMb: 10,
+      acceptedSchemaVersions: ['v1', 'v2'], // 'v1, v2' → 去空白/濾空（S15/AC-36.3）
     });
   });
 });

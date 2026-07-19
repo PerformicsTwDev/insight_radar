@@ -223,4 +223,6 @@ export const validationSchema = Joi.object({
   INGEST_BATCH_MAX: Joi.number().integer().min(1).default(500),
   // POST /captures 獨立 body 上限（MB，AC-36.5）；AI 回答/貼文集可能大 → 高於全域 BODY_LIMIT_MB，端點掛專屬 body parser，逾此 → 413。
   INGEST_BODY_LIMIT_MB: Joi.number().positive().default(10),
+  // POST /captures schemaVersion allowlist（S15/AC-36.3；逗號分隔）；缺/值不在清單 → 400（service 層斷言，不猜形狀）。預設僅收 v1（extension 現況）。
+  CAPTURE_ACCEPTED_SCHEMA_VERSIONS: Joi.string().min(1).default('v1'),
 });
