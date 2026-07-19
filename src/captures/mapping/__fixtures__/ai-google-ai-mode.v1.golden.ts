@@ -1,14 +1,15 @@
 // grounded in Design §18.3; pending extension type.ts reconciliation at T13.6
 //
-// AI 線 · extension · googleAiMode · v1.
+// AI 線 · extension · googleAiMode · v1 — SKELETON-PARTIAL（pending T14.4 whitelist 擴充）。
 // Design §18.3：AI Mode ＝ `blocks + references + reconstructed_markdown`；此外 extension 頁面尚帶 per-channel 專屬區塊
-// （如 follow-up「其他人也搜尋」`relatedQuestions`）——骨架白名單暫未涵蓋（per-channel 實欄位屬 M14 T14.4）。
-// 初始假設：骨架應能完整收斂本渠道 → full-map。（RED：由 contract test 對現行骨架驗證後對帳。）
+// （如 follow-up「其他人也搜尋」`relatedQuestions`）——骨架白名單暫未涵蓋 → `unknown_field:relatedQuestions` →
+// `mapStatus=partial`（AC-37.4 漂移預警，**非 bug**）。core（query/blocks/references）仍完整收斂。per-channel 實欄位收斂屬
+// M14 T14.4，屆時本 golden 應由 partial→ok（contract test 會因此轉紅，逼出一次有意識的 fixture 對帳）。
 import type { MapperGolden } from './golden.types';
 
 export const aiGoogleAiModeV1Golden: MapperGolden = {
   id: 'extension|googleAiMode|v1',
-  coverage: 'full-map',
+  coverage: 'skeleton-partial',
   fixtureVersion: 1,
   input: {
     source: 'extension',
@@ -34,8 +35,8 @@ export const aiGoogleAiModeV1Golden: MapperGolden = {
     },
   },
   expected: {
-    mapStatus: 'ok',
-    reasons: [],
+    mapStatus: 'partial',
+    reasons: ['unknown_field:relatedQuestions'],
     canonical: {
       source: 'extension',
       channel: 'googleAiMode',

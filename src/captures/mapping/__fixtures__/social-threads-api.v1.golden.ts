@@ -1,15 +1,15 @@
 // grounded in Design §18.5; pending extension type.ts reconciliation at T13.6
 //
-// Social 線 · threadsApi（reserved，`THREADS_API_ENABLED=false`）· threads · v1.
+// Social 線 · threadsApi（reserved，`THREADS_API_ENABLED=false`）· threads · v1 — SKELETON-PARTIAL（pending T16.5 whitelist 擴充）。
 // Design §18.5：Threads 官方 API `keyword_search` **互動數硬缺口 → metrics=null 不補 0**（S14；他人貼文 insights 拿不到）；
-// reserved API 僅補全文。Graph API 回傳 `{id,username,text,permalink,timestamp}`——`id` 為 per-platform 專屬欄位、
-// 骨架白名單暫未涵蓋（per-platform 實欄位屬 M16 T16.5）。timestamp 已是 ISO-8601 → 原樣（不重解讀既有位移）。
-// 初始假設：骨架應能完整收斂本平台 → full-map。（RED：由 contract test 對現行骨架驗證後對帳。）
+// reserved API 僅補全文。Graph API 回傳 `{id,username,text,permalink,timestamp}`——`id` 為 per-platform 專屬欄位、骨架白名單
+// 暫未涵蓋 → `unknown_field:id` → `mapStatus=partial`（AC-37.4 漂移預警，**非 bug**）。core（content/postKey）仍完整收斂、
+// metrics 全 null（S14）。timestamp 已是 ISO-8601 → 原樣（不重解讀既有位移）。per-platform 實欄位收斂屬 M16 T16.5（屆時 partial→ok）。
 import type { MapperGolden } from './golden.types';
 
 export const socialThreadsApiV1Golden: MapperGolden = {
   id: 'threadsApi|threads|v1',
-  coverage: 'full-map',
+  coverage: 'skeleton-partial',
   fixtureVersion: 1,
   input: {
     source: 'threadsApi',
@@ -25,8 +25,8 @@ export const socialThreadsApiV1Golden: MapperGolden = {
     },
   },
   expected: {
-    mapStatus: 'ok',
-    reasons: [],
+    mapStatus: 'partial',
+    reasons: ['unknown_field:id'],
     canonical: {
       source: 'threadsApi',
       platform: 'threads',
