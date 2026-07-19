@@ -3,7 +3,10 @@ import type { ConfigType } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import type { PinoLogger } from 'nestjs-pino';
 import type { ClusteringProvider } from '../clustering/clustering-provider.port';
-import { ClusteringUnavailableError } from '../clustering/clustering.errors';
+import {
+  ClusteringContractError,
+  ClusteringUnavailableError,
+} from '../clustering/clustering.errors';
 import type { ClusterResult } from '../clustering/clustering.types';
 import type { topicsConfig } from '../config/topics.config';
 import type { EmbeddingService } from '../embeddings/embedding.service';
@@ -249,6 +252,26 @@ describe('TopicClusterProcessor (T8.9b / TC-46 · TC-51)', () => {
     );
     // 不得標 partial（讓 BullMQ 重試整 job）。
     expect(deps.markStatus).not.toHaveBeenCalledWith('run-1', 'partial', expect.anything());
+  });
+
+  it('surfaces a ClusteringContractError (rethrown) instead of masking it as partial (M8-R2)', async () => {
+    const { processor, deps } = makeProcessor();
+    deps.findMany.mockResolvedValue([snapshotRow('a'), snapshotRow('b')]);
+    deps.embed.mockResolvedValue([
+      [1, 0],
+      [0, 1],
+    ]);
+    // 契約漂移是 bug、非外部降級（clustering.errors.ts：「非降級、是 bug」）——必須浮現為 failed，
+    // 不得被吞成 partial（否則其分型形同虛設，靜默遮蔽 cluster-service/client 契約不同步）。
+    deps.cluster.mockRejectedValue(
+      new ClusteringContractError('cluster-service response violates contract'),
+    );
+
+    await expect(processor.process(job())).rejects.toBeInstanceOf(ClusteringContractError);
+    // 不得標 partial、不得續跑 name/persist。
+    expect(deps.markStatus).not.toHaveBeenCalledWith('run-1', 'partial', expect.anything());
+    expect(deps.nameClusters).not.toHaveBeenCalled();
+    expect(deps.persist).not.toHaveBeenCalled();
   });
 
   it('marks partial (clusters still persisted) when a cluster naming is degraded', async () => {
