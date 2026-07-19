@@ -10,6 +10,7 @@ function makePrisma(overrides: {
   findUnique: jest.Mock;
   create: jest.Mock;
   findUniqueOrThrow: jest.Mock;
+  update?: jest.Mock;
 }): PrismaService {
   return { topicRun: overrides } as unknown as PrismaService;
 }
@@ -48,5 +49,35 @@ describe('TopicRepository.createRun concurrent path (T8.9a)', () => {
 
     await expect(repo.createRun(runInput)).rejects.toThrow('db down');
     expect(findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('resets a terminal-failed existing run to queued and returns created=true (M8-R3)', async () => {
+    // enqueue-fail 補償標的 failed run → 後續重送須可 reset 重跑（否則 idempotencyKey 永久占用、run 卡 failed）。
+    const findUnique = jest.fn().mockResolvedValue({ id: 'failed-id', status: 'failed' });
+    const update = jest.fn().mockResolvedValue(undefined);
+    const create = jest.fn();
+    const findUniqueOrThrow = jest.fn();
+    const repo = new TopicRepository(makePrisma({ findUnique, create, findUniqueOrThrow, update }));
+
+    await expect(repo.createRun(runInput)).resolves.toEqual({ runId: 'failed-id', created: true });
+    expect(update).toHaveBeenCalledTimes(1);
+    const [arg] = update.mock.calls[0] as [
+      { where: { id: string }; data: { status: string; error: null } },
+    ];
+    expect(arg.where).toEqual({ id: 'failed-id' });
+    expect(arg.data.status).toBe('queued');
+    expect(arg.data.error).toBeNull();
+    expect(create).not.toHaveBeenCalled(); // 沿用同一 runId，不新建
+  });
+
+  it('returns created=false (idempotent hit, no reset) for a non-failed existing run', async () => {
+    const findUnique = jest.fn().mockResolvedValue({ id: 'run-id', status: 'running' });
+    const update = jest.fn();
+    const repo = new TopicRepository(
+      makePrisma({ findUnique, create: jest.fn(), findUniqueOrThrow: jest.fn(), update }),
+    );
+
+    await expect(repo.createRun(runInput)).resolves.toEqual({ runId: 'run-id', created: false });
+    expect(update).not.toHaveBeenCalled(); // running/completed/partial/canceled 不 reset
   });
 });
