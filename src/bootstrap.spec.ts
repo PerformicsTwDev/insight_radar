@@ -72,7 +72,8 @@ describe('configureApp', () => {
     const app = makeApp({ 'app.helmetEnabled': true });
     configureApp(app as unknown as INestApplication);
 
-    expect(app.use).toHaveBeenCalledTimes(1);
+    // helmet（無 path）先，captures body parser（帶 path）後 → 兩次 app.use。
+    expect(app.use).toHaveBeenCalledTimes(2);
     expect(typeof (app.use.mock.calls[0] as unknown[])[0]).toBe('function'); // helmet middleware
   });
 
@@ -80,7 +81,9 @@ describe('configureApp', () => {
     const app = makeApp({ 'app.helmetEnabled': false });
     configureApp(app as unknown as INestApplication);
 
-    expect(app.use).not.toHaveBeenCalled();
+    // 僅剩 captures body parser 的 app.use（helmet 略過）。
+    expect(app.use).toHaveBeenCalledTimes(1);
+    expect((app.use.mock.calls[0] as unknown[])[0]).toBe('/api/v1/captures');
   });
 
   it('raises the JSON body limit to BODY_LIMIT_MB (NFR-14; over-limit → 413)', () => {
@@ -88,6 +91,17 @@ describe('configureApp', () => {
     configureApp(app as unknown as INestApplication);
 
     expect(app.useBodyParser).toHaveBeenCalledWith('json', { limit: '2mb' });
+  });
+
+  it('mounts a dedicated captures body parser before the global one (AC-36.5; INGEST_BODY_LIMIT_MB)', () => {
+    const app = makeApp({ 'app.helmetEnabled': false, 'ingest.bodyLimitMb': 10 });
+    configureApp(app as unknown as INestApplication);
+
+    // captures 專屬 parser 掛在 /api/v1/captures 路由、為一個 middleware 函式（獨立於全域 useBodyParser）。
+    const calls = app.use.mock.calls as unknown[][];
+    const capturesCall = calls.find((c) => c[0] === '/api/v1/captures');
+    expect(capturesCall).toBeDefined();
+    expect(typeof capturesCall?.[1]).toBe('function');
   });
 
   it('registers config secret values for redaction so they never surface in logs (T7.3/TC-29)', () => {

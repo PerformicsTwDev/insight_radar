@@ -59,6 +59,8 @@ const PROTECTED: { method: Method; path: string; label: string; sse?: boolean }[
     label: 'GET /:id/topics/stream (SSE)',
     sse: true,
   },
+  // M13 capture ingestion（T13.2 / AC-36.4：受 CompositeAuthGuard，未認證→401）。
+  { method: 'post', path: '/api/v1/captures', label: 'POST /captures (ingest)' },
 ];
 
 /** 正向對照只跑非 SSE 端點（帶正確 key 的 SSE 會開串流、令 supertest 不 resolve）。 */

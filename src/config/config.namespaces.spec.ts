@@ -7,6 +7,7 @@ import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
 import { topicsConfig } from './topics.config';
 import { trackingConfig } from './tracking.config';
+import { ingestConfig } from './ingest.config';
 import { databaseConfig } from './database.config';
 import { googleAdsConfig } from './google-ads.config';
 import { queryConfig } from './query.config';
@@ -111,6 +112,8 @@ const ENV: Record<string, string> = {
   TRACKING_REFRESH_CRON: '0 3 * * *',
   TRACKING_KEEP_SERIES_ON_DELETE: 'false',
   TRACKING_SWEEP_LEASE_MS: '3600000',
+  INGEST_BATCH_MAX: '500',
+  INGEST_BODY_LIMIT_MB: '10',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -287,6 +290,13 @@ describe('config namespaces (registerAs, typed)', () => {
       refreshCron: '0 3 * * *',
       keepSeriesOnDelete: false,
       sweepLeaseMs: 3600000,
+    });
+  });
+
+  it('ingestConfig maps capture batch + body limits env (coerced; M13)', () => {
+    expect(ingestConfig()).toEqual({
+      batchMax: 500,
+      bodyLimitMb: 10,
     });
   });
 });

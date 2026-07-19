@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import { scopedJsonBodyLimit } from './common/scoped-json-body-limit';
 import { registerSecretValues } from './logger/redaction';
 
 /** 對外前綴；可由 `API_PREFIX` 覆寫（NFR-10）。 */
@@ -37,6 +38,12 @@ export function configureApp(app: INestApplication): void {
   if (config.get<boolean>('app.helmetEnabled')) {
     app.use(helmet());
   }
+
+  // AC-36.5：`POST /captures` **獨立**（較大）body 上限。AI 回答／貼文集可能大於全域 `BODY_LIMIT_MB`，故此
+  // 路由需 `INGEST_BODY_LIMIT_MB`。**必須早於**下方全域 json parser 註冊——captures body 於此先以較大上限解析
+  // （成功即 `req._body=true`），全域 parser 因 `req._body` 略過此路由；非此路由則不受影響（維持全域上限）。
+  const ingestBodyLimitMb = config.get<number>('ingest.bodyLimitMb') ?? 10;
+  app.use(`/${resolveApiPrefix()}/captures`, scopedJsonBodyLimit(ingestBodyLimitMb * 1024 * 1024));
 
   // NFR-14：JSON body 上限。自 express 預設 100kb 提高到 `BODY_LIMIT_MB`（exact 模式大 seeds 需要）；
   // 逾此 body-parser 拋 PayloadTooLargeError → 413（由 HttpExceptionFilter 尊重 http-errors 的 4xx status）。

@@ -217,4 +217,10 @@ export const validationSchema = Joi.object({
   TRACKING_KEEP_SERIES_ON_DELETE: Joi.boolean().default(false),
   // 排程刷新 sweep 的 DB 租約鎖 TTL（毫秒；single-flight #470/NFR-16；預設 1h＝crash 復原上界，須 ≥ 預期 sweep 時長）。
   TRACKING_SWEEP_LEASE_MS: Joi.number().integer().min(1).default(3600000),
+
+  // —— Capture ingestion（M13，FR-36/NFR-17；Design §14/§18.2）——
+  // POST /captures 單批 items 上限（AC-36.5 請求形狀守門）；超 → 413，先於任何 contentHash 計算/DB 展開（防 DoS，比照 TRACKING_MAX_ITEMS_PER_REQUEST）。
+  INGEST_BATCH_MAX: Joi.number().integer().min(1).default(500),
+  // POST /captures 獨立 body 上限（MB，AC-36.5）；AI 回答/貼文集可能大 → 高於全域 BODY_LIMIT_MB，端點掛專屬 body parser，逾此 → 413。
+  INGEST_BODY_LIMIT_MB: Joi.number().positive().default(10),
 });

@@ -52,6 +52,12 @@ const collectCoverageFrom = [
   //   （皆 gate 內受測）。剩餘缺口 100% 屬 emitDecoratorMetadata phantom，比照 ai-insight.controller 排除，對外行為
   //   由 ideation.e2e 把關（coverage-gate rule §4）。
   '!<rootDir>/src/ideation/ideation.controller.ts',
+  // ★ captures.controller（T13.2）：**純委派 shell**——單一 handler `ingest` 直委派 `CapturesService.ingest`；
+  //   批次上限（413）/ownerId 歸屬/raw 落庫等真實分支全在 gate 內的 `CapturesService`（100% 覆蓋 + service e2e），
+  //   DTO 驗證（未知 source/缺 schemaVersion/空 items→400）由 ValidationPipe、body 上限→413 由 scopedJsonBodyLimit
+  //   （皆 gate 內受測）。剩餘缺口 100% 屬 emitDecoratorMetadata phantom（class-typed 建構子 + DTO 參數 + Promise
+  //   回傳），比照 ai-insight.controller 排除，對外行為由 captures.e2e 把關（coverage-gate rule §4）。
+  '!<rootDir>/src/captures/captures.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -76,6 +82,7 @@ const coverageIgnore = [
   'custom-classify/custom-classify\\.controller\\.ts$', // 純委派 shell（T12.7，owner/readiness/502 分支在 gate 內 service/filter）
   'custom-classify/custom-classify-assign\\.controller\\.ts$', // 純委派 SSE shell（T12.8，SSE 分支全測、owner/404/409/413 在 gate 內 run-service）
   'ideation/ideation\\.controller\\.ts$', // 純委派 shell（T12.10，驗證/502 分支在 gate 內 ValidationPipe/filter）
+  'captures/captures\\.controller\\.ts$', // 純委派 shell（T13.2，批次/ownerId/落庫分支在 gate 內 CapturesService）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。

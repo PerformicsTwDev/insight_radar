@@ -37,6 +37,61 @@
         ],
         "type": "object"
       },
+      "CaptureIngestDto": {
+        "properties": {
+          "channel": {
+            "description": "AI 渠道（AI 類帶；S20）",
+            "enum": [
+              "chatGpt",
+              "geminiApp",
+              "googleAiMode",
+              "googleSearch",
+              "aiOverview",
+              "aiMode",
+              "bingCopilot"
+            ],
+            "type": "string"
+          },
+          "items": {
+            "description": "該來源原始 payload 陣列（raw，逐筆落 captures.payload JSONB）",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "platform": {
+            "description": "Social 平台（Social 類帶；S20）",
+            "enum": [
+              "threads",
+              "facebook",
+              "dcard",
+              "ptt",
+              "customDomain"
+            ],
+            "type": "string"
+          },
+          "schemaVersion": {
+            "description": "schemaVersion 必帶（S15）；allowlist 比對於 T13.3",
+            "type": "string"
+          },
+          "source": {
+            "description": "push 來源（extension=primary；serpapi/threadsApi=reserved）",
+            "enum": [
+              "extension",
+              "serpapi",
+              "threadsApi"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "schemaVersion",
+          "items"
+        ],
+        "type": "object"
+      },
       "CreateKeywordAnalysisDto": {
         "properties": {
           "geo": {
@@ -406,6 +461,30 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/captures": {
+      "post": {
+        "operationId": "CapturesController_ingest",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureIngestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "captures"
         ]
       }
     },
