@@ -115,6 +115,7 @@ const ENV: Record<string, string> = {
   INGEST_BATCH_MAX: '500',
   INGEST_BODY_LIMIT_MB: '10',
   CAPTURE_ACCEPTED_SCHEMA_VERSIONS: 'v1, v2', // 逗號分隔（含空白）→ 去空白/濾空成陣列（S15）
+  EXTENSION_BRIDGE_REQUIRED_FEATURES: 'threadsSearch, chatGpt, readability', // 能力協商基準（S21/NFR-21）→ CSV 解析
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -299,6 +300,7 @@ describe('config namespaces (registerAs, typed)', () => {
       batchMax: 500,
       bodyLimitMb: 10,
       acceptedSchemaVersions: ['v1', 'v2'], // 'v1, v2' → 去空白/濾空（S15/AC-36.3）
+      bridgeRequiredFeatures: ['threadsSearch', 'chatGpt', 'readability'], // 能力協商基準 CSV → 去空白/濾空（S21/NFR-21）
     });
   });
 });

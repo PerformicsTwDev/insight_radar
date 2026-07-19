@@ -225,4 +225,10 @@ export const validationSchema = Joi.object({
   INGEST_BODY_LIMIT_MB: Joi.number().positive().default(10),
   // POST /captures schemaVersion allowlist（S15/AC-36.3；逗號分隔）；缺/值不在清單 → 400（service 層斷言，不猜形狀）。預設僅收 v1（extension 現況）。
   CAPTURE_ACCEPTED_SCHEMA_VERSIONS: Joi.string().min(1).default('v1'),
+  // extension bridge 能力協商基準（S21/NFR-21/AC-51.4；逗號分隔）；我方期望 EXTERNAL_PONG.features[] 應含之渠道，未回報→gating not-available（不硬崩/不編造）。預設＝現 confirmed 3 + 期望擴充（AI 四渠道+社群多平台+readability，外部協調 T13.6）。
+  EXTENSION_BRIDGE_REQUIRED_FEATURES: Joi.string()
+    .min(1)
+    .default(
+      'threadsSearch,googleSerp,chatGpt,geminiApp,googleAiMode,googleSearch,facebook,dcard,ptt,readability',
+    ),
 });
