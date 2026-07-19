@@ -60,25 +60,60 @@ interface UserRow {
   email: string;
 }
 
-/** 忠實 `prisma` 替身：`capture.createMany`（append-only 落庫）＋ `user.findUnique`（session 投影）。 */
+/**
+ * 忠實 `prisma` 替身：`capture.createMany`（append-only 落庫，`skipDuplicates` 尊重 `@@unique([contentHash])`
+ * 的 ON CONFLICT DO NOTHING 語意）＋ `capture.findMany`（依 contentHash 回讀，供 T13.3 dedup 對帳）＋
+ * `user.findUnique`（session 投影）。真 Postgres unique 去重／並發由 `capture-idempotency.int-spec` 覆蓋；本
+ * 替身讓 e2e 可在無 Docker 下驗 HTTP 契約 + service 編排（含 allowlist 400、序列重送 dedup）。
+ */
 function makeFakeDb(users: UserRow[]) {
   const captures: CaptureRow[] = [];
+  const byHash = new Map<string, CaptureRow>();
   const userMap = new Map(users.map((u) => [u.id, u]));
   return {
     captures,
     reset(): void {
       captures.length = 0;
+      byHash.clear();
     },
     user: {
       findUnique: ({ where }: { where: { id?: string } }): Promise<UserRow | null> =>
         Promise.resolve(where.id ? (userMap.get(where.id) ?? null) : null),
     },
     capture: {
-      createMany: ({ data }: { data: CaptureRow[] }): Promise<{ count: number }> => {
+      createMany: ({
+        data,
+        skipDuplicates,
+      }: {
+        data: CaptureRow[];
+        skipDuplicates?: boolean;
+      }): Promise<{ count: number }> => {
+        let count = 0;
         for (const row of data) {
-          captures.push({ ...row });
+          if (byHash.has(row.contentHash)) {
+            if (skipDuplicates) continue; // ON CONFLICT DO NOTHING
+            const err = new Error('Unique constraint failed on the fields: (`content_hash`)');
+            return Promise.reject(Object.assign(err, { code: 'P2002' }));
+          }
+          const stored = { ...row };
+          captures.push(stored);
+          byHash.set(stored.contentHash, stored);
+          count += 1;
         }
-        return Promise.resolve({ count: data.length });
+        return Promise.resolve({ count });
+      },
+      findMany: ({
+        where,
+      }: {
+        where?: { contentHash?: { in?: string[] } };
+        select?: unknown;
+      }): Promise<Array<{ id: string; contentHash: string }>> => {
+        const hashes = where?.contentHash?.in ?? [];
+        const rows = hashes
+          .map((h) => byHash.get(h))
+          .filter((r): r is CaptureRow => r !== undefined)
+          .map((r) => ({ id: r.id, contentHash: r.contentHash }));
+        return Promise.resolve(rows);
       },
     },
   };
@@ -273,6 +308,57 @@ describe('TC-72: capture ingestion endpoint (e2e · FR-36 · AC-36.1/36.4/36.5)'
       const over = 'x'.repeat(2.5 * 1024 * 1024); // ~2.5MB：> ingest 2MB
       const res = await asSession(validBody({ items: [{ text: over }] }));
       expect(res.status).toBe(413);
+    });
+  });
+
+  // schemaVersion allowlist（S15/AC-36.3）＋ content-hash dedup 的 service 編排（T13.3）。真 DB unique/並發
+  // 由 capture-idempotency.int-spec 覆蓋；此處以忠實替身驗 HTTP 契約 + 序列 dedup + allowlist 400。
+  describe('schemaVersion allowlist (AC-36.3 · S15)', () => {
+    // .env.test CAPTURE_ACCEPTED_SCHEMA_VERSIONS=v1,v2。
+    it('schemaVersion not in CAPTURE_ACCEPTED_SCHEMA_VERSIONS → 400; nothing persisted', async () => {
+      const res = await asSession(validBody({ schemaVersion: 'v9' }));
+      expect(res.status).toBe(400);
+      expect(db.captures).toHaveLength(0);
+    });
+
+    it('schemaVersion within allowlist → 202', async () => {
+      const res = await asSession(validBody({ schemaVersion: 'v2' }));
+      expect(res.status).toBe(202);
+    });
+  });
+
+  describe('content-hash idempotency (AC-36.2 · S16)', () => {
+    it('resending identical content → second call deduped, same ids, one row per distinct item', async () => {
+      const first = await asSession(validBody());
+      expect(first.status).toBe(202);
+      expect(db.captures).toHaveLength(2);
+      const firstBody = first.body as IngestResult;
+      expect(firstBody.accepted).toBe(2);
+      expect(firstBody.deduped).toBe(0);
+
+      const second = await asSession(validBody());
+      expect(second.status).toBe(202);
+      const secondBody = second.body as IngestResult;
+      expect(secondBody.accepted).toBe(0);
+      expect(secondBody.deduped).toBe(2);
+      expect(secondBody.ids).toEqual(firstBody.ids); // 回既有 id
+      // raw append-only：撞重不重複落列。
+      expect(db.captures).toHaveLength(2);
+    });
+
+    it('in-batch duplicate item dedups; ids align to input positions', async () => {
+      const item = { query: 'dup', answer: 'same' };
+      const res = await asSession(
+        validBody({ items: [item, { ...item }, { query: 'other', answer: 'x' }] }),
+      );
+      expect(res.status).toBe(202);
+      const body = res.body as IngestResult;
+      expect(body.accepted).toBe(2);
+      expect(body.deduped).toBe(1);
+      expect(body.ids).toHaveLength(3);
+      expect(body.ids[0]).toBe(body.ids[1]);
+      expect(body.ids[2]).not.toBe(body.ids[0]);
+      expect(db.captures).toHaveLength(2);
     });
   });
 });

@@ -20,9 +20,24 @@ export interface IngestConfig {
    * 端點掛專屬 body parser（於全域 parser 之前、僅此路由），逾此 → 413。與全域 hardening（T9.8）機制一致。
    */
   bodyLimitMb: number;
+  /**
+   * `POST /captures` 的 `schemaVersion` **allowlist**（S15 / AC-36.3；`CAPTURE_ACCEPTED_SCHEMA_VERSIONS`
+   * 逗號分隔）。extension 契約現況無 schema versioning——本端點以此欄補上缺口：缺 / 值不在此清單 → `400`
+   * （service 層斷言，**不**靜默套預設、不猜形狀）。Joi 保證非空，故此陣列至少一員。
+   */
+  acceptedSchemaVersions: string[];
+}
+
+/** 逗號分隔 → 去空白、濾空的字串陣列（`"v1, v2" → ["v1","v2"]`）。 */
+function parseCsv(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
 }
 
 export const ingestConfig = registerAs('ingest', (): IngestConfig => ({
   batchMax: Number(process.env.INGEST_BATCH_MAX),
   bodyLimitMb: Number(process.env.INGEST_BODY_LIMIT_MB),
+  acceptedSchemaVersions: parseCsv(process.env.CAPTURE_ACCEPTED_SCHEMA_VERSIONS),
 }));
