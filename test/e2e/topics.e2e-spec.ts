@@ -60,7 +60,8 @@ describe('POST/GET /keyword-analyses/:id/topics (e2e, TC-48)', () => {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(getQueueToken(TOPICS_QUEUE))
-      .useValue({ add: queueAdd })
+      // getJob=null → 全新 runId 無同 id 舊 job（enqueueReusingJobId 直接 add，M8-R3）。
+      .useValue({ add: queueAdd, getJob: jest.fn().mockResolvedValue(null) })
       .overrideProvider(BULL_CONNECTION)
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)
