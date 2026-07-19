@@ -17,7 +17,11 @@ import type { ExpandedTopicMember } from '../topics/topic.repository';
 import type { AddMembersDto, MemberItem } from './dto/add-members.dto';
 import type { CreateTrackingListDto } from './dto/create-tracking-list.dto';
 import type { RenameTrackingListDto } from './dto/rename-tracking-list.dto';
-import { assembleVolumeSeries, type VolumeSeriesResult } from './volume-series';
+import {
+  assembleVolumeSeries,
+  type SeriesSnapshotInput,
+  type VolumeSeriesResult,
+} from './volume-series';
 
 /** 時序讀取的時間範圍（FR-30，AC-30.1/30.3）：`fetchedAt` 含端點過濾；皆缺＝不設界（全時序）。 */
 export interface SeriesRange {
@@ -184,21 +188,49 @@ export class TrackingListService {
     assertOwnedRow(list, actor, notFoundMessage(listId));
 
     const memberKeys = list.members.map((m) => m.normalizedText);
+    const snapshotSelect = {
+      normalizedText: true,
+      fetchedAt: true,
+      avgMonthlySearches: true,
+      competition: true,
+      cpcLowMicros: true,
+    } as const;
     // 空清單：無成員 key → 略過快照查詢（空時序，AC-30.3；亦免 `IN ()` 無謂查詢）。
-    const snapshots =
+    const [snapshots, latestSnapshots] =
       memberKeys.length === 0
-        ? []
-        : await this.prisma.volumeSnapshot.findMany({
-            where: seriesWhere(listId, memberKeys, range),
-            orderBy: { fetchedAt: 'asc' },
-            select: {
-              normalizedText: true,
-              fetchedAt: true,
-              avgMonthlySearches: true,
-              competition: true,
-              cpcLowMicros: true,
-            },
-          });
+        ? [[], []]
+        : await Promise.all([
+            // (a) 視窗內快照（from/to）——供 axis/series/total。
+            this.prisma.volumeSnapshot.findMany({
+              where: seriesWhere(listId, memberKeys, range),
+              orderBy: { fetchedAt: 'asc' },
+              select: snapshotSelect,
+            }),
+            // (b) 每成員**實際最新**一筆（**不套 from/to**，AC-30.5 成員表 latest；#471-1）。`distinct` +
+            //     `orderBy` 取每 normalizedText 依 fetchedAt desc 的首列＝該成員 max-fetchedAt 快照。
+            this.prisma.volumeSnapshot.findMany({
+              where: { listId, normalizedText: { in: memberKeys } },
+              distinct: ['normalizedText'],
+              orderBy: [{ normalizedText: 'asc' }, { fetchedAt: 'desc' }],
+              select: snapshotSelect,
+            }),
+          ]);
+
+    // avg_monthly_searches is BIGINT (#469) → JS number at the read boundary so the pure
+    // assembler + JSON contract stay number-shaped (values < 2^53 exact; null stays null).
+    const toInput = (s: {
+      normalizedText: string;
+      fetchedAt: Date;
+      avgMonthlySearches: bigint | null;
+      competition: string | null;
+      cpcLowMicros: bigint | null;
+    }): SeriesSnapshotInput => ({
+      normalizedText: s.normalizedText,
+      fetchedAt: s.fetchedAt,
+      avgMonthlySearches: s.avgMonthlySearches === null ? null : Number(s.avgMonthlySearches),
+      competition: s.competition,
+      cpcLowMicros: s.cpcLowMicros,
+    });
 
     return assembleVolumeSeries(
       { listId: list.id, name: list.name, geo: list.geo, language: list.language },
@@ -208,12 +240,8 @@ export class TrackingListService {
         addedAt: m.addedAt,
         lastCheckedAt: m.lastCheckedAt,
       })),
-      // avg_monthly_searches is BIGINT (#469) → JS number at the read boundary so the pure
-      // assembler + JSON contract stay number-shaped (values < 2^53 exact; null stays null).
-      snapshots.map((s) => ({
-        ...s,
-        avgMonthlySearches: s.avgMonthlySearches === null ? null : Number(s.avgMonthlySearches),
-      })),
+      snapshots.map(toInput),
+      latestSnapshots.map(toInput),
     );
   }
 

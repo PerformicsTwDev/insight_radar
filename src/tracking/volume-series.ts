@@ -7,9 +7,12 @@ import { microsToAmount } from '../google-ads/mapping/micros';
  * - `axis`＝清單全部成員快照 `fetchedAt` 的**去重升冪聯集**（已由呼叫端依 from/to 過濾、scope 至現有成員）。
  * - 每成員 `series` **對齊 `axis`**：該時點有快照 → 該筆值；該時點無快照 → **斷點 `{ …null }`**（AC-30.2，不補 0）。
  * - `total[i]`＝該時點**非 null** 成員 `avgMonthlySearches` 之和；全部缺 → `0`（趨勢語意 AC-5.3/§9.2，恆為數字）。
- * - `summary.latestFetchedAt`＝全體快照最新 `fetchedAt`；**無快照 → `null` + `axis=[]` + 各成員 `series=[]`**
- *   （AC-30.3 空狀態，不回誤導假 0 線）。
+ * - `summary.latestFetchedAt`＝**視窗內**（`snapshots`）最新 `fetchedAt`；**無快照 → `null` + `axis=[]` +
+ *   各成員 `series=[]`**（AC-30.3 空狀態，不回誤導假 0 線）。
  * - 每成員 `latest`＝該成員自己**最新一筆**快照的指標（AC-30.5 成員表 / sparkline 起點）；無則 `null`。
+ *   **`latest` 來源為 `latestSnapshots`（成員實際最新、`from`/`to` 未過濾）而非視窗內 `snapshots`**——否則
+ *   `?to=` 會讓成員表顯示「視窗內最新」的**過時值**而非成員實際最新指標（#471-1；`latestSnapshots` 省略時
+ *   退化為 `snapshots`，供無視窗呼叫端沿用）。chart（axis/series/total）仍受 `snapshots` 視窗界定。
  *
  * **cpc（單值）**＝`microsToAmount(cpcLowMicros)`（沿用共用 mapper：`micros ÷ 1e6`、缺值→null，正確性單點）。
  * 快照存 low/high 兩欄，對外 `cpc` 取 **low**（floor bid 估計）——比照既有唯一「CPC 縮為單一純量」的
@@ -100,14 +103,14 @@ export function assembleVolumeSeries(
   list: SeriesListMeta,
   members: SeriesMemberInput[],
   snapshots: SeriesSnapshotInput[],
+  latestSnapshots: SeriesSnapshotInput[] = snapshots,
 ): VolumeSeriesResult {
-  // 1. axis = 全體快照 fetchedAt 的去重升冪聯集（以 epoch ms 為去重/排序 key；同批刷新之同一時點自然併點）。
+  // 1. axis = 視窗內快照 fetchedAt 的去重升冪聯集（以 epoch ms 為去重/排序 key；同批刷新之同一時點自然併點）。
   const axisTimes = [...new Set(snapshots.map((s) => s.fetchedAt.getTime()))].sort((a, b) => a - b);
   const axis = axisTimes.map((t) => new Date(t));
 
-  // 2. 依成員索引快照：time(ms) → 指標點；同時追蹤每成員自身最新一筆（AC-30.5 latest）。
+  // 2. 依成員索引視窗內快照：time(ms) → 指標點（供 axis 對齊 + total）。
   const pointsByMember = new Map<string, Map<number, SeriesMetricPoint>>();
-  const latestByMember = new Map<string, SeriesPoint>();
   for (const snap of snapshots) {
     const t = snap.fetchedAt.getTime();
     const point = toMetricPoint(snap);
@@ -117,9 +120,19 @@ export function assembleVolumeSeries(
       pointsByMember.set(snap.normalizedText, byTime);
     }
     byTime.set(t, point);
+  }
+
+  // 2b. 每成員自身最新一筆（AC-30.5 latest）——**自 `latestSnapshots`（未過濾 from/to）** 求 per-member
+  //     max-fetchedAt，故 `?to=` 不會讓成員表顯示過時值（#471-1）。防禦性求 max（不假設每成員僅一列）。
+  const latestByMember = new Map<string, SeriesPoint>();
+  for (const snap of latestSnapshots) {
+    const t = snap.fetchedAt.getTime();
     const prevLatest = latestByMember.get(snap.normalizedText);
     if (!prevLatest || t > prevLatest.fetchedAt.getTime()) {
-      latestByMember.set(snap.normalizedText, { fetchedAt: snap.fetchedAt, ...point });
+      latestByMember.set(snap.normalizedText, {
+        fetchedAt: snap.fetchedAt,
+        ...toMetricPoint(snap),
+      });
     }
   }
 
