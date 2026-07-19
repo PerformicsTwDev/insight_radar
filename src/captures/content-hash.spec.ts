@@ -1,29 +1,21 @@
-import { canonicalJson, captureContentHash } from './content-hash';
+import { canonicalStringify } from '../common/canonical-json';
+import { sha256Hex } from '../common/sha256';
+import { captureContentHash } from './content-hash';
 
-describe('canonicalJson (S16 canonical serialization)', () => {
-  it('sorts object keys recursively (key order irrelevant → same output)', () => {
-    expect(canonicalJson({ b: 1, a: 2 })).toBe('{"a":2,"b":1}');
-    expect(canonicalJson({ a: 2, b: 1 })).toBe(canonicalJson({ b: 1, a: 2 }));
-    expect(canonicalJson({ z: { y: 1, x: 2 } })).toBe('{"z":{"x":2,"y":1}}');
-  });
-
-  it('preserves array order (semantically significant)', () => {
-    expect(canonicalJson([3, 1, 2])).toBe('[3,1,2]');
-    expect(canonicalJson([{ b: 1, a: 2 }])).toBe('[{"a":2,"b":1}]');
-  });
-
-  it('skips undefined properties (JSON convention) and keeps null/primitives', () => {
-    expect(canonicalJson({ a: undefined, b: null, c: 'x' })).toBe('{"b":null,"c":"x"}');
-    expect(canonicalJson('plain')).toBe('"plain"');
-    expect(canonicalJson(42)).toBe('42');
-  });
-});
+// canonical 序列化本身（鍵序無關/陣列保序/undefined 略過）由 common/canonical-json.spec 覆蓋（單一 SSOT）；
+// 此檔專驗 captureContentHash 以該序列化組出 S16 去重鍵。
 
 describe('captureContentHash (S16 dedup key = sha256(canonical(source,schemaVersion,item)))', () => {
   const base = { source: 'extension', schemaVersion: 'v1', item: { q: 'a', r: 'b' } };
 
   it('is a 64-char hex sha256 digest', () => {
     expect(captureContentHash(base)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('equals sha256Hex(canonicalStringify([source, schemaVersion, item])) — shared SSOT, no parallel impl', () => {
+    expect(captureContentHash(base)).toBe(
+      sha256Hex(canonicalStringify([base.source, base.schemaVersion, base.item])),
+    );
   });
 
   it('is deterministic and key-order-independent (same content → same hash)', () => {
