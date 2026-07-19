@@ -43,6 +43,7 @@ describe('TrackingList CRUD (integration · Testcontainers · TC-64 · FR-28/27)
       backfillMonths: 12,
       refreshCron: '0 3 * * *',
       keepSeriesOnDelete,
+      sweepLeaseMs: 3600000,
     });
 
   afterAll(async () => {

@@ -7,3 +7,4 @@ export * from './volume-observation';
 export * from './volume-series';
 export * from './tracking-refresh.service';
 export * from './tracking-refresh.processor';
+export * from './sweep-lease.service';

@@ -90,6 +90,7 @@ describe('TrackingList add members (integration · Testcontainers · TC-64 · FR
       backfillMonths: 12,
       refreshCron: '0 3 * * *',
       keepSeriesOnDelete: false,
+      sweepLeaseMs: 3600000,
     });
 
   /** 建父分析（params 帶 geo/language 語境），回 analysisId。 */

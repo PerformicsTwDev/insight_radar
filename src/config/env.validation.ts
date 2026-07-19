@@ -215,4 +215,6 @@ export const validationSchema = Joi.object({
   TRACKING_REFRESH_CRON: cronString().default('0 3 * * *'),
   // 刪清單時保留時序（AC-28.2；預設 false＝連帶刪除，VolumeSnapshot 無 FK cascade → service 顯式 deleteMany）。
   TRACKING_KEEP_SERIES_ON_DELETE: Joi.boolean().default(false),
+  // 排程刷新 sweep 的 DB 租約鎖 TTL（毫秒；single-flight #470/NFR-16；預設 1h＝crash 復原上界，須 ≥ 預期 sweep 時長）。
+  TRACKING_SWEEP_LEASE_MS: Joi.number().integer().min(1).default(3600000),
 });

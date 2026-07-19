@@ -3,6 +3,7 @@ import type { ConfigType } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import type { trackingConfig } from '../config/tracking.config';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { SweepLeaseService } from './sweep-lease.service';
 import type { RefreshListResult, VolumeRefreshService } from './volume-refresh.service';
 import {
   SCHEDULED_REFRESH_JOB,
@@ -26,6 +27,8 @@ interface Deps {
   refreshList: jest.Mock<Promise<RefreshListResult>, [string]>;
   findMany: jest.Mock<Promise<Array<{ id: string }>>, []>;
   upsertJobScheduler: jest.Mock;
+  acquire: jest.Mock<Promise<boolean>, []>;
+  release: jest.Mock<Promise<void>, []>;
 }
 
 function makeProcessor(refreshCron = '0 3 * * *'): {
@@ -36,14 +39,21 @@ function makeProcessor(refreshCron = '0 3 * * *'): {
     refreshList: jest.fn<Promise<RefreshListResult>, [string]>().mockResolvedValue(refreshResult()),
     findMany: jest.fn<Promise<Array<{ id: string }>>, []>(),
     upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+    // 預設搶到租約（既有排程測試不受 single-flight 影響）；skip 路徑測試覆寫成 false。
+    acquire: jest.fn<Promise<boolean>, []>().mockResolvedValue(true),
+    release: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
   };
   const queue = {
     upsertJobScheduler: deps.upsertJobScheduler,
   } as unknown as import('bullmq').Queue;
   const volumeRefresh = { refreshList: deps.refreshList } as unknown as VolumeRefreshService;
   const prisma = { trackingList: { findMany: deps.findMany } } as unknown as PrismaService;
+  const sweepLease = {
+    acquire: deps.acquire,
+    release: deps.release,
+  } as unknown as SweepLeaseService;
   const config = { refreshCron } as ConfigType<typeof trackingConfig>;
-  const processor = new TrackingRefreshProcessor(queue, volumeRefresh, prisma, config);
+  const processor = new TrackingRefreshProcessor(queue, volumeRefresh, prisma, sweepLease, config);
   return { processor, deps };
 }
 
@@ -121,6 +131,49 @@ describe('TC-65: TrackingRefreshProcessor (T11.6 · FR-29 AC-29.2/29.5 · NFR-16
       // 清單層成功（refreshList 未 throw），但成員層 partial 失敗須 warn 表面化（否則不可辨）。
       expect(result).toEqual({ total: 1, refreshed: 1, failed: 0 });
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('partial: 20/200'));
+    });
+  });
+
+  describe('scheduled sweep single-flight (#470 · NFR-16)', () => {
+    it('acquires the sweep lease before enumerating lists and releases it after (happy path)', async () => {
+      const { processor, deps } = makeProcessor();
+      deps.findMany.mockResolvedValue([{ id: 'l1' }, { id: 'l2' }]);
+
+      const result = await processor.process(job());
+
+      expect(result).toEqual({ total: 2, refreshed: 2, failed: 0 });
+      expect(deps.acquire).toHaveBeenCalledTimes(1);
+      expect(deps.release).toHaveBeenCalledTimes(1); // finally 釋放
+    });
+
+    it('skips the sweep (no enumerate/refresh) when the lease is held by another sweep', async () => {
+      const { processor, deps } = makeProcessor();
+      deps.acquire.mockResolvedValue(false); // 已有進行中 sweep（排程堆積 / 跨實例）
+
+      const result = await processor.process(job());
+
+      // 跳過：不遍歷、不刷新、不雙耗 Ads 配額；未搶到租約 → 不釋放（避免誤放他人租約）。
+      expect(result).toEqual({ total: 0, refreshed: 0, failed: 0, skipped: true });
+      expect(deps.findMany).not.toHaveBeenCalled();
+      expect(deps.refreshList).not.toHaveBeenCalled();
+      expect(deps.release).not.toHaveBeenCalled();
+    });
+
+    it('releases the lease even if the sweep throws mid-flight (finally)', async () => {
+      const { processor, deps } = makeProcessor();
+      deps.findMany.mockRejectedValue(new Error('db blip during enumerate'));
+
+      await expect(processor.process(job())).rejects.toThrow('db blip during enumerate');
+      expect(deps.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('manual refresh does NOT take the sweep lease (per-list jobId single-flight, AC-29.6)', async () => {
+      const { processor, deps } = makeProcessor();
+
+      await processor.process(job({ listId: 'only-this' }));
+
+      expect(deps.acquire).not.toHaveBeenCalled();
+      expect(deps.release).not.toHaveBeenCalled();
     });
   });
 

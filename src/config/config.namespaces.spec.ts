@@ -110,6 +110,7 @@ const ENV: Record<string, string> = {
   TRACKING_BACKFILL_MONTHS: '12',
   TRACKING_REFRESH_CRON: '0 3 * * *',
   TRACKING_KEEP_SERIES_ON_DELETE: 'false',
+  TRACKING_SWEEP_LEASE_MS: '3600000',
 };
 
 describe('config namespaces (registerAs, typed)', () => {
@@ -285,6 +286,7 @@ describe('config namespaces (registerAs, typed)', () => {
       backfillMonths: 12,
       refreshCron: '0 3 * * *',
       keepSeriesOnDelete: false,
+      sweepLeaseMs: 3600000,
     });
   });
 });
