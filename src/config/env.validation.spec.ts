@@ -129,6 +129,19 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.EXTENSION_BRIDGE_REQUIRED_FEATURES).toBe(
         'threadsSearch,googleSerp,chatGpt,geminiApp,googleAiMode,googleSearch,facebook,dcard,ptt,readability',
       );
+      // M13 CAPTURE_PAT_ENABLED（extension direct-push v2 PAT 認證開關）：reserved（NG14、本期無消費者），
+      // 預設 false——僅型別驗證（避免 typo 靜默放行），不接線任何行為（Design §14）。
+      expect(value.CAPTURE_PAT_ENABLED).toBe(false);
+    });
+
+    it('rejects a non-boolean CAPTURE_PAT_ENABLED (reserved v2 flag is still type-validated, not silently passed)', () => {
+      // reserved（v2/NG14）但已入 Joi：非布林值 → fail-fast，不因 allowUnknown 靜默放行（NFR-5）。
+      const { error } = validationSchema.validate(
+        { ...validEnv, CAPTURE_PAT_ENABLED: 'not-a-bool' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('CAPTURE_PAT_ENABLED');
     });
 
     it('fail-fasts when SESSION_SECRET is missing (M10 required secret, TC-63)', () => {

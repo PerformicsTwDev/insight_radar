@@ -231,4 +231,13 @@ export const validationSchema = Joi.object({
     .default(
       'threadsSearch,googleSerp,chatGpt,geminiApp,googleAiMode,googleSearch,facebook,dcard,ptt,readability',
     ),
+  // extension direct-push（v2）PAT 認證開關（NG14；Design §14）。**reserved（本期不接線）**：direct-push（extension
+  // 直打 POST /captures + PAT）為 v2 預留，本期主管道＝前端代 extension push（走 session cookie）。入 Joi 僅為**型別
+  // 驗證 + 明確預設 false**（避免 typo 經 allowUnknown 靜默放行，NFR-5）——**無 runtime 消費者**（不入 ingest.config，
+  // 比照 TRACKING_HISTORY_RETENTION_DAYS「無消費者故不入 config」慣例），啟用 PAT 認證為未來任務（T13.8/v2）。
+  CAPTURE_PAT_ENABLED: Joi.boolean().default(false),
+  // ⚠ CAPTURE_ACCEPTED_SOURCES / CAPTURE_ACCEPTED_CHANNELS / CAPTURE_ACCEPTED_PLATFORMS（Design §14 M13 段）**非 env**：
+  // source/channel/platform 為封閉集合，由 DTO const enum（capture-ingest.dto.ts 的 @IsIn + @ApiProperty enum，供 OpenAPI）
+  // 與 per-discriminator mapper registry 共同界定並強制（S20「每平台/每渠道一 mapper」）。env-gating 為 fake configurability
+  // ——不在 enum 的值無對應 mapper、無法處理（比照 GEMINI_EMBEDDING_DIM 釘 3072），故不入 Joi/.env.example（Design §14 已對齊）。
 });

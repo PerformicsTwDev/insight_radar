@@ -114,3 +114,17 @@ pnpm start:prod                       # node dist/main
 - **調參**：`TRACKING_MAX_LISTS` / `TRACKING_MAX_MEMBERS_PER_LIST` 依「每日刷新總關鍵字數 × ~1 QPS/CID」估算天花板；`TRACKING_KEEP_SERIES_ON_DELETE=false`（預設）刪清單連帶刪時序、`true` 保留孤立快照（`VolumeSnapshot` 無 FK cascade，由 service 顯式 `deleteMany`）。`TRACKING_HISTORY_RETENTION_DAYS` 為 reserved（未接線，pruning 為未來任務）。
 
 （值班速查補充：`Ads 用量暴增` 除 §2 錯誤分類外，另查追蹤清單/成員數是否暴增、`TRACKING_REFRESH_CRON` 是否誤設高頻。）
+
+## 9. Capture ingestion（M13，FR-36/37 / NFR-17）
+
+`POST /api/v1/captures` 把前端代 extension 轉發的批次（AI 回答 / 社群貼文）落 **raw append-only**（`captures` 表），回 `202 {accepted,deduped,ids}`。完整契約見 [`docs/API.md`](./API.md) 的「M13 Capture ingestion」節；以下為維運要點：
+
+- **請求形狀守門（先於任何 DB 展開，防 DoS，NFR-17）**：批次 `items` 數 > `INGEST_BATCH_MAX`（預設 500）→ **413**；request body > `INGEST_BODY_LIMIT_MB`（預設 10MB，**獨立於全域 `BODY_LIMIT_MB`**——capture 端點掛專屬、較大的 body parser，因 AI 回答/貼文集可能大）→ **413**。兩者皆先於 `contentHash` 計算/DB 存取即拒絕。調高前評估「單請求最壞放大」與 DB 寫入壓力。
+- **content-hash idempotency（S16）**：去重鍵 `sha256(canonical(source,schemaVersion,item))`（`content_hash` `@@unique`）。同內容重送**不重複落列、不覆寫**（append-only）、計入 `deduped`；並發由 DB `ON CONFLICT DO NOTHING` 仲裁（不拋 P2002）。重複請求安全、可放心重試。
+- **schemaVersion allowlist（S15）**：`CAPTURE_ACCEPTED_SCHEMA_VERSIONS`（逗號分隔 env，預設 `v1`）＝本服務願受理的 payload 形狀版本集合；缺/不在清單→**400**（不猜形狀、不套預設）。**擴版序**：extension 升 payload 形狀 → 先在 repo 加對應 exact-version mapper → **再**把新版本加入 allowlist（否則收到無 mapper 可解的版本）。
+- **source/channel/platform allowlist ＝ typed enum（非 env）**：由 DTO const enum（`capture-ingest.dto.ts` 的 `@IsIn` + OpenAPI `enum`）＋ mapper registry 界定/強制（S20「每平台/每渠道一 mapper」）。新增渠道/平台＝加 mapper + 擴 enum 的**程式變更**，非 env 開關——**無對應 `CAPTURE_ACCEPTED_SOURCES/CHANNELS/PLATFORMS` env**（env-gating 無 mapper 支撐＝fake configurability，比照 `GEMINI_EMBEDDING_DIM` 釘 3072）。
+- **能力協商 gating（S21/NFR-21）**：extension `EXTERNAL_PONG.features[]` 對照 `EXTENSION_BRIDGE_REQUIRED_FEATURES`（期望渠道基準，逗號分隔）；未回報的渠道 → gating not-available（前端轉發鏈不轉發、不編造），非硬崩。extension 端擴充落地後把該渠道加入回報即自動放行；擴充基準有調整時改此 env。
+- **direct-push（v2/PAT）為 reserved**：`CAPTURE_PAT_ENABLED`（預設 `false`）本期不接線（僅 Joi 型別驗證 + 預設，無 runtime 消費者）；本期唯一管道＝前端代 push（走 session cookie，無新祕密）。
+- **owner 歸屬（FR-27）**：session→`ownerId=user.id`、`x-api-key` 機器身分→`ownerId=null`（唯一強制點在 service 落庫）。
+
+**症狀 → 處置**：capture 全 `400`（schemaVersion）→ 確認 client 送的 `schemaVersion` 在 `CAPTURE_ACCEPTED_SCHEMA_VERSIONS`；全 `413` → 查批次筆數/ body 大小 vs `INGEST_BATCH_MAX`/`INGEST_BODY_LIMIT_MB`；某渠道貼文「靜默不進來」→ 查該渠道是否在 extension `EXTERNAL_PONG.features[]`（能力協商 not-available＝前端未轉發），非後端錯誤。

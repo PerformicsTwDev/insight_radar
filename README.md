@@ -7,7 +7,7 @@
 - **後端 API 服務**（NestJS 11）— 儲存庫根目錄（`src/`、`test/`、根 `package.json`…）。
 - **前端 SPA**（React 19 + Vite 6）— [`frontend/`](./frontend/)（**獨立 pnpm 子專案、自有 `frontend/pnpm-lock.yaml`**；同源部署、契約先行消費後端 `openapi.json`）。開發中（frontend M0 起）。
 
-- **API 契約**：[`docs/API.md`](./docs/API.md)（35 端點：`/health` + 4 auth + 11 keyword-analyses（含 M12 AI 洞察/購買歷程/自訂分類）+ 9 tracking-lists（M11）+ `/ai-ideation`（M12）+ `/views`；+ DTO + 錯誤信封 + 認證 + 同步 vs async job 取捨）
+- **API 契約**：[`docs/API.md`](./docs/API.md)（36 端點：`/health` + 4 auth + 11 keyword-analyses（含 M12 AI 洞察/購買歷程/自訂分類）+ 9 tracking-lists（M11）+ `/ai-ideation`（M12）+ `/views` + `/captures`（M13 ingestion）；+ DTO + 錯誤信封 + 認證 + 同步 vs async job 取捨）
 - **維運手冊**：[`docs/RUNBOOK.md`](./docs/RUNBOOK.md)（節流／退避／快取失效／部署／優雅關閉）
 
 ## 技術堆疊
