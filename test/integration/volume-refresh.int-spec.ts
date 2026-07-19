@@ -215,7 +215,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
       expect(scheduleCids.length).toBeGreaterThan(0);
 
       const [coffee] = await snapsOf(listId, 'coffee');
-      expect(coffee.avgMonthlySearches).toBe(100);
+      expect(coffee.avgMonthlySearches).toBe(100n); // BIGINT column (#469)
       expect(coffee.competition).toBe('MEDIUM');
       expect(coffee.competitionIndex).toBe(40);
       expect(coffee.cpcLowMicros).toBe(500000n);
@@ -284,7 +284,7 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
       expect(second).toMatchObject({ appended: 1, unchanged: 0 });
 
       const snaps = await snapsOf(listId, 'coffee');
-      expect(snaps.map((s) => s.avgMonthlySearches)).toEqual([100, 120]);
+      expect(snaps.map((s) => s.avgMonthlySearches)).toEqual([100n, 120n]); // BIGINT (#469)
       expect(snaps.map((s) => s.fetchedAt)).toEqual([T0, T1]); // 舊列不變、時序 append-only
     });
   });
@@ -332,8 +332,8 @@ describe('TC-65: VolumeRefreshService.refreshList (integration · Testcontainers
 
       const res = await svc.refreshList(listId);
       expect(res).toMatchObject({ memberCount: 2, appended: 2, unchanged: 0, failed: 0 });
-      expect((await snapsOf(listId, 'car'))[0].avgMonthlySearches).toBe(5000);
-      expect((await snapsOf(listId, 'cars'))[0].avgMonthlySearches).toBe(5000); // 同觀測
+      expect((await snapsOf(listId, 'car'))[0].avgMonthlySearches).toBe(5000n); // BIGINT (#469)
+      expect((await snapsOf(listId, 'cars'))[0].avgMonthlySearches).toBe(5000n); // 同觀測
     });
   });
 

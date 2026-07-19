@@ -193,7 +193,12 @@ export class TrackingListService {
         addedAt: m.addedAt,
         lastCheckedAt: m.lastCheckedAt,
       })),
-      snapshots,
+      // avg_monthly_searches is BIGINT (#469) → JS number at the read boundary so the pure
+      // assembler + JSON contract stay number-shaped (values < 2^53 exact; null stays null).
+      snapshots.map((s) => ({
+        ...s,
+        avgMonthlySearches: s.avgMonthlySearches === null ? null : Number(s.avgMonthlySearches),
+      })),
     );
   }
 
