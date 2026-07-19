@@ -37,8 +37,23 @@ export interface CapabilityNegotiation {
  * 正規化，缺 / 雜質 → 視為未回報（該渠道 gating not-available），**不硬崩**。
  */
 export function normalizeFeatures(features: readonly unknown[] | undefined | null): string[] {
-  void features;
-  throw new Error('not implemented: normalizeFeatures');
+  if (features == null) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of features) {
+    if (typeof raw !== 'string') {
+      continue; // coerce：非字串（number/null/object）→ 丟棄（不硬崩、不編造）
+    }
+    const trimmed = raw.trim();
+    if (trimmed === '' || seen.has(trimmed)) {
+      continue; // 濾空 + 去重（保留首見順序）
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
 }
 
 /**
@@ -50,9 +65,42 @@ export function negotiateCapabilities(
   reported: readonly unknown[] | undefined | null,
   required: readonly unknown[] | undefined | null,
 ): CapabilityNegotiation {
-  void reported;
-  void required;
-  throw new Error('not implemented: negotiateCapabilities');
+  const reportedFeatures = normalizeFeatures(reported);
+  const requiredFeatures = normalizeFeatures(required);
+  const reportedSet = new Set(reportedFeatures);
+  const requiredSet = new Set(requiredFeatures);
+
+  const statuses: Record<string, CapabilityStatus> = {};
+  const available: string[] = [];
+  const notAvailable: string[] = [];
+
+  // required（期望基準）：extension 有回報→available；未回報→not-available（gating，不編造）。依 required 順序。
+  for (const feature of requiredFeatures) {
+    if (reportedSet.has(feature)) {
+      statuses[feature] = 'available';
+      available.push(feature);
+    } else {
+      statuses[feature] = 'not-available';
+      notAvailable.push(feature);
+    }
+  }
+
+  // extension 回報但不在 required 之額外能力（extra）：亦標 available（供轉發放行 extra 渠道），不影響 gating。依 reported 順序。
+  const extra: string[] = [];
+  for (const feature of reportedFeatures) {
+    if (!requiredSet.has(feature)) {
+      statuses[feature] = 'available';
+      extra.push(feature);
+    }
+  }
+
+  return {
+    statuses,
+    available,
+    notAvailable,
+    extra,
+    allAvailable: notAvailable.length === 0,
+  };
 }
 
 /**
@@ -60,7 +108,5 @@ export function negotiateCapabilities(
  * `required` 但未回報者、或協商中未見過者 → false（gating：不轉發該渠道訊息、不編造）。
  */
 export function isFeatureAvailable(negotiation: CapabilityNegotiation, feature: string): boolean {
-  void negotiation;
-  void feature;
-  throw new Error('not implemented: isFeatureAvailable');
+  return negotiation.statuses[feature] === 'available';
 }
