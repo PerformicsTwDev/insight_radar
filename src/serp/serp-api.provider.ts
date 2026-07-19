@@ -4,35 +4,9 @@ import { serpConfig } from '../config/serp.config';
 import { scrubSecrets } from '../logger/redaction';
 import { parseSerpApiResponse } from './parse-serpapi';
 import { SERP_API_CLIENT, type SerpApiClient, type SerpApiResponse } from './serp-api.types';
+import { isTransientSerpError } from './serp-errors';
 import type { SerpProvider } from './serp-provider.port';
 import type { SerpFetchResult, SerpQuery } from './serp.types';
-
-/** 傳輸層暫時性錯誤碼（同 embeddings；長跑 HTTP 最常見的暫時失敗）。 */
-const TRANSIENT_TRANSPORT_CODES = new Set([
-  'ECONNRESET',
-  'ETIMEDOUT',
-  'ECONNREFUSED',
-  'EPIPE',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-]);
-
-/** 可重試：數值 429/5xx，或傳輸層暫時錯（node 系統碼 / AbortError / undici fetch failed）。 */
-function isRetryableSerpError(err: unknown): boolean {
-  const e = err as { status?: unknown; code?: unknown; name?: unknown } | null;
-  const status =
-    typeof e?.status === 'number' ? e.status : typeof e?.code === 'number' ? e.code : undefined;
-  if (status === 429 || (typeof status === 'number' && status >= 500 && status < 600)) {
-    return true;
-  }
-  if (typeof e?.code === 'string' && TRANSIENT_TRANSPORT_CODES.has(e.code)) {
-    return true;
-  }
-  if (e?.name === 'AbortError') {
-    return true;
-  }
-  return err instanceof Error && /fetch failed/i.test(err.message);
-}
 
 /**
  * serpapi adapter（T8.3，FR-15）：實作 {@link SerpProvider}，經 {@link SerpApiClient} 抓取 → `parseSerpApiResponse`
@@ -77,7 +51,7 @@ export class SerpApiProvider implements SerpProvider {
         });
       } catch (error) {
         attempt += 1;
-        if (attempt > this.config.maxRetries || !isRetryableSerpError(error)) {
+        if (attempt > this.config.maxRetries || !isTransientSerpError(error)) {
           throw error;
         }
         const delayMs = this.config.backoffBaseMs * 2 ** (attempt - 1);
