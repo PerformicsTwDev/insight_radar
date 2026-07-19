@@ -138,10 +138,12 @@
           "email": {
             "example": "user@example.com",
             "format": "email",
+            "maxLength": 254,
             "type": "string"
           },
           "password": {
             "example": "correct-horse-battery",
+            "maxLength": 1024,
             "type": "string"
           }
         },
@@ -196,10 +198,12 @@
           "email": {
             "example": "user@example.com",
             "format": "email",
+            "maxLength": 254,
             "type": "string"
           },
           "password": {
             "example": "correct-horse-battery",
+            "maxLength": 1024,
             "minLength": 10,
             "type": "string"
           }
