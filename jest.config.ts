@@ -9,6 +9,10 @@ const collectCoverageFrom = [
   '!<rootDir>/src/**/*.module.ts',
   '!<rootDir>/src/**/*.dto.ts',
   '!<rootDir>/src/main.ts',
+  // ★ __fixtures__：**測試 golden 資料**（如 T13.5 capture mapper goldens），非可出貨 production source——
+  //   靜態資料/re-export、無分支邏輯可守；比照 *.spec.ts 排除於覆蓋率分母外（否則落入 `./src/**/mapping/**`
+  //   core 90% per-file 門檻會對純資料檔誤判 functions/branches 不足）。對外行為由 contract test 把關。
+  '!<rootDir>/src/**/__fixtures__/**',
   // ★ auth.controller：**純路由 shell**，比照 *.module.ts 排除（見下方 coveragePathIgnorePatterns 註記）。
   '!<rootDir>/src/auth/auth.controller.ts',
   // ★ tracking-list.controller（T11.2）：同屬**純路由 shell**——5 個 handler 皆直線委派
@@ -71,6 +75,7 @@ const collectCoverageFrom = [
 // 其對外行為由 TC-59 e2e（register/login/logout/me + 401 邊界）完整把關。
 const coverageIgnore = [
   '/node_modules/',
+  '/__fixtures__/', // 測試 golden 資料（T13.5），非 production source——比照 *.spec.ts 排除（見 collectCoverageFrom 註記）
   '\\.module\\.ts$',
   'main\\.ts$',
   '\\.dto\\.ts$',
