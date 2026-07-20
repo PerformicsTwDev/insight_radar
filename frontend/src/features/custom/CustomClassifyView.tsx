@@ -28,7 +28,7 @@ const JOB_ERROR = '自訂分類歸類失敗，請稍後再試。';
 const DELETE_ERROR = '刪除自訂分類失敗，請稍後再試。';
 
 const ADD_BTN =
-  'rounded-lg px-3 py-1.5 text-sm font-medium text-brand ring-1 ring-brand/40 hover:bg-brand/10';
+  'rounded-lg px-3 py-1.5 text-sm font-medium text-brand ring-1 ring-brand/40 enabled:hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-40';
 const ACTIVE_TAB = 'px-3 py-1.5 text-sm text-white';
 const IDLE_TAB = 'px-3 py-1.5 text-sm text-white/50 hover:bg-white/5 hover:text-white';
 const SEC_BTN = 'rounded-lg px-4 py-2 text-sm text-white/70 ring-1 ring-white/10 hover:bg-white/5';
@@ -140,7 +140,7 @@ export function CustomClassifyView({
             </span>
           );
         })}
-        <button type="button" onClick={openModal} className={ADD_BTN}>
+        <button type="button" disabled={pending !== null} onClick={openModal} className={ADD_BTN}>
           + 新增自訂分類
         </button>
       </nav>
