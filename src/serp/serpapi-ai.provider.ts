@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { mapAiCapture } from '../captures/mapping/ai-mapper';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
+import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import { serpAiConfig } from '../config/serp-ai.config';
 import { scrubSecrets } from '../logger/redaction';
 import {
@@ -13,9 +14,20 @@ import {
   type SerpApiAiOverview,
   type SerpApiAiOverviewInline,
   type SerpApiAiOverviewResult,
+  type SerpApiAiReference,
+  type SerpApiAiSearchParams,
+  type SerpApiAiTextBlock,
   type SerpApiBingCopilotResult,
   type SerpApiGoogleAiOverviewResponse,
+  type SerpApiTopLevelAiResponse,
 } from './serpapi-ai.types';
+
+/** {@link SerpApiAiProvider.runTopLevelEngine} 的逐 query 中立列（capture 或 degradation null + credit）。 */
+interface TopLevelEngineRow {
+  readonly query: string;
+  readonly capture: AiSearchCanonical | null;
+  readonly creditsUsed: number;
+}
 
 /**
  * SerpApi AI Overview adapter（T14.2，FR-38，**reserved**，`SERPAPI_AI_ENABLED=false` 預設關）——實作
@@ -97,14 +109,108 @@ export class SerpApiAiProvider implements SerpAiProvider {
     return results;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async fetchAiModes(_keywords: string[]): Promise<SerpApiAiModeResult[]> {
-    throw new Error('T14.3 fetchAiModes not implemented (red)');
+  /**
+   * AI Mode（`engine=google_ai_mode`，AC-38.3）批次抓取 → `AiSearchCapture`（channel=aiMode，複用共用 mapper）。
+   * per-engine gate `aiModeEnabled` 連同 master `enabled` 皆開才啟用；否則短路全 `null`、不打供應商（reserved）。
+   * 單次呼叫（無 page_token 兩路）＝1 credit/query；degradation + budget 治理沿用 AIO（見 {@link runTopLevelEngine}）。
+   */
+  async fetchAiModes(keywords: string[]): Promise<SerpApiAiModeResult[]> {
+    if (!this.config.enabled || !this.config.aiModeEnabled) {
+      return keywords.map((query) => ({ query, aiMode: null, creditsUsed: 0 }));
+    }
+    const rows = await this.runTopLevelEngine(keywords, 'aiMode', (params) =>
+      this.client.searchAiMode(params),
+    );
+    return rows.map(({ query, capture, creditsUsed }) => ({ query, aiMode: capture, creditsUsed }));
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async fetchBingCopilot(_keywords: string[]): Promise<SerpApiBingCopilotResult[]> {
-    throw new Error('T14.3 fetchBingCopilot not implemented (red)');
+  /**
+   * Bing Copilot（`engine=bing_copilot`，AC-38.4，**could**）批次抓取 → `AiSearchCapture`（channel=bingCopilot）。
+   * per-engine gate `bingCopilotEnabled` 連同 master `enabled` 皆開才啟用；預設關 → 短路全 `null`、不打供應商。
+   */
+  async fetchBingCopilot(keywords: string[]): Promise<SerpApiBingCopilotResult[]> {
+    if (!this.config.enabled || !this.config.bingCopilotEnabled) {
+      return keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }));
+    }
+    const rows = await this.runTopLevelEngine(keywords, 'bingCopilot', (params) =>
+      this.client.searchBingCopilot(params),
+    );
+    return rows.map(({ query, capture, creditsUsed }) => ({
+      query,
+      copilot: capture,
+      creditsUsed,
+    }));
+  }
+
+  /**
+   * 多 engine 共用批次執行器（AI Mode / Bing Copilot；single-call top-level `text_blocks` engine）——逐 query 於
+   * `SERPAPI_AI_CREDITS_BUDGET` 內發送（1 credit/query，超出不發送 → degrade `null`、creditsUsed=0）；成功 → 共用
+   * {@link mapEngineCapture} 收斂成中立 `AiSearchCapture`；**無回應 / 失敗 / malformed → `null`（degradation，非拋，
+   * AC-38.2；已發送仍計 1 credit）**。`hl=zh-tw`/`gl=tw`（AC-38.5）。
+   */
+  private async runTopLevelEngine(
+    keywords: string[],
+    channel: CaptureChannel,
+    call: (params: SerpApiAiSearchParams) => Promise<SerpApiTopLevelAiResponse>,
+  ): Promise<TopLevelEngineRow[]> {
+    const rows: TopLevelEngineRow[] = [];
+    let spent = 0; // 全批已消耗 credit（per-job budget 治理，同 AIO）
+    const budget = this.config.creditsBudget;
+
+    for (const query of keywords) {
+      if (spent + 1 > budget) {
+        rows.push({ query, capture: null, creditsUsed: 0 });
+        continue;
+      }
+      spent += 1;
+      let capture: AiSearchCanonical | null = null;
+      try {
+        const response = await call({ q: query, hl: this.config.hl, gl: this.config.gl });
+        // 防禦性：缺 top-level text_blocks（供應商 schema 漂移/未觸發）→ degrade null（不臆造，比照 AIO 無 ai_overview）。
+        if (response && Array.isArray(response.text_blocks)) {
+          capture = this.mapEngineCapture(channel, query, {
+            textBlocks: response.text_blocks,
+            references: response.references,
+            reconstructedMarkdown: response.reconstructed_markdown,
+          });
+        }
+      } catch (error) {
+        // 祕密不入 log（NFR-5）：供應商錯誤可夾帶 api_key（URL query）。
+        this.logger.warn(`${channel} fetch degraded to null: ${scrubSecrets(String(error))}`);
+      }
+      rows.push({ query, capture, creditsUsed: 1 });
+    }
+    return rows;
+  }
+
+  /**
+   * 多 engine 共用 mapper（AIO / AI Mode / Bing Copilot → 單一中立 `AiSearchCapture`，T14.3 refactor）——`text_blocks`
+   * / `references`(+`reconstructed_markdown` fallback) 經 T14.4 {@link mapAiCapture}（source=serpapi）收斂：`text_blocks`
+   * 優先為 blocks、缺時退回 `reconstructed_markdown`；`references` 統一 `{title,link,snippet?,source?,index}`。query 恆
+   * 存在 → 不會 `failed`；理論上 `canonical=null` 亦 degrade。
+   */
+  private mapEngineCapture(
+    channel: CaptureChannel,
+    query: string,
+    parts: {
+      readonly textBlocks?: readonly SerpApiAiTextBlock[];
+      readonly references?: readonly SerpApiAiReference[];
+      readonly reconstructedMarkdown?: string;
+    },
+  ): AiSearchCanonical | null {
+    const { canonical } = mapAiCapture({
+      source: 'serpapi',
+      channel,
+      schemaVersion: SERPAPI_AI_SCHEMA_VERSION,
+      payload: {
+        q: query,
+        text_blocks: parts.textBlocks,
+        references: parts.references,
+        reconstructed_markdown: parts.reconstructedMarkdown,
+      },
+      capturedAt: new Date(),
+    });
+    return canonical;
   }
 
   /**
