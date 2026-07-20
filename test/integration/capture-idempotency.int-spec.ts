@@ -3,7 +3,7 @@ import { BadRequestException, type INestApplication } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { CapturesService } from 'src/captures/captures.service';
 import type { CaptureIngestDto } from 'src/captures/dto/capture-ingest.dto';
-import type { AuthenticatedUser } from 'src/common/authenticated-user';
+import type { AuthenticatedUser, SessionActor } from 'src/common/authenticated-user';
 import type { ingestConfig } from 'src/config/ingest.config';
 import type { PrismaService } from 'src/prisma';
 import { createPrismaTestApp } from '../utils';
@@ -19,7 +19,7 @@ import { createPrismaTestApp } from '../utils';
  * 純 hash 計算的鍵序無關性由 `src/captures/content-hash.spec.ts` 覆蓋；本檔專攻 service 編排 + DB 去重語意。
  */
 
-const SESSION = (id: string): AuthenticatedUser => ({ kind: 'session', id, email: `${id}@x.test` });
+const SESSION = (id: string): SessionActor => ({ kind: 'session', id, email: `${id}@x.test` });
 const MACHINE: AuthenticatedUser = { kind: 'apiKey' };
 
 const makeConfig = (

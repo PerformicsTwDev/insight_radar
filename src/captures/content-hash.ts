@@ -24,5 +24,12 @@ export function captureContentHash(input: {
   schemaVersion: string;
   item: unknown;
 }): string {
-  return sha256Hex(canonicalStringify([input.source, input.schemaVersion, input.item]));
+  return sha256Hex(
+    canonicalStringify({
+      owner: input.ownerId,
+      source: input.source,
+      schemaVersion: input.schemaVersion,
+      item: input.item,
+    }),
+  );
 }
