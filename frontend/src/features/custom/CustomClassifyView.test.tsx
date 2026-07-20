@@ -175,6 +175,33 @@ describe('TC-26 · CustomClassifyView (stage two)', () => {
     await waitFor(() => expect(screen.getByText('iphone 16')).toBeInTheDocument());
   });
 
+  it('disables + 新增自訂分類 while a classify job is in flight (no pending overwrite)', async () => {
+    // Re-entrancy gate: the single `pending` slot tracks one run. A second confirm while
+    // the first job is still in flight would overwrite it — dropping the first job's
+    // completion/failure tracking so its tab never registers. Serialize: gate the entry
+    // while a job is pending (mirrors the journey / ai-intent-batch running gate).
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/custom-classifications', () =>
+        HttpResponse.json(classification(CID1, '競爭優勢', ['價格導向']), { status: 201 }),
+      ),
+      http.post(`/api/v1/keyword-analyses/:id/custom-classifications/${CID1}/assignments`, () =>
+        HttpResponse.json({ jobId: `run-${CID1}` }, { status: 202 }),
+      ),
+    );
+    renderView();
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 新增自訂分類' }));
+    fireEvent.change(screen.getByLabelText('分類視角名稱'), { target: { value: '競爭優勢' } });
+    fireEvent.change(screen.getByLabelText('AI 分類指令'), { target: { value: '請分組' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成分類架構' }));
+    await screen.findByText('價格導向');
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
+
+    // The job is now pending (SSE opened, no `completed` emitted yet) → the entry is gated.
+    await waitFor(() => expect(esFor(CID1)).toBeTruthy());
+    expect(screen.getByRole('button', { name: '+ 新增自訂分類' })).toBeDisabled();
+  });
+
   it('deletes a tab behind a confirm → DELETE .../{cid} → the tab disappears', async () => {
     renderView();
     await createTab({ cid: CID1, name: '競爭優勢', label: '價格導向' });
