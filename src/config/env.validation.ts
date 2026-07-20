@@ -184,6 +184,15 @@ export const validationSchema = Joi.object({
   SERP_MAX_RETRIES: Joi.number().integer().min(0).default(3), // 429/5xx/傳輸層退避重試上限
   SERP_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(500), // 退避起始延遲（2^(n-1)*base）
 
+  // —— SerpAPI AI adapters（M14，FR-38/NFR-18；Design §14；**reserved，預設關**；憑證沿用 SERP_API_KEY/URL）——
+  SERPAPI_AI_ENABLED: Joi.boolean().default(false), // AI adapters 開關（reserved；主管道＝extension 橋接 FR-39）
+  // AI Overview page_token 二次抓取時限（ms）；page_token <1min 過期 → 須 < 60000 留裕度（AC-38.1）。
+  SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS: Joi.number().integer().min(1).less(60000).default(50000),
+  // 每 job SerpAPI credit 預算上限（AIO 二次抓取最多 2 credits/query，NFR-18；超出不發送 → degrade）。
+  SERPAPI_AI_CREDITS_BUDGET: Joi.number().integer().min(1).default(1000),
+  SERPAPI_AI_HL: Joi.string().default('zh-tw'), // 語言（AC-38.5）
+  SERPAPI_AI_GL: Joi.string().default('tw'), // 地區（AC-38.5）
+
   // —— Clustering（M8，Design §16；HTTP → Python cluster-service）——
   // topics 分群一律經此服務（無 enable 旗標）→ URL 必填、開機即 fail-fast（缺值不留到 job 才炸）。
   CLUSTER_SERVICE_URL: Joi.string().uri().required(),

@@ -10,6 +10,7 @@ import {
   SERPAPI_AI_SCHEMA_VERSION,
   type SerpApiAiClient,
   type SerpApiAiOverviewFetchParams,
+  type SerpApiAiOverviewInline,
   type SerpApiAiSearchParams,
   type SerpApiGoogleAiOverviewResponse,
   type SerpApiGoogleSearchResponse,
@@ -75,7 +76,8 @@ describe('TC-74: SerpApiAiProvider — AI Overview adapter (FR-38, reserved)', (
         query: '間歇性斷食 減肥有效嗎',
       });
       // blocks 原樣保留（§18.3）
-      expect(result.aiOverview!.blocks).toEqual(aiOverviewInlineV1.ai_overview!.text_blocks);
+      const inlineAio = aiOverviewInlineV1.ai_overview as SerpApiAiOverviewInline;
+      expect(result.aiOverview!.blocks).toEqual(inlineAio.text_blocks);
       // references 統一為中立形狀（複用 normalizeReferences；thumbnail 非中立欄 → 落掉）
       expect(result.aiOverview!.references).toHaveLength(3);
       expect(result.aiOverview!.references[0]).toEqual({
@@ -169,6 +171,24 @@ describe('TC-74: SerpApiAiProvider — AI Overview adapter (FR-38, reserved)', (
       expect(fetchCalls).toHaveLength(1);
       expect(result.aiOverview).toBeNull();
       expect(result.creditsUsed).toBe(2); // 二次請求已發送 → 計費
+    });
+
+    it('degrades to null when the secondary fetch returns a malformed body without ai_overview', async () => {
+      const { client, fetchCalls } = fakeClient({
+        onSearch: () => aiOverviewPageTokenStep1V1,
+        // 二次抓取回覆缺 ai_overview（供應商 schema 漂移/異常）→ 防禦性 null（不臆造）。
+        onFetchAiOverview: () =>
+          ({
+            search_metadata: { status: 'Success' },
+          }) as unknown as SerpApiGoogleAiOverviewResponse,
+      });
+      const provider = new SerpApiAiProvider(client, AI_CONFIG);
+
+      const [result] = await provider.fetchAiOverviews(['malformed secondary']);
+
+      expect(fetchCalls).toHaveLength(1);
+      expect(result.aiOverview).toBeNull();
+      expect(result.creditsUsed).toBe(2);
     });
 
     it('degrades to null when the secondary fetch exceeds SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS', async () => {

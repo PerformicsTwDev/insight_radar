@@ -5,6 +5,7 @@ import { cacheConfig } from './cache.config';
 import { clusteringConfig } from './clustering.config';
 import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
+import { serpAiConfig } from './serp-ai.config';
 import { topicsConfig } from './topics.config';
 import { trackingConfig } from './tracking.config';
 import { ingestConfig } from './ingest.config';
@@ -97,6 +98,11 @@ const ENV: Record<string, string> = {
   SERP_FRESHNESS_DAYS: '30',
   SERP_MAX_RETRIES: '3',
   SERP_BACKOFF_BASE_MS: '500',
+  SERPAPI_AI_ENABLED: 'false',
+  SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS: '50000',
+  SERPAPI_AI_CREDITS_BUDGET: '1000',
+  SERPAPI_AI_HL: 'zh-tw',
+  SERPAPI_AI_GL: 'tw',
   CLUSTER_SERVICE_URL: 'http://cluster-service:8000',
   CLUSTER_SERVICE_TIMEOUT_MS: '90000',
   CLUSTER_SERVICE_RETRIES: '2',
@@ -254,6 +260,16 @@ describe('config namespaces (registerAs, typed)', () => {
       retentionDays: undefined, // 未設＝保留全部
       maxRetries: 3,
       backoffBaseMs: 500,
+    });
+  });
+
+  it('serpAiConfig maps SerpAPI AI env; enabled coerced from string (M14, reserved)', () => {
+    expect(serpAiConfig()).toEqual({
+      enabled: false,
+      aioPageTokenTimeoutMs: 50000,
+      creditsBudget: 1000,
+      hl: 'zh-tw',
+      gl: 'tw',
     });
   });
 

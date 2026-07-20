@@ -285,6 +285,24 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(error?.message).toContain('SERP_API_URL');
     });
 
+    it('defaults SerpAPI AI adapters off + tunable defaults (M14, reserved)', () => {
+      const value = validatedValue(validEnv); // validEnv has no SERPAPI_AI_* keys
+      expect(value.SERPAPI_AI_ENABLED).toBe(false);
+      expect(value.SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS).toBe(50000);
+      expect(value.SERPAPI_AI_CREDITS_BUDGET).toBe(1000);
+      expect(value.SERPAPI_AI_HL).toBe('zh-tw');
+      expect(value.SERPAPI_AI_GL).toBe('tw');
+    });
+
+    it('rejects a SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS that is not under the 60s page_token expiry (AC-38.1)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS: '60000' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS');
+    });
+
     it('enforces the seed-batch hard cap of 20 (correctness single-point)', () => {
       const { error } = validationSchema.validate(
         { ...validEnv, GOOGLE_ADS_SEED_BATCH_SIZE: '21' },
