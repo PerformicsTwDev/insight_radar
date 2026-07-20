@@ -16,6 +16,11 @@ describe('normalizePostKey (S13 / AC-46.1 唯一去重鍵)', () => {
     expect(normalizePostKey('  https://x.com/y  ')).toBe('https://x.com/y');
   });
 
+  it('[9] scheme-less：純 host 收斂小寫；有 path 則保留 path 大小寫', () => {
+    expect(normalizePostKey('WWW.Example.COM')).toBe('www.example.com');
+    expect(normalizePostKey('WWW.Example.COM/Post/AbC')).toBe('www.example.com/Post/AbC');
+  });
+
   it('同貼文不同 query → 同一 key（跨來源/跨平台 merge 去重）', () => {
     expect(normalizePostKey('https://t.co/p1?a=1')).toBe(normalizePostKey('https://t.co/p1?b=2'));
   });

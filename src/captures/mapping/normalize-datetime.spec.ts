@@ -55,6 +55,10 @@ describe('normalizeChineseDateTime (AC-37.3 / FR-46 中文時間 → ISO)', () =
     expect(normalizeChineseDateTime('2025-11-21')).toBe('2025-11-21T00:00:00+08:00');
   });
 
+  it('[3] 純 ISO 日期同樣月曆驗證：2025-02-30 → null（非閏年 2 月無 30 日）', () => {
+    expect(normalizeChineseDateTime('2025-02-30')).toBeNull();
+  });
+
   it('缺值 / 不可解析 / 非字串 → null（不編造，不阻斷同批）', () => {
     expect(normalizeChineseDateTime(null)).toBeNull();
     expect(normalizeChineseDateTime(undefined)).toBeNull();
@@ -90,10 +94,11 @@ describe('normalizeChineseDateTime (AC-37.3 / FR-46 中文時間 → ISO)', () =
     expect(normalizeChineseDateTime('2025-11-21T12:60:00+08:00')).toBeNull(); // 分界外
   });
 
-  it('[4] 合法 ISO datetime 仍原樣返回（honor 既有 offset、含小數秒）', () => {
+  it('[4] 合法 ISO datetime 仍原樣返回（honor 既有 offset、含小數秒、無秒亦可）', () => {
     expect(normalizeChineseDateTime('2025-11-21T02:01:00+08:00')).toBe('2025-11-21T02:01:00+08:00');
     expect(normalizeChineseDateTime('2025-11-20T14:30:00.500+00:00')).toBe(
       '2025-11-20T14:30:00.500+00:00',
     );
+    expect(normalizeChineseDateTime('2025-11-21T02:01+08:00')).toBe('2025-11-21T02:01+08:00');
   });
 });
