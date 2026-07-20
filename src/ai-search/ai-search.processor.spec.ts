@@ -46,6 +46,8 @@ interface BuildOpts {
   copilots?: SerpApiBingCopilotResult[];
   rawExtension?: RawExtensionCapture[];
   persistError?: Error;
+  /** non-Error rejection to exercise the `String(error)` scrub fallback (via mockRejectedValue, lint-safe). */
+  deleteError?: unknown;
 }
 function build(opts: BuildOpts = {}) {
   const fetchAiOverviews = jest.fn(() => Promise.resolve(opts.aiOverviews ?? []));
@@ -57,7 +59,10 @@ function build(opts: BuildOpts = {}) {
   const updateProgress = jest.fn(() => Promise.resolve());
   const runRepo = { markStatus, updateProgress } as unknown as AiSearchRunRepository;
 
-  const deleteByJobId = jest.fn(() => Promise.resolve());
+  const deleteByJobId =
+    'deleteError' in opts
+      ? jest.fn().mockRejectedValue(opts.deleteError)
+      : jest.fn(() => Promise.resolve());
   const readRawExtensionCaptures = jest.fn(() => Promise.resolve(opts.rawExtension ?? []));
   const persistCanonical = jest.fn((_jobId: string, _owner: string | null, rows: unknown[]) =>
     opts.persistError ? Promise.reject(opts.persistError) : Promise.resolve((rows as []).length),
@@ -215,6 +220,13 @@ describe('TC-77: AiSearchProcessor', () => {
       const { processor, markStatus } = build({ persistError: new Error('boom') });
       const { j } = makeJob({}, { attemptsMade: 0, attempts: undefined }); // opts.attempts undefined → ?? 1
       await expect(processor.process(j)).rejects.toThrow('boom');
+      expect(markStatus).toHaveBeenLastCalledWith('run-1', 'failed', expect.objectContaining({}));
+    });
+
+    it('scrubs a non-Error rejection via the String(error) fallback and still marks failed', async () => {
+      const { processor, markStatus } = build({ deleteError: 'raw string failure' });
+      const { j } = makeJob({}, { attemptsMade: 4, attempts: 5 });
+      await expect(processor.process(j)).rejects.toBe('raw string failure');
       expect(markStatus).toHaveBeenLastCalledWith('run-1', 'failed', expect.objectContaining({}));
     });
 

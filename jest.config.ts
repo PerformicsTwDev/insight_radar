@@ -65,6 +65,12 @@ const collectCoverageFrom = [
   // 純委派 shell（T14.5，owner-scope/404/409 分支全在 gate 內 BrandProfileService；剩餘缺口＝
   // emitDecoratorMetadata phantom，對外行為由 brand-profile-crud.e2e 把關，coverage-gate rule §4）。
   '!<rootDir>/src/brand-profile/brand-profile.controller.ts',
+  // ★ ai-search.controller（T14.6）：**純委派 SSE shell**（同 custom-classify-assign.controller）——`create`/`getStatus`
+  //   直委派 `AiSearchRunService`；SSE `stream` 的映射分支（isTerminalEvent / toMessageEvent / terminalSnapshot /
+  //   takeWhile-inclusive / fetchRef 降級）已由 ai-search.controller.spec 全覆蓋；enqueue-only/owner-404 真實分支全在
+  //   gate 內的 `AiSearchRunService`（unit + e2e）。剩餘缺口 100% 屬 emitDecoratorMetadata phantom（class-typed 建構子
+  //   + DTO/param 參數 + Promise 回傳），比照排除，對外行為由 ai-search.e2e 把關（coverage-gate rule §4）。
+  '!<rootDir>/src/ai-search/ai-search.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -92,6 +98,7 @@ const coverageIgnore = [
   'ideation/ideation\\.controller\\.ts$', // 純委派 shell（T12.10，驗證/502 分支在 gate 內 ValidationPipe/filter）
   'captures/captures\\.controller\\.ts$', // 純委派 shell（T13.2，批次/ownerId/落庫分支在 gate 內 CapturesService）
   'brand-profile/brand-profile\\.controller\\.ts$', // 純委派 shell（T14.5，owner/404/409 分支在 gate 內 BrandProfileService）
+  'ai-search/ai-search\\.controller\\.ts$', // 純委派 SSE shell（T14.6，SSE 分支全測、enqueue-only/owner-404 在 gate 內 AiSearchRunService）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。
