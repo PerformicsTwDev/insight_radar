@@ -1,4 +1,9 @@
-import { brandMatches, findMatchingBrand, normalizedAliasUnion } from './brand-match';
+import {
+  brandMatches,
+  createBrandMatcher,
+  findMatchingBrand,
+  normalizedAliasUnion,
+} from './brand-match';
 
 /**
  * TC-76（FR-40 / AC-40.3）：aliases 聯集正規化比對純函式。以 `name + aliases` 聯集、經與去重/快取**同一套**
@@ -83,6 +88,34 @@ describe('TC-76: brand-match (aliases 聯集正規化比對純函式 · FR-40/AC
 
     it('多品牌含同義：正規化後比對（大小寫/全形不影響）', () => {
       expect(findMatchingBrand('ａｃｅｒ', brands)).toBe(acer); // 全形 → 'acer'
+    });
+  });
+
+  // M14-R7/#583 [9]：預算式比對器——語意須與 findMatchingBrand 一致，且 union 於建構時快照一次（重用不重建）。
+  describe('createBrandMatcher (預算式重用)', () => {
+    const acer = { name: 'Acer', aliases: ['宏碁'] };
+    const brands = [asus, acer];
+
+    it('回傳可重複比對多個 mention 的比對器（語意同 findMatchingBrand）', () => {
+      const match = createBrandMatcher(brands);
+      expect(match('華碩')).toBe(asus);
+      expect(match('宏碁')).toBe(acer);
+      expect(match('ａｃｅｒ')).toBe(acer); // 全形 → 'acer'
+      expect(match('Dell')).toBeNull();
+      expect(match('   ')).toBeNull(); // 空提及（正規化後為空）
+    });
+
+    it('空品牌清單 → 比對器恆回 null', () => {
+      const match = createBrandMatcher([]);
+      expect(match('華碩')).toBeNull();
+    });
+
+    it('預算一次：建構後改動來源陣列不影響已建立的比對器（union 已快照）', () => {
+      const mutable = [{ name: 'ASUS', aliases: ['華碩'] }];
+      const match = createBrandMatcher(mutable);
+      mutable.push({ name: 'Acer', aliases: ['宏碁'] });
+      expect(match('宏碁')).toBeNull(); // 建構後才加入 → 不在預算表
+      expect(match('華碩')).toBe(mutable[0]);
     });
   });
 });
