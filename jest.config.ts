@@ -62,6 +62,9 @@ const collectCoverageFrom = [
   //   （皆 gate 內受測）。剩餘缺口 100% 屬 emitDecoratorMetadata phantom（class-typed 建構子 + DTO 參數 + Promise
   //   回傳），比照 ai-insight.controller 排除，對外行為由 captures.e2e 把關（coverage-gate rule §4）。
   '!<rootDir>/src/captures/captures.controller.ts',
+  // 純委派 shell（T14.5，owner-scope/404/409 分支全在 gate 內 BrandProfileService；剩餘缺口＝
+  // emitDecoratorMetadata phantom，對外行為由 brand-profile-crud.e2e 把關，coverage-gate rule §4）。
+  '!<rootDir>/src/brand-profile/brand-profile.controller.ts',
 ];
 
 // 覆蓋率排除清單（與 collectCoverageFrom 的負向 glob 一致；per-project + 根層兩處都要設，見下方註記）。
@@ -88,6 +91,7 @@ const coverageIgnore = [
   'custom-classify/custom-classify-assign\\.controller\\.ts$', // 純委派 SSE shell（T12.8，SSE 分支全測、owner/404/409/413 在 gate 內 run-service）
   'ideation/ideation\\.controller\\.ts$', // 純委派 shell（T12.10，驗證/502 分支在 gate 內 ValidationPipe/filter）
   'captures/captures\\.controller\\.ts$', // 純委派 shell（T13.2，批次/ownerId/落庫分支在 gate 內 CapturesService）
+  'brand-profile/brand-profile\\.controller\\.ts$', // 純委派 shell（T14.5，owner/404/409 分支在 gate 內 BrandProfileService）
 ];
 
 // 各 project 共用的 ts-jest 設定。moduleNameMapper 對齊 tsconfig 的 `src/*` path alias。
@@ -157,6 +161,9 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   // 與其他 DI 服務一致（不把 @Injectable class-typed 建構子的 emitDecoratorMetadata phantom branch 當 core）。
   './src/tracking/volume-observation.ts': coreThreshold,
   './src/tracking/volume-series.ts': coreThreshold,
+  // brand-profile core = **純函式**：aliases 聯集正規化比對（`華碩→ASUS`，TC-76 / FR-40 / AC-40.3；供 FR-42
+  // 品牌抽取共用）。CRUD service（DI 編排：Prisma + owner-scope helper）走 global 85%——與其他 DI 服務一致。
+  './src/brand-profile/brand-match.ts': coreThreshold,
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
 // 讓門檻集中定義於此、並在對應 core 目錄一建立就「自動生效」（毋需事後回頭補設定）。

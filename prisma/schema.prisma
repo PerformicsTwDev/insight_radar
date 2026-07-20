@@ -377,6 +377,24 @@ model Capture {
   @@map("captures")
 }
 
+// brand_profiles：品牌檔案（T14.5，FR-40；Design §18.3）。綁 owner_id（FR-27：session→user.id、apiKey→null；
+// nullable、不回填）——owner 過濾唯一強制點在 service 層（S8，非參數繞過）。`name`+`aliases`+`sites` 為本品牌，
+// `competitors`=[{name,aliases[],sites[]}]（JSON）；供 AI 可見度分析（FR-42/43）抽取與計數，aliases 聯集正規化
+// 比對（`華碩→ASUS`）抽純函式（brand-match.ts，供 FR-42 共用）。同 owner name 唯一（@@unique([ownerId,name]);
+// Postgres NULLs distinct → 機器 null-owner 同名不受約束，與 TrackingList 同型；重複→409）。
+model BrandProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String?  @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  name        String // 本品牌名稱（同 owner 內唯一）
+  aliases     Json     @default("[]") // 別名/縮寫/拼寫變體（brand-alias-extractor 補全，should）
+  sites       Json     @default("[]") // 官網 domain（citations 命中用，FR-43）
+  competitors Json     @default("[]") // [{name,aliases[],sites[]}]
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([ownerId, name]) // 同 owner 名稱唯一（重複→409）
+  @@map("brand_profiles")
+}
+
 // ai_search_captures：AI Search 中立 canonical 骨架（INV-5；Design §18.3）。本 task 僅建表（可讀寫）；
 // 分析面（品牌抽取/情緒/媒體分類）與抓取 job（`job_id`→未來 AI Search job）於 M14/M15 逐步填（含 FK/index 補強）。
 // `owner_id` 第一天存在（FR-27，與所有 owner 化資源一致；nullable）；`references` 缺 grounding→[]（不編造，§18.3）。

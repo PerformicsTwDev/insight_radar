@@ -37,6 +37,40 @@
         ],
         "type": "object"
       },
+      "BrandEntryDto": {
+        "properties": {
+          "aliases": {
+            "description": "別名/縮寫/拼寫變體（正規化聯集比對用，FR-40）；缺省 []",
+            "example": [
+              "華碩",
+              "Asus"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "品牌名稱（本品牌同 owner 內唯一）",
+            "example": "ASUS",
+            "type": "string"
+          },
+          "sites": {
+            "description": "官網 domain（citations 命中用，FR-43）；缺省 []",
+            "example": [
+              "asus.com"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "CaptureIngestDto": {
         "properties": {
           "channel": {
@@ -89,6 +123,29 @@
           "source",
           "schemaVersion",
           "items"
+        ],
+        "type": "object"
+      },
+      "CreateBrandProfileDto": {
+        "properties": {
+          "brand": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BrandEntryDto"
+              }
+            ],
+            "description": "本品牌（name + aliases + sites）"
+          },
+          "competitors": {
+            "description": "競品清單（各 name + aliases + sites）；缺省 []",
+            "items": {
+              "$ref": "#/components/schemas/BrandEntryDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "brand"
         ],
         "type": "object"
       },
@@ -346,6 +403,37 @@
           "percent"
         ],
         "type": "object"
+      },
+      "UpdateBrandProfileDto": {
+        "properties": {
+          "aliases": {
+            "description": "本品牌別名（整組取代）",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "competitors": {
+            "description": "競品清單（整組取代）",
+            "items": {
+              "$ref": "#/components/schemas/BrandEntryDto"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "本品牌新名稱（同 owner 內唯一）",
+            "example": "ASUS",
+            "type": "string"
+          },
+          "sites": {
+            "description": "本品牌官網 domain（整組取代）",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -461,6 +549,117 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/brand-profiles": {
+      "get": {
+        "operationId": "BrandProfileController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "brand-profiles"
+        ]
+      },
+      "post": {
+        "operationId": "BrandProfileController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBrandProfileDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "brand-profiles"
+        ]
+      }
+    },
+    "/api/v1/brand-profiles/{id}": {
+      "delete": {
+        "operationId": "BrandProfileController_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "brand-profiles"
+        ]
+      },
+      "get": {
+        "operationId": "BrandProfileController_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "brand-profiles"
+        ]
+      },
+      "patch": {
+        "operationId": "BrandProfileController_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBrandProfileDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "brand-profiles"
         ]
       }
     },
