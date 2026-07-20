@@ -123,6 +123,20 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
   });
 });
 
+describe('TC-28 · KeywordsTable ✦ column wiring (analysisId → interactive AiIntentCell)', () => {
+  it('renders a static ✦ placeholder (no interactive cells) when no analysisId is supplied', () => {
+    render(<KeywordsTable rows={rows} />);
+    // Standalone / degraded render (no analysis context) → the ✦ column stays a masked placeholder.
+    expect(screen.queryByRole('button', { name: 'AI 歸納搜尋意圖' })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '✦' })).toBeInTheDocument();
+  });
+
+  it('renders one interactive ✦ AI-intent cell per row when analysisId is supplied (T4.1, FR-18)', () => {
+    render(<KeywordsTable rows={rows} analysisId="an-1" />);
+    expect(screen.getAllByRole('button', { name: 'AI 歸納搜尋意圖' })).toHaveLength(rows.length);
+  });
+});
+
 describe('TC-15 · KeywordsTable virtualization (windows a large page)', () => {
   // jsdom reports offsetHeight 0 for every element; @tanstack/react-virtual measures
   // the scroll element via offsetHeight, so we give it a viewport to produce a window.
