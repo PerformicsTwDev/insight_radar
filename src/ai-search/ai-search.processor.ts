@@ -19,6 +19,9 @@ export const AI_SEARCH_PROCESSOR_CONFIG = Symbol('AI_SEARCH_PROCESSOR_CONFIG');
 
 export interface AiSearchProcessorConfig {
   queueConcurrency: number;
+  // M14-R3/#579 [8]：extension raw capture 收斂掃描的回溯視窗（天）+ 筆數上限（防無界掃全歷史）。
+  captureLookbackDays: number;
+  captureScanLimit: number;
 }
 
 /**

@@ -66,6 +66,50 @@ describe('AiSearchRunRepository (integration · Testcontainers, TC-77 部分)', 
     expect(row.captureCount).toBeNull();
   });
 
+  it('resets a terminal-partial run to queued on the same idempotencyKey (created=true, async re-collect) [7] M14-R3/#579', async () => {
+    // partial = a channel had no capture at job time; extension captures arrive async, so a re-submit
+    // must re-run (unlike journey/custom-classify where partial is a stable terminal).
+    const { runId } = await repo.createRun({
+      ownerId: null,
+      idempotencyKey: 'k-partial',
+      params: PARAMS,
+    });
+    await repo.markStatus(runId, 'partial', { captureCount: 1 });
+
+    const again = await repo.createRun({
+      ownerId: null,
+      idempotencyKey: 'k-partial',
+      params: PARAMS,
+    });
+    expect(again).toEqual({ runId, created: true });
+    const row = await prisma.aiSearchRun.findUniqueOrThrow({ where: { id: runId } });
+    expect(row.status).toBe('queued');
+    expect(row.captureCount).toBeNull();
+  });
+
+  it('concurrent re-submits of a terminal run reset it exactly once (atomic conditional updateMany) [6] M14-R3/#579', async () => {
+    const { runId } = await repo.createRun({
+      ownerId: null,
+      idempotencyKey: 'k-race',
+      params: PARAMS,
+    });
+    await repo.markStatus(runId, 'failed', { error: 'boom' });
+
+    // Two concurrent createRun calls on the same terminal key: the atomic conditional reset must let
+    // exactly one win the terminal→queued transition (created=true) so the service enqueues once.
+    const [a, b] = await Promise.all([
+      repo.createRun({ ownerId: null, idempotencyKey: 'k-race', params: PARAMS }),
+      repo.createRun({ ownerId: null, idempotencyKey: 'k-race', params: PARAMS }),
+    ]);
+    expect(a.runId).toBe(runId);
+    expect(b.runId).toBe(runId);
+    const winners = [a.created, b.created].filter(Boolean).length;
+    expect(winners).toBe(1); // exactly one re-enqueue, no double
+    const row = await prisma.aiSearchRun.findUniqueOrThrow({ where: { id: runId } });
+    expect(row.status).toBe('queued');
+    expect(await prisma.aiSearchRun.count()).toBe(1);
+  });
+
   it('findByIdempotencyKey returns {id,status} or null', async () => {
     const { runId } = await repo.createRun({
       ownerId: null,

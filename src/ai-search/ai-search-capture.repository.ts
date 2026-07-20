@@ -29,6 +29,9 @@ export class AiSearchCaptureRepository {
   async readRawExtensionCaptures(input: {
     ownerId: string | null;
     channels: CaptureChannel[];
+    // M14-R3/#579 [8]：有界掃描——capturedAt 回溯下界 + take 上限（RED shell：型別先行，尚未套用）。
+    capturedAfter?: Date;
+    limit?: number;
   }): Promise<RawExtensionCapture[]> {
     if (input.channels.length === 0) {
       return [];

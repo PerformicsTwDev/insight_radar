@@ -105,7 +105,7 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
       fakeSerpAi({ 'asus zenbook': serpCanonical('asus zenbook') }),
       runRepo,
       captureRepo,
-      { queueConcurrency: 3 },
+      { queueConcurrency: 3, captureLookbackDays: 30, captureScanLimit: 500 },
     );
 
     const result = await processor.process(
@@ -133,6 +133,8 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
     await seedExtensionCapture('chatGpt', 'asus zenbook'); // googleSearch has none
     const processor = new AiSearchProcessor(fakeSerpAi(), runRepo, captureRepo, {
       queueConcurrency: 3,
+      captureLookbackDays: 30,
+      captureScanLimit: 500,
     });
 
     const result = await processor.process(
@@ -156,6 +158,8 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
     await seedExtensionCapture('chatGpt', 'asus zenbook');
     const processor = new AiSearchProcessor(fakeSerpAi(), runRepo, captureRepo, {
       queueConcurrency: 3,
+      captureLookbackDays: 30,
+      captureScanLimit: 500,
     });
     const job = makeJob({ runId, channels: ['chatGpt'], keywords: ['asus zenbook'] });
 
