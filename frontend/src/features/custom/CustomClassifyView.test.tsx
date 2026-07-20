@@ -116,6 +116,15 @@ describe('TC-26 · CustomClassifyView (stage two)', () => {
     expect(screen.getByText(/尚未建立自訂分類/)).toBeInTheDocument();
   });
 
+  it('opening then dismissing the modal (✕) registers no classification', () => {
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: '+ 新增自訂分類' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '關閉' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText(/尚未建立自訂分類/)).toBeInTheDocument();
+  });
+
   it('confirm labels → assignment job → SSE completed → registers a custom:{cid} view tab and renders its 表', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/custom-classifications', () =>
@@ -187,6 +196,23 @@ describe('TC-26 · CustomClassifyView (stage two)', () => {
       expect(screen.queryByRole('button', { name: '競爭優勢' })).not.toBeInTheDocument(),
     );
     expect(deleted).toBe(true);
+  });
+
+  it('a delete failure keeps the tab and surfaces an error', async () => {
+    renderView();
+    await createTab({ cid: CID1, name: '競爭優勢', label: '價格導向' });
+
+    server.use(
+      http.delete(
+        `/api/v1/keyword-analyses/:id/custom-classifications/${CID1}`,
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '刪除 競爭優勢 分類' }));
+    fireEvent.click(screen.getByRole('button', { name: '刪除' }));
+
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: '競爭優勢' })).toBeInTheDocument();
   });
 
   it('cancelling the delete confirm keeps the tab and fires no DELETE', async () => {

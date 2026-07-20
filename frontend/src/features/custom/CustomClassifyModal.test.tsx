@@ -163,7 +163,10 @@ describe('TC-26 · CustomClassifyModal (stage one)', () => {
 
     fireEvent.click(startBtn());
     await waitFor(() =>
-      expect(onConfirm).toHaveBeenCalledExactlyOnceWith(['價格導向', '品質導向']),
+      expect(onConfirm).toHaveBeenCalledExactlyOnceWith({ id: 'c1', name: '競爭優勢' }, [
+        '價格導向',
+        '品質導向',
+      ]),
     );
   });
 
@@ -212,7 +215,11 @@ describe('TC-26 · CustomClassifyModal (stage one)', () => {
     fireEvent.click(startBtn()); // re-entry while the first onConfirm is outstanding → no-op
     release();
 
-    await waitFor(() => expect(onConfirm).toHaveBeenCalledExactlyOnceWith(['價格導向']));
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledExactlyOnceWith({ id: 'c1', name: '競爭優勢' }, [
+        '價格導向',
+      ]),
+    );
   });
 
   it('shows an error and adds no chips when generation fails (502) — 開始分析 stays disabled', async () => {

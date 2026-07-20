@@ -28,7 +28,9 @@ const TABLE = {
   ],
   rows: [
     { text: 'iphone 16', label: '價格導向', avgMonthlySearches: 12000, tags: ['3c', '手機'] },
-    { text: '洗衣精 推薦', label: '品質導向', avgMonthlySearches: null, tags: null },
+    // Second row exercises the null/missing coercions: null number, null array, and a
+    // non-string text cell (backend drift) — all → — (C12), never a crash.
+    { text: null, label: '品質導向', avgMonthlySearches: null, tags: null },
   ],
   pagination: { total: 2, page: 1, pageSize: 25, cursor: null },
 };
