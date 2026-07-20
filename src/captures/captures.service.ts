@@ -3,6 +3,7 @@ import { BadRequestException, Inject, Injectable, PayloadTooLargeException } fro
 import type { ConfigType } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../common/authenticated-user';
+import { findUnsafeJsonNumberPath } from '../common/json-number-safety';
 import { ownerIdOf } from '../common/owner-scope';
 import { ingestConfig } from '../config/ingest.config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -24,6 +25,15 @@ export function tooManyItemsMessage(max: number): string {
 /** schemaVersion 不在 allowlist 訊息（AC-36.3 / S15；不回傳 allowlist 內容，避免洩漏設定）。 */
 export function unacceptedSchemaVersionMessage(version: string): string {
   return `Unsupported schemaVersion "${version}" (not in CAPTURE_ACCEPTED_SCHEMA_VERSIONS)`;
+}
+
+/**
+ * item 內數值逾 `Number.MAX_SAFE_INTEGER` 訊息（S16 / M13-R2 / #553）——content-hash 對已 JSON.parse 的 payload
+ * 計算，>2^53 整數（如 64-bit post id 以「數字」送）已在 parse 時失精度、兩相異 id 塌成同一 hash → 去重誤丟列。
+ * 明確拒（非靜默）並指引以「字串」送大 id（Threads/IG/X id 皆字串慣例），附 offending path 便於定位。
+ */
+export function unsafeItemNumberMessage(path: string): string {
+  return `Capture item contains a numeric value exceeding Number.MAX_SAFE_INTEGER (2^53-1) at ${path}; large numeric ids must be sent as strings to preserve dedup-hash precision`;
 }
 
 /**
@@ -60,6 +70,15 @@ export class CapturesService {
     // schemaVersion allowlist（S15 / AC-36.3）：缺省由 DTO 擋非空；此處斷言值在 allowlist，不合 → 400（DB 前）。
     if (!this.config.acceptedSchemaVersions.includes(dto.schemaVersion)) {
       throw new BadRequestException(unacceptedSchemaVersionMessage(dto.schemaVersion));
+    }
+    // 數值精度契約（S16 / M13-R2 / #553）：item 內任一數值逾 Number.MAX_SAFE_INTEGER → 400（於任何 hash 計算與
+    // DB 存取之前）。>2^53 整數以「數字」送在 JSON.parse 時已失精度、兩相異 id 塌成同一 double → 同 content-hash →
+    // 去重誤丟列（silent data loss）；此邊界驗證使該 collision 在資料進系統前即不可能發生（大 id 須以字串送）。
+    for (const [index, item] of dto.items.entries()) {
+      const unsafePath = findUnsafeJsonNumberPath(item, `items[${index}]`);
+      if (unsafePath !== null) {
+        throw new BadRequestException(unsafeItemNumberMessage(unsafePath));
+      }
     }
 
     const ownerId = ownerIdOf(actor);
