@@ -67,6 +67,21 @@ describe('TC-77: AiSearchRunService', () => {
     expect((addOpts as { jobId: string }).jobId).toBe('run-1');
   });
 
+  it('enqueues normalized + deduped keywords in the payload (aligns with the idempotency key, M14-R6)', async () => {
+    // Regression: the idempotency key collapses ['Nike','NIKE ','nike'] to a single run, but the job
+    // payload used to carry the raw DTO keywords → pullSerpapi fetched the same normalized keyword 3×
+    // (wasted SerpApi credits + duplicate canonical rows + inflated captureCount). The payload must be
+    // canonicalized with the SAME normalizeText + dedupe single point as the idempotency key.
+    const dto: CreateAiSearchAnalysisDto = {
+      keywords: ['Nike', 'NIKE ', 'nike'],
+      channels: ['aiOverview'],
+    };
+    const { service, queueAdd } = build({ created: true, runId: 'run-1' });
+    await service.create(dto, API);
+    const [, payload] = queueAdd.mock.calls[0];
+    expect((payload as { keywords: string[] }).keywords).toEqual(['nike']);
+  });
+
   it('create is idempotent: an idempotency hit (created=false) returns the same jobId without enqueuing', async () => {
     const { service, queueAdd } = build({ created: false, runId: 'run-1' });
     const res = await service.create(DTO, API);

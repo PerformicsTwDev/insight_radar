@@ -9,6 +9,7 @@ import type { AiSearchJobPayload } from '../queue/ai-search-job.types';
 import { AI_SEARCH_QUEUE } from '../queue/queue.constants';
 import type { CreateAiSearchAnalysisDto } from './ai-search.dto';
 import { computeAiSearchIdempotencyKey } from './ai-search-idempotency';
+import { canonicalizeAiSearchKeywords } from './ai-search-keywords';
 import { AiSearchRunRepository } from './ai-search-run.repository';
 import type { AiSearchRunParams, AiSearchStatusResponse } from './ai-search-run.types';
 
@@ -46,8 +47,12 @@ export class AiSearchRunService {
     const ownerId = ownerIdOf(actor);
     const params: AiSearchRunParams = { schemaVersion: this.config.schemaVersion };
     const brandProfileId = dto.brandProfileId ?? null;
+    // 正規化 + 去重 keywords 於**同一單點**（`canonicalizeAiSearchKeywords`，共用 `normalizeText`）：idempotency key
+    // 與 job payload 必須用同一組字，否則 payload 夾帶 raw keywords → processor 對正規化後相同的字重複 SerpAPI
+    // fetch（浪費 credits + 重複 canonical 列 + 灌大 captureCount，M14-R6/#582）。
+    const canonicalKeywords = canonicalizeAiSearchKeywords(dto.keywords);
     const idempotencyKey = computeAiSearchIdempotencyKey(
-      dto.keywords,
+      canonicalKeywords,
       dto.channels,
       brandProfileId,
       params,
@@ -65,7 +70,7 @@ export class AiSearchRunService {
       const payload: AiSearchJobPayload = {
         runId,
         ownerId,
-        keywords: dto.keywords,
+        keywords: canonicalKeywords,
         channels: dto.channels,
         brandProfileId,
         params,

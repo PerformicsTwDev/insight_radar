@@ -1,7 +1,7 @@
 import { canonicalize } from '../common/canonical-json';
 import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import { sha256Hex } from '../common/sha256';
-import { normalizeText } from '../google-ads/normalize';
+import { canonicalizeAiSearchKeywords } from './ai-search-keywords';
 import type { AiSearchRunParams } from './ai-search-run.types';
 
 /**
@@ -23,7 +23,7 @@ export function computeAiSearchIdempotencyKey(
   params: AiSearchRunParams,
   ownerScope: string | null,
 ): string {
-  const canonicalKeywords = [...new Set(keywords.map(normalizeText))].sort();
+  const canonicalKeywords = canonicalizeAiSearchKeywords(keywords);
   const canonicalChannels = [...channels].sort();
   const canonical = JSON.stringify({
     owner: ownerScope,
