@@ -1,5 +1,7 @@
 import { registerAs } from '@nestjs/config';
 
+import { parseCsvList } from './parse-csv-list';
+
 export interface AppConfig {
   nodeEnv: string;
   port: number;
@@ -15,21 +17,14 @@ export interface AppConfig {
   bodyLimitMb: number;
 }
 
-/** 逗號分隔 origin 白名單 → 去空白、去空項的陣列。 */
-function parseOrigins(raw: string | undefined): string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-}
-
 /** App 層設定（值已由 env.validation Joi schema 驗證/補預設，故直接讀取）。 */
 export const appConfig = registerAs('app', (): AppConfig => ({
   nodeEnv: process.env.NODE_ENV as string,
   port: Number(process.env.PORT),
   apiPrefix: process.env.API_PREFIX as string,
   apiKey: process.env.API_KEY as string,
-  allowedOrigins: parseOrigins(process.env.ALLOWED_ORIGINS),
+  // 逗號分隔 origin 白名單 → 去空白、去空項（共用 parseCsvList，M13-R6 [14]）。
+  allowedOrigins: parseCsvList(process.env.ALLOWED_ORIGINS),
   sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS),
   helmetEnabled: process.env.HELMET_ENABLED !== 'false',
   bodyLimitMb: Number(process.env.BODY_LIMIT_MB),
