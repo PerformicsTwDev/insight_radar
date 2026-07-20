@@ -215,21 +215,42 @@ export interface SerpApiBingCopilotResult {
 /** SerpApi AI 拉取 provider 的 Port（reserved；本期建置不接線，T14.6 job 才接）。DI token 供 T14.6 消費。 */
 export const SERP_AI_PROVIDER = Symbol('SERP_AI_PROVIDER');
 
+/**
+ * 單一 job 的 SerpApi credit ledger（NFR-18 / #581，M14-R5）——`SERPAPI_AI_CREDITS_BUDGET` 是 **per-job** 上限
+ * （Design §14「每 job」），須以**單一** ledger 跨 `fetchAiOverviews`/`fetchAiModes`/`fetchBingCopilot` 三個渠道 method
+ * 共享（by-ref 累計 `spent`），否則各 method 各起一份 accumulator against 同預算 → 單 job 總花費達 N× per-job budget。
+ * 由 caller（AiSearchProcessor）**每 job 建一次**、傳給三個 method 共用；未傳入時 method 自建一份（standalone/契約測試
+ * ＝該 method 獨立一份預算，向後相容）。budget 上限由 provider 的 serpAi config 治理（同一 job 用同一 provider 實例
+ * ＝同一 `creditsBudget`），故 ledger 只需承載跨渠道共享的可變 `spent`。
+ */
+export interface SerpCreditLedger {
+  /** 本 job 至今跨渠道累計已消耗的 SerpApi credit（by-ref 共享）。 */
+  spent: number;
+}
+
 export interface SerpAiProvider {
   /**
    * 批次抓取多個關鍵字的 Google AI Overview（AC-38.1 兩路 + AC-38.2 degradation）。回與輸入對齊、逐筆帶 credit；
-   * 全批受 `SERPAPI_AI_CREDITS_BUDGET` 治理（超出預算的請求不發送 → 該 query degrade `aiOverview=null`）。
+   * 受 per-job `SERPAPI_AI_CREDITS_BUDGET` 治理（超出預算的請求不發送 → 該 query degrade `aiOverview=null`）。傳入
+   * `ledger` 則與其它 serpapi 渠道 method **共用** per-job 預算（NFR-18 / #581）；省略則自建一份（standalone）。
    */
-  fetchAiOverviews(keywords: string[]): Promise<SerpApiAiOverviewResult[]>;
+  fetchAiOverviews(
+    keywords: string[],
+    ledger?: SerpCreditLedger,
+  ): Promise<SerpApiAiOverviewResult[]>;
   /**
    * 批次抓取多個關鍵字的 Google AI Mode（AC-38.3；`engine=google_ai_mode`）→ `AiSearchCapture`（channel=aiMode）。
    * `SERPAPI_AI_MODE_ENABLED`（＋master `SERPAPI_AI_ENABLED`）皆開時才啟用；否則全 `null`、`creditsUsed=0`、不打供應商。
-   * degradation（無回應/失敗/逾時→`null` 非拋）+ credit budget 治理沿用 AIO。
+   * degradation（無回應/失敗/逾時→`null` 非拋）+ per-job credit budget 治理沿用 AIO（共用 `ledger`，NFR-18 / #581）。
    */
-  fetchAiModes(keywords: string[]): Promise<SerpApiAiModeResult[]>;
+  fetchAiModes(keywords: string[], ledger?: SerpCreditLedger): Promise<SerpApiAiModeResult[]>;
   /**
    * 批次抓取多個關鍵字的 Bing Copilot（AC-38.4，**could**；`engine=bing_copilot`）→ `AiSearchCapture`
    * （channel=bingCopilot）。`SERPAPI_BING_COPILOT_ENABLED`（＋master）皆開時才啟用；預設關 → 全 `null`、不打供應商。
+   * 共用 per-job `ledger`（NFR-18 / #581）。
    */
-  fetchBingCopilot(keywords: string[]): Promise<SerpApiBingCopilotResult[]>;
+  fetchBingCopilot(
+    keywords: string[],
+    ledger?: SerpCreditLedger,
+  ): Promise<SerpApiBingCopilotResult[]>;
 }

@@ -6,7 +6,11 @@ import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import { normalizeText } from '../google-ads/normalize';
 import { scrubSecrets } from '../logger/redaction';
-import { SERP_AI_PROVIDER, type SerpAiProvider } from '../serp/serpapi-ai.types';
+import {
+  SERP_AI_PROVIDER,
+  type SerpAiProvider,
+  type SerpCreditLedger,
+} from '../serp/serpapi-ai.types';
 import type { AiSearchJobPayload, AiSearchJobResult } from '../queue/ai-search-job.types';
 import { AI_SEARCH_QUEUE } from '../queue/queue.constants';
 import { extensionChannelsOf, serpapiChannelsOf } from './ai-search-channels';
@@ -121,22 +125,25 @@ export class AiSearchProcessor
     keywords: string[],
   ): Promise<AiSearchCanonical[]> {
     const out: AiSearchCanonical[] = [];
+    // 單一 per-job credit ledger（NFR-18 / #581）：跨 aiOverview/aiMode/bingCopilot 三個渠道 method 共用同一
+    // SERPAPI_AI_CREDITS_BUDGET（per-job 上限，Design §14）——否則各 method 各起一份 accumulator → 總花費達 N×。
+    const ledger: SerpCreditLedger = { spent: 0 };
     if (channels.includes('aiOverview')) {
-      for (const result of await this.serpAi.fetchAiOverviews(keywords)) {
+      for (const result of await this.serpAi.fetchAiOverviews(keywords, ledger)) {
         if (result.aiOverview) {
           out.push(result.aiOverview);
         }
       }
     }
     if (channels.includes('aiMode')) {
-      for (const result of await this.serpAi.fetchAiModes(keywords)) {
+      for (const result of await this.serpAi.fetchAiModes(keywords, ledger)) {
         if (result.aiMode) {
           out.push(result.aiMode);
         }
       }
     }
     if (channels.includes('bingCopilot')) {
-      for (const result of await this.serpAi.fetchBingCopilot(keywords)) {
+      for (const result of await this.serpAi.fetchBingCopilot(keywords, ledger)) {
         if (result.copilot) {
           out.push(result.copilot);
         }

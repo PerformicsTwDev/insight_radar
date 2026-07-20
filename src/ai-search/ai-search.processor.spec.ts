@@ -157,7 +157,8 @@ describe('TC-77: AiSearchProcessor', () => {
       const result = await processor.process(j);
 
       expect(deleteByJobId).toHaveBeenCalledWith('run-1'); // clean slate
-      expect(fetchAiOverviews).toHaveBeenCalledWith(['asus zenbook']);
+      // per-job credit ledger 傳入（NFR-18 / #581）——跨渠道共用一份 { spent }（cap 行為於 provider spec 驗）。
+      expect(fetchAiOverviews).toHaveBeenCalledWith(['asus zenbook'], expect.anything());
       const persisted = persistCanonical.mock.calls[0][2] as AiSearchCanonical[];
       expect(persisted).toHaveLength(2); // aiOverview (serpapi) + chatGpt (extension)
       expect(persisted.map((c) => c.channel).sort()).toEqual(['aiOverview', 'chatGpt']);
@@ -266,8 +267,9 @@ describe('TC-77: AiSearchProcessor', () => {
       });
       const { j } = makeJob({ channels: ['aiMode', 'bingCopilot'], keywords: ['q'] });
       const result = await processor.process(j);
-      expect(fetchAiModes).toHaveBeenCalledWith(['q']);
-      expect(fetchBingCopilot).toHaveBeenCalledWith(['q']);
+      // 同一 per-job ledger 傳給三個渠道 method（NFR-18 / #581）。
+      expect(fetchAiModes).toHaveBeenCalledWith(['q'], expect.anything());
+      expect(fetchBingCopilot).toHaveBeenCalledWith(['q'], expect.anything());
       const persisted = persistCanonical.mock.calls[0][2] as AiSearchCanonical[];
       expect(persisted.map((c) => c.channel).sort()).toEqual(['aiMode', 'bingCopilot']);
       expect(result.status).toBe('completed');
