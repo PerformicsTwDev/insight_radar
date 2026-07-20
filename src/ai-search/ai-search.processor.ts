@@ -124,29 +124,58 @@ export class AiSearchProcessor
     channels: CaptureChannel[],
     keywords: string[],
   ): Promise<AiSearchCanonical[]> {
-    const out: AiSearchCanonical[] = [];
     // 單一 per-job credit ledger（NFR-18 / #581）：跨 aiOverview/aiMode/bingCopilot 三個渠道 method 共用同一
     // SERPAPI_AI_CREDITS_BUDGET（per-job 上限，Design §14）——否則各 method 各起一份 accumulator → 總花費達 N×。
     const ledger: SerpCreditLedger = { spent: 0 };
-    if (channels.includes('aiOverview')) {
-      for (const result of await this.serpAi.fetchAiOverviews(keywords, ledger)) {
-        if (result.aiOverview) {
-          out.push(result.aiOverview);
-        }
-      }
+    // 三渠道僅「請求判定 / fetch method / canonical 欄位」不同，共用同一收斂路徑（M14-R7/#583 [10]，統一原 3 個
+    // near-identical loop）；順序 aiOverview→aiMode→bingCopilot 與 ledger 共用不變。
+    const out: AiSearchCanonical[] = [];
+    out.push(
+      ...(await this.pullChannel(
+        channels,
+        'aiOverview',
+        () => this.serpAi.fetchAiOverviews(keywords, ledger),
+        (r) => r.aiOverview,
+      )),
+    );
+    out.push(
+      ...(await this.pullChannel(
+        channels,
+        'aiMode',
+        () => this.serpAi.fetchAiModes(keywords, ledger),
+        (r) => r.aiMode,
+      )),
+    );
+    out.push(
+      ...(await this.pullChannel(
+        channels,
+        'bingCopilot',
+        () => this.serpAi.fetchBingCopilot(keywords, ledger),
+        (r) => r.copilot,
+      )),
+    );
+    return out;
+  }
+
+  /**
+   * 單一 serpapi 渠道的收斂（M14-R7/#583 [10]，統一原 3 個 near-identical loop）：僅當該渠道被請求時才 `fetch`
+   * （否則零外部呼叫、回 []，保 AC-41.2「只對請求到的渠道發送」）；對回傳逐筆以 `pick` 取 canonical，degradation
+   * 的 `null`（無 AIO/失敗/逾時/credit 不足）略過（非拋）。
+   */
+  private async pullChannel<R>(
+    channels: CaptureChannel[],
+    channel: CaptureChannel,
+    fetch: () => Promise<R[]>,
+    pick: (result: R) => AiSearchCanonical | null,
+  ): Promise<AiSearchCanonical[]> {
+    if (!channels.includes(channel)) {
+      return [];
     }
-    if (channels.includes('aiMode')) {
-      for (const result of await this.serpAi.fetchAiModes(keywords, ledger)) {
-        if (result.aiMode) {
-          out.push(result.aiMode);
-        }
-      }
-    }
-    if (channels.includes('bingCopilot')) {
-      for (const result of await this.serpAi.fetchBingCopilot(keywords, ledger)) {
-        if (result.copilot) {
-          out.push(result.copilot);
-        }
+    const out: AiSearchCanonical[] = [];
+    for (const result of await fetch()) {
+      const canonical = pick(result);
+      if (canonical) {
+        out.push(canonical);
       }
     }
     return out;
