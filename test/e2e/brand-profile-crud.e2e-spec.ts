@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { overrideBackgroundWorkers } from './helpers/background-workers';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
@@ -8,31 +9,10 @@ import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { SessionService } from 'src/auth';
 import { configureApp } from 'src/bootstrap';
-import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
-import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
-import { JourneyProcessor } from 'src/journey/journey.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
-import {
-  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
-  CUSTOM_CLASSIFY_QUEUE_EVENTS,
-} from 'src/queue/custom-classify-job-events.constants';
-import {
-  AI_SEARCH_JOB_EVENTS_CONNECTION,
-  AI_SEARCH_QUEUE_EVENTS,
-} from 'src/queue/ai-search-job-events.constants';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import {
-  JOURNEY_JOB_EVENTS_CONNECTION,
-  JOURNEY_QUEUE_EVENTS,
-} from 'src/queue/journey-job-events.constants';
 import { BULL_CONNECTION } from 'src/queue/queue.constants';
-import {
-  TOPIC_JOB_EVENTS_CONNECTION,
-  TOPIC_QUEUE_EVENTS,
-} from 'src/queue/topic-job-events.constants';
-import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
-import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 /**
  * TC-76（FR-40，AC-40.1 · FR-27 owner scope）：BrandProfile CRUD 的 HTTP 端到端。
@@ -256,40 +236,16 @@ describe('BrandProfile CRUD (e2e · TC-76 · FR-40/27)', () => {
       { id: OWNER_A, email: 'a@example.com' },
       { id: OWNER_B, email: 'b@example.com' },
     ]);
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(BULL_CONNECTION)
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)
       .useValue(new RedisMock())
-      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(TOPIC_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
-      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(JOURNEY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(JourneyProcessor)
-      .useValue({})
-      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(CustomClassifyAssignProcessor)
-      .useValue({})
-      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(AiSearchProcessor)
-      .useValue({})
-      .overrideProvider(TopicClusterProcessor)
-      .useValue({})
-      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .overrideProvider(PrismaService)
       .useValue(db)

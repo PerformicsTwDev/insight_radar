@@ -1,4 +1,5 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { overrideBackgroundWorkers } from './helpers/background-workers';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
@@ -6,31 +7,10 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
-import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
-import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
-import { JourneyProcessor } from 'src/journey/journey.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import {
-  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
-  CUSTOM_CLASSIFY_QUEUE_EVENTS,
-} from 'src/queue/custom-classify-job-events.constants';
-import {
-  AI_SEARCH_JOB_EVENTS_CONNECTION,
-  AI_SEARCH_QUEUE_EVENTS,
-} from 'src/queue/ai-search-job-events.constants';
-import {
-  JOURNEY_JOB_EVENTS_CONNECTION,
-  JOURNEY_QUEUE_EVENTS,
-} from 'src/queue/journey-job-events.constants';
-import {
-  TOPIC_JOB_EVENTS_CONNECTION,
-  TOPIC_QUEUE_EVENTS,
-} from 'src/queue/topic-job-events.constants';
 import { BULL_CONNECTION, CUSTOM_CLASSIFY_QUEUE } from 'src/queue/queue.constants';
-import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
-import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 const API_KEY = 'test-api-key'; // matches .env.test
 const AN = '11111111-1111-1111-1111-111111111111';
@@ -95,7 +75,9 @@ describe('custom:{cid} view + DELETE (e2e, TC-70)', () => {
       $transaction: txn,
     };
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(getQueueToken(CUSTOM_CLASSIFY_QUEUE))
       .useValue({
         add: jest.fn(),
@@ -108,35 +90,9 @@ describe('custom:{cid} view + DELETE (e2e, TC-70)', () => {
       .useValue(new RedisMock())
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(TOPIC_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(JOURNEY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(PrismaService)
       .useValue(prisma)
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
-      .overrideProvider(TopicClusterProcessor)
-      .useValue({})
-      .overrideProvider(TrackingRefreshProcessor)
-      .useValue({})
-      .overrideProvider(JourneyProcessor)
-      .useValue({})
-      .overrideProvider(CustomClassifyAssignProcessor)
-      .useValue({})
-      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(AiSearchProcessor)
       .useValue({})
       .compile();
 

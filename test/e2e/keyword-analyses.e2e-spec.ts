@@ -1,4 +1,5 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { overrideBackgroundWorkers } from './helpers/background-workers';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
@@ -8,28 +9,7 @@ import { configureApp } from 'src/bootstrap';
 import { AppModule } from 'src/app.module';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import {
-  TOPIC_JOB_EVENTS_CONNECTION,
-  TOPIC_QUEUE_EVENTS,
-} from 'src/queue/topic-job-events.constants';
-import {
-  JOURNEY_JOB_EVENTS_CONNECTION,
-  JOURNEY_QUEUE_EVENTS,
-} from 'src/queue/journey-job-events.constants';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
-import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
-import { JourneyProcessor } from 'src/journey/journey.processor';
-import {
-  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
-  CUSTOM_CLASSIFY_QUEUE_EVENTS,
-} from 'src/queue/custom-classify-job-events.constants';
-import {
-  AI_SEARCH_JOB_EVENTS_CONNECTION,
-  AI_SEARCH_QUEUE_EVENTS,
-} from 'src/queue/ai-search-job-events.constants';
-import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
-import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
-import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { PrismaService } from 'src/prisma';
 
 const API_KEY = 'test-api-key'; // matches .env.test
@@ -53,9 +33,9 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
     prismaCreate = jest.fn((args: { data: { id: string } }) => Promise.resolve(args.data));
     prismaFindUnique = jest.fn();
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    })
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
       .useValue({ add: queueAdd, getJob: queueGetJob })
       // Real in-memory ioredis-mock: the @Processor's auto-created BullMQ Worker needs a
@@ -65,10 +45,6 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       .useValue(new RedisMock())
       .overrideProvider(JOB_EVENTS_CONNECTION)
       .useValue(new RedisMock())
-      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(TOPIC_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(PrismaService)
@@ -80,28 +56,6 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
       // Stub the processor so its WorkerHost doesn't spin up a real BullMQ Worker
       // (this is an HTTP-layer e2e; worker behavior is covered by the processor unit test).
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
-      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(JOURNEY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(JourneyProcessor)
-      .useValue({})
-      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(CustomClassifyAssignProcessor)
-      .useValue({})
-      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(AiSearchProcessor)
-      .useValue({})
-      .overrideProvider(TopicClusterProcessor)
-      .useValue({})
-      .overrideProvider(TrackingRefreshProcessor)
       .useValue({})
       .compile();
 

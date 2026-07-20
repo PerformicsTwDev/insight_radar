@@ -1,4 +1,5 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { overrideBackgroundWorkers } from './helpers/background-workers';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
@@ -6,31 +7,10 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
-import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
-import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
 import { AZURE_OPENAI_CLIENT } from 'src/intent/intent-labeler.port';
-import { JourneyProcessor } from 'src/journey/journey.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import {
-  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
-  CUSTOM_CLASSIFY_QUEUE_EVENTS,
-} from 'src/queue/custom-classify-job-events.constants';
-import {
-  AI_SEARCH_JOB_EVENTS_CONNECTION,
-  AI_SEARCH_QUEUE_EVENTS,
-} from 'src/queue/ai-search-job-events.constants';
-import {
-  JOURNEY_JOB_EVENTS_CONNECTION,
-  JOURNEY_QUEUE_EVENTS,
-} from 'src/queue/journey-job-events.constants';
-import {
-  TOPIC_JOB_EVENTS_CONNECTION,
-  TOPIC_QUEUE_EVENTS,
-} from 'src/queue/topic-job-events.constants';
 import { BULL_CONNECTION, KEYWORD_ANALYSIS_QUEUE } from 'src/queue/queue.constants';
-import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
-import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 const API_KEY = 'test-api-key'; // matches .env.test
 
@@ -56,7 +36,9 @@ describe('POST /ai-ideation (e2e, TC-71)', () => {
     parse.mockResolvedValue(okCompletion(['吸塵器評比', '吸塵器評比', '掃地機器人 推薦']));
     const azureClient = { chat: { completions: { parse } } };
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
       .useValue({ add: jest.fn(), getJob: jest.fn() })
       .overrideProvider(BULL_CONNECTION)
@@ -65,35 +47,9 @@ describe('POST /ai-ideation (e2e, TC-71)', () => {
       .useValue(new RedisMock())
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(TOPIC_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(JOURNEY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(AZURE_OPENAI_CLIENT)
       .useValue(azureClient)
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
-      .overrideProvider(TopicClusterProcessor)
-      .useValue({})
-      .overrideProvider(TrackingRefreshProcessor)
-      .useValue({})
-      .overrideProvider(JourneyProcessor)
-      .useValue({})
-      .overrideProvider(CustomClassifyAssignProcessor)
-      .useValue({})
-      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(AiSearchProcessor)
       .useValue({})
       .compile();
 

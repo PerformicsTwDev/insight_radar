@@ -1,31 +1,11 @@
 import { Test } from '@nestjs/testing';
+import { overrideBackgroundWorkers } from './helpers/background-workers';
 import RedisMock from 'ioredis-mock';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { CacheService } from 'src/cache/cache.service';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
-import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
-import { JourneyProcessor } from 'src/journey/journey.processor';
-import {
-  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
-  CUSTOM_CLASSIFY_QUEUE_EVENTS,
-} from 'src/queue/custom-classify-job-events.constants';
-import {
-  AI_SEARCH_JOB_EVENTS_CONNECTION,
-  AI_SEARCH_QUEUE_EVENTS,
-} from 'src/queue/ai-search-job-events.constants';
-import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
-import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
-import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import {
-  TOPIC_JOB_EVENTS_CONNECTION,
-  TOPIC_QUEUE_EVENTS,
-} from 'src/queue/topic-job-events.constants';
-import {
-  JOURNEY_JOB_EVENTS_CONNECTION,
-  JOURNEY_QUEUE_EVENTS,
-} from 'src/queue/journey-job-events.constants';
 import { BULL_CONNECTION } from 'src/queue/queue.constants';
 
 /**
@@ -53,43 +33,19 @@ describe('Graceful shutdown (e2e, TC-26 / NFR-9)', () => {
     // processor 替身的 drain hook：其 onModuleDestroy 必在連線 quit 前被呼叫（反相依序）。
     const workerDrain = jest.fn().mockResolvedValue(undefined);
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(BULL_CONNECTION)
       .useValue(bullConnection)
       .overrideProvider(JOB_EVENTS_CONNECTION)
       .useValue(jobEventsConnection)
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: queueEventsClose })
-      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(TOPIC_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       // 替身 processor → 不起真 Worker（避免 ioredis-mock 阻塞輪詢在 Linux CI 卡住）；保留 onModuleDestroy
       // 以驗證「drain 早於連線 quit」的 lifecycle 序（真 processor 於此 hook 內 await worker.close，見單元測）。
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({ onModuleDestroy: workerDrain })
-      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(JOURNEY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(JourneyProcessor)
-      .useValue({})
-      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(CustomClassifyAssignProcessor)
-      .useValue({})
-      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(AiSearchProcessor)
-      .useValue({})
-      .overrideProvider(TopicClusterProcessor)
-      .useValue({})
-      .overrideProvider(TrackingRefreshProcessor)
-      .useValue({})
       .compile();
 
     const app = moduleRef.createNestApplication();
