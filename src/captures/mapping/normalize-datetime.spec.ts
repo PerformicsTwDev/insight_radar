@@ -1,6 +1,6 @@
 import { normalizeChineseDateTime } from './normalize-datetime';
 
-describe('normalizeChineseDateTime (AC-37.3 / FR-46 中文時間 → ISO)', () => {
+describe('normalizeChineseDateTime (T13.4 / AC-37.3 / FR-46 中文時間 → ISO / TC-73)', () => {
   it('標準例：年月日 + 星期（忽略）+ 上午/下午時間 → ISO（預設 +08:00）', () => {
     expect(normalizeChineseDateTime('2025年11月21日 星期五 上午2:01')).toBe(
       '2025-11-21T02:01:00+08:00',

@@ -14,7 +14,7 @@ function socialInput(payload: unknown, overrides: Partial<MapperInput> = {}): Ma
   };
 }
 
-describe('mapSocialPost (FR-37/46/51 → SocialPost 中立形狀)', () => {
+describe('mapSocialPost (T13.4 / FR-37/46/51 → SocialPost 中立形狀 / TC-73)', () => {
   it('完整代表輸入 → ok：欄位收斂 + 計數(8K→8000) + 中文時間 → ISO + postKey', () => {
     const result = mapSocialPost(
       socialInput({

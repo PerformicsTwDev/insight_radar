@@ -1,6 +1,6 @@
 import { normalizeCount } from './normalize-count';
 
-describe('normalizeCount (AC-37.3 / FR-46 互動計數正規化)', () => {
+describe('normalizeCount (T13.4 / AC-37.3 / FR-46 互動計數正規化 / TC-73)', () => {
   it('緊湊英文記法 → number（8K→8000、1.2M→1200000、2B→2000000000）', () => {
     expect(normalizeCount('8K')).toBe(8000);
     expect(normalizeCount('8k')).toBe(8000);

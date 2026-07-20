@@ -11,7 +11,7 @@ const stubMapper: Mapper = (input) => ({
   reasons: [],
 });
 
-describe('MapperRegistry (FR-37 registry：key=(source,discriminator,schemaVersion))', () => {
+describe('MapperRegistry (T13.4 / FR-37 registry：key=(source,discriminator,schemaVersion) / TC-73)', () => {
   it('exact-version 註冊與解析', () => {
     const r = new MapperRegistry();
     r.register({ source: 'extension', discriminator: 'chatGpt', schemaVersion: 'v1' }, stubMapper);
@@ -46,7 +46,7 @@ describe('MapperRegistry (FR-37 registry：key=(source,discriminator,schemaVersi
   });
 });
 
-describe('createDefaultRegistry (骨架分派)', () => {
+describe('createDefaultRegistry (T13.4 / 骨架分派 / TC-73)', () => {
   const r = createDefaultRegistry();
 
   it('AI 渠道（extension/serpapi）→ mapAiCapture', () => {
@@ -62,7 +62,7 @@ describe('createDefaultRegistry (骨架分派)', () => {
   });
 });
 
-describe('normalize (AC-37.1/37.4 分派 + 韌性)', () => {
+describe('normalize (T13.4 / AC-37.1/37.4 分派 + 韌性 / TC-73)', () => {
   it('依 channel 分派 AI 線（產出 AiSearchCapture 形狀）', () => {
     const result = normalize({
       source: 'extension',
