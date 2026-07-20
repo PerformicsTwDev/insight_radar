@@ -206,6 +206,27 @@ describe('CustomClassifyAssignProcessor (T12.8 / FR-34 / AC-34.2)', () => {
       expect(markStatus).toHaveBeenNthCalledWith(2, 'run-1', 'completed', { keywordCount: 2 });
     });
 
+    it('keeps a completed run completed when the trailing done-progress DB write fails (INV-3, #586)', async () => {
+      // Regression mirroring M14-R2 (#578): process() commits the terminal status (markStatus
+      // 'completed') BEFORE the trailing reportProgress('done', 100). A transient DB error on that
+      // post-terminal progress write must NOT throw into the catch and flip the already-committed
+      // status to 'failed'.
+      const { processor, markStatus, updateProgress } = build();
+      // Only the final 'done'/100 progress write fails; earlier phase writes succeed so the run
+      // reaches its terminal state normally (completed) before the failing write.
+      updateProgress.mockImplementation((_runId: string, progress: unknown) =>
+        (progress as { percent: number }).percent >= 100
+          ? Promise.reject(new Error('transient db error'))
+          : Promise.resolve(undefined),
+      );
+      const { j } = makeJob(); // final attempt (attemptsMade 4, attempts 5)
+      const result = await processor.process(j);
+
+      expect(result).toEqual({ status: 'completed', keywordCount: 2 });
+      expect(markStatus).toHaveBeenLastCalledWith('run-1', 'completed', { keywordCount: 2 });
+      expect(markStatus).not.toHaveBeenCalledWith('run-1', 'failed', expect.anything());
+    });
+
     it('a non-Error throw is stringified for the failure message/log', async () => {
       const { processor, markStatus } = build();
       const nonError = 'weird' as unknown as Error;
