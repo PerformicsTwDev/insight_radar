@@ -73,32 +73,39 @@ export class SerpApiAiProvider implements SerpAiProvider {
       }
       spent += 1;
       let creditsUsed = 1;
-
-      const response = await this.client.searchGoogle({
-        q: query,
-        hl: this.config.hl,
-        gl: this.config.gl,
-      });
-
       let inline: SerpApiAiOverviewInline | null = null;
-      const aio = response.ai_overview;
 
-      if (aio && isInline(aio)) {
-        // 路一：內嵌 text_blocks，直接解析。
-        inline = aio;
-      } else if (aio && !aio.error && aio.page_token) {
-        // 路二：只回 page_token → 二次抓取（若預算允許再發送 → 一發送即 +1 credit）。
-        if (spent + 1 > budget) {
-          this.logger.warn(
-            `AIO secondary fetch skipped (credit budget ${budget} reached): degrading to null`,
-          );
-        } else {
-          spent += 1;
-          creditsUsed = 2;
-          inline = await this.fetchAiOverviewWithinTimeout(aio.page_token);
+      try {
+        const response = await this.client.searchGoogle({
+          q: query,
+          hl: this.config.hl,
+          gl: this.config.gl,
+        });
+
+        const aio = response.ai_overview;
+
+        if (aio && isInline(aio)) {
+          // 路一：內嵌 text_blocks，直接解析。
+          inline = aio;
+        } else if (aio && !aio.error && aio.page_token) {
+          // 路二：只回 page_token → 二次抓取（若預算允許再發送 → 一發送即 +1 credit）。
+          if (spent + 1 > budget) {
+            this.logger.warn(
+              `AIO secondary fetch skipped (credit budget ${budget} reached): degrading to null`,
+            );
+          } else {
+            spent += 1;
+            creditsUsed = 2;
+            inline = await this.fetchAiOverviewWithinTimeout(aio.page_token);
+          }
         }
+        // else：無 ai_overview / 有 error / 未知形狀 → inline 保持 null（degradation，AC-38.2）。
+      } catch (error) {
+        // 主查詢（`engine=google`）失敗 → **degrade `aiOverview=null`（非拋、不阻斷整批）**，比照 sibling
+        // runTopLevelEngine / fetchAiOverviewWithinTimeout（AC-38.2 / AC-41.2 / INV-6）。已發送即計 credit。
+        // 祕密不入 log（NFR-5）：供應商錯誤可夾帶 api_key（URL query）。
+        this.logger.warn(`AIO primary fetch degraded to null: ${scrubSecrets(String(error))}`);
       }
-      // else：無 ai_overview / 有 error / 未知形狀 → inline 保持 null（degradation，AC-38.2）。
 
       results.push({
         query,
@@ -255,7 +262,11 @@ export class SerpApiAiProvider implements SerpAiProvider {
   }
 }
 
-/** 兩路判別：內嵌路帶 `text_blocks`、二次抓取路只帶 `page_token`（fixture baseline 同一判別）。 */
+/**
+ * 兩路判別：內嵌路帶 `text_blocks`、二次抓取路只帶 `page_token`（fixture baseline 同一判別）。
+ * `in` 運算子對 non-object primitive 會 throw TypeError → 先 guard 型別（供應商 schema 漂移把 `ai_overview`
+ * 傳成字串/數字時 → 回 false → 上游 degrade `aiOverview=null`，不崩 job；AC-38.2 degradation 意圖）。
+ */
 function isInline(aio: SerpApiAiOverview): aio is SerpApiAiOverviewInline {
-  return 'text_blocks' in aio;
+  return typeof aio === 'object' && aio !== null && 'text_blocks' in aio;
 }
