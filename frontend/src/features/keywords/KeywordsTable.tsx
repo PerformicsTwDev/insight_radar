@@ -13,6 +13,7 @@ import {
 } from '../../lib/keywordsTable';
 import { AiIntentCell } from './AiIntentCell';
 import { SparklineCell } from './SparklineCell';
+import type { EventSourceFactory } from '../job/useJobTracking';
 
 /**
  * Search-terms grand table (T2.1, FR-4). TanStack Table column model +
@@ -128,10 +129,13 @@ function frozen(index: number, base: string, bg: string): string {
 export function KeywordsTable({
   rows,
   analysisId,
+  eventSourceFactory: _eventSourceFactory,
 }: {
   rows: KeywordRow[];
   /** Analysis context enabling the interactive ✦ on-demand cells (T4.1, FR-18); omit for a masked ✦. */
   analysisId?: string;
+  /** Injected SSE factory for the ✦ column-header batch (T4.2); prod uses the default. */
+  eventSourceFactory?: EventSourceFactory;
 }): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const columns = useMemo(() => buildColumns(analysisId), [analysisId]);

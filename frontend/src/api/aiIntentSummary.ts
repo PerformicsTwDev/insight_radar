@@ -57,6 +57,17 @@ export type AiIntentSummaryResult =
   | { readonly ok: true; readonly summary: string }
   | { readonly ok: false; readonly status: number; readonly kind: AiCellErrorKind };
 
+export type StartBatchIntentSummaryResult =
+  | { readonly ok: true; readonly jobId: string }
+  | { readonly ok: false; readonly status: number };
+
+/** STUB — batch (`scope:'snapshot'`) start egress; real impl lands in green (T4.2). */
+export async function startBatchIntentSummary(
+  _id: string,
+): Promise<StartBatchIntentSummaryResult> {
+  return { ok: false, status: 0 };
+}
+
 /**
  * Summarise one keyword's search intent (`scope:'keyword'`). On 200 the (stub)
  * body is zod-validated to `{ normalizedText, summary }`; a **400** (scope
