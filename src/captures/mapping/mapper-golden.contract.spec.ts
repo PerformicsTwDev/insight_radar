@@ -91,10 +91,27 @@ describe('TC-73: capture mapper golden fixtures (contract + drift guard)', () =>
       expect(result.reasons).toContain('missing:content');
     });
 
-    it('skeleton-partial 的 extension 專屬欄位消失 → partial 升 ok（白名單對齊後應更新 golden）', () => {
-      const rest = omitKey(payloadOf(aiGoogleAiModeV1Golden), 'relatedQuestions');
-      const result = normalize({ ...aiGoogleAiModeV1Golden.input, payload: rest });
-      expect(result.mapStatus).toBe('ok');
+    it('full-map googleAiMode 新增未知欄位 → ok 降 partial（T14.4 whitelist 後漂移守衛仍生效）', () => {
+      const drifted: MapperInput = {
+        ...aiGoogleAiModeV1Golden.input,
+        payload: { ...payloadOf(aiGoogleAiModeV1Golden), experimentalPanel: { foo: 1 } },
+      };
+      const result = normalize(drifted);
+      expect(result.mapStatus).toBe('partial');
+      expect(result.reasons).toContain('unknown_field:experimentalPanel');
+    });
+
+    it('per-channel 白名單有界：googleAiMode 專屬 `relatedQuestions` 搬到 chatGpt → 未知欄位（partial）', () => {
+      const drifted: MapperInput = {
+        source: 'extension',
+        channel: 'chatGpt',
+        schemaVersion: 'v1',
+        capturedAt: '2025-11-21T00:00:00.000Z',
+        payload: { query: 'q', answer: 'a', relatedQuestions: ['x'] },
+      };
+      const result = normalize(drifted);
+      expect(result.mapStatus).toBe('partial');
+      expect(result.reasons).toContain('unknown_field:relatedQuestions');
     });
   });
 });
