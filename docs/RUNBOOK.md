@@ -128,3 +128,15 @@ pnpm start:prod                       # node dist/main
 - **owner 歸屬（FR-27）**：session→`ownerId=user.id`、`x-api-key` 機器身分→`ownerId=null`（唯一強制點在 service 落庫）。
 
 **症狀 → 處置**：capture 全 `400`（schemaVersion）→ 確認 client 送的 `schemaVersion` 在 `CAPTURE_ACCEPTED_SCHEMA_VERSIONS`；全 `413` → 查批次筆數/ body 大小 vs `INGEST_BATCH_MAX`/`INGEST_BODY_LIMIT_MB`；某渠道貼文「靜默不進來」→ 查該渠道是否在 extension `EXTERNAL_PONG.features[]`（能力協商 not-available＝前端未轉發），非後端錯誤。
+
+## 10. AI Search 抓取（M14，FR-38~41 / NFR-18）
+
+`POST /api/v1/ai-search-analyses` 觸發抓取 job（202 `{jobId}`，enqueue-only），worker 把 **extension push（primary）+ SerpAPI pull（reserved）** 依 query 集合流成 `ai_search_captures`（以 jobId 關聯），供 M15 可見度分析。完整契約見 [`docs/API.md`](./API.md) 的「M14 品牌檔案 + AI Search 抓取」節；以下為維運要點：
+
+- **SerpAPI AI adapters 為 reserved（預設全關）**：`SERPAPI_AI_ENABLED=false`（master）+ `SERPAPI_AI_MODE_ENABLED` / `SERPAPI_BING_COPILOT_ENABLED`（per-engine，could）皆預設 `false`。**主管道＝extension 橋接**（`chatGpt/geminiApp/googleAiMode/googleSearch` 走 `POST /captures`，無新祕密、走 session cookie）。啟用 SerpAPI 來源前須先備妥 `SERP_API_KEY`/`SERP_API_URL`（沿用 SERP，★redact）並開對應開關；關閉時 provider **short-circuit 回 null（零外部呼叫）**，該渠道視為缺 → `partial`。
+- **credit 預算治理（NFR-18）**：`SERPAPI_AI_CREDITS_BUDGET`（每 job 上限，預設 1000）；AI Overview 內嵌＝1 credit、`page_token` 二次抓取＝2 credits/query。job 內 credit ledger 累計超預算 → 不再發送 → 該渠道 degrade 回 null（`partial`，非拋）。`SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS`（預設 50000）**必 < 60000**（page_token 產生後 <1 分鐘過期，留裕度；Joi 於開機 fail-fast 擋 ≥60000）。`SERPAPI_AI_HL`/`SERPAPI_AI_GL`（預設 `zh-tw`/`tw`）為抓取語言/地區。
+- **worker 並發**：`AI_SEARCH_QUEUE_CONCURRENCY`（BullMQ，預設 3，同 topics/journey/custom-classify）。調高前評估「extension raw capture 讀取 + 合流 + 落庫」DB 壓力；SerpAPI reserved 啟用時另受 credit 預算與 ~1 QPS 供應商節流上界約束。
+- **合流 / partial 語意（INV-6）**：raw `captures` 無 jobId → canonical 層以 **query-set**（共用 `normalizeText`）關聯、tag jobId 落 `ai_search_captures`；重入列/retry 先 `deleteByJobId` 清舊列（idempotent re-run）。**任一請求渠道零 capture → `partial`（該格 null、不整批失敗）**；全覆蓋 → `completed`。mapper malformed / provider degradation 皆 null-不拋 → 正常路徑恆完成；僅基礎設施錯（Prisma/Redis）於**最終 attempt** 標 `failed`、依 `JOB_ATTEMPTS` 重試。
+- **owner 歸屬（FR-27）**：session→`ownerId=user.id`、`x-api-key`→`ownerId=null`（唯一強制點在 service）。`GET :id` / SSE 他人/未知 run → 404 / 空串流（不洩漏存在性）。
+
+**症狀 → 處置**：run 恆 `partial` 且 SerpAPI 渠道無資料 → 預期（reserved 預設關）；要拉取須開 `SERPAPI_AI_ENABLED` + 對應 per-engine 開關 + 備 `SERP_API_KEY`。extension 渠道「靜默 partial」→ 查前端是否已代 push（`POST /captures` 202）且渠道在 extension `EXTERNAL_PONG.features[]`（能力協商 not-available＝未轉發），非後端錯誤。job 恆 `failed` → 查 Redis/Postgres 連線（基礎設施錯才標 failed）；SerpAPI 啟用後配額耗盡 → 該渠道降級 `partial`（查 `SERPAPI_AI_CREDITS_BUDGET`），非整批失敗。

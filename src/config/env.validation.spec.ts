@@ -294,7 +294,23 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(value.SERPAPI_AI_CREDITS_BUDGET).toBe(1000);
       expect(value.SERPAPI_AI_HL).toBe('zh-tw');
       expect(value.SERPAPI_AI_GL).toBe('tw');
+      // T14.7：M14 env 盤點收尾——AI Search 抓取 job worker 並發預設（§14；同 topics/journey/custom-classify）。
+      // 由 ai-search.module 消費（reserved feature 之外的實接線參數），此前無測試覆蓋。
+      expect(value.AI_SEARCH_QUEUE_CONCURRENCY).toBe(3);
     });
+
+    it.each(['lots', '0', '-1', '1.5'])(
+      'rejects a non-positive-integer AI_SEARCH_QUEUE_CONCURRENCY %j instead of silently passing it through (T14.7/NFR-5)',
+      (bad) => {
+        // reserved feature 之外的實接線 tunable：非正整數 → fail-fast，不因 allowUnknown 靜默放行（NFR-5）。
+        const { error } = validationSchema.validate(
+          { ...validEnv, AI_SEARCH_QUEUE_CONCURRENCY: bad },
+          { abortEarly: false },
+        );
+        expect(error).toBeDefined();
+        expect(error?.message).toContain('AI_SEARCH_QUEUE_CONCURRENCY');
+      },
+    );
 
     it('rejects a SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS that is not under the 60s page_token expiry (AC-38.1)', () => {
       const { error } = validationSchema.validate(
