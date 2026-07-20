@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { config } from '../../config/env';
-import {
-  startBatchIntentSummary,
-  summarizeKeywordIntent,
-} from '../../api/aiIntentSummary';
+import { startBatchIntentSummary, summarizeKeywordIntent } from '../../api/aiIntentSummary';
 import {
   aiBatchReducer,
   cellStateOf,

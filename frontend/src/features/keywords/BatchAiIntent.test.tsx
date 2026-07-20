@@ -154,7 +154,9 @@ describe('TC-28 · KeywordsTable ✦ column-header batch (progressive SSE fill)'
       }),
     );
     await waitFor(() =>
-      expect(within(aiCellOf('running shoes')).getByText('導購型：比較品牌與價格')).toBeInTheDocument(),
+      expect(
+        within(aiCellOf('running shoes')).getByText('導購型：比較品牌與價格'),
+      ).toBeInTheDocument(),
     );
     expect(within(aiCellOf('cheap running shoes')).getByRole('status')).toBeInTheDocument();
 
@@ -172,7 +174,9 @@ describe('TC-28 · KeywordsTable ✦ column-header batch (progressive SSE fill)'
       }),
     );
     await waitFor(() =>
-      expect(within(aiCellOf('best trail shoes')).getByText('資訊型：越野鞋比較')).toBeInTheDocument(),
+      expect(
+        within(aiCellOf('best trail shoes')).getByText('資訊型：越野鞋比較'),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -205,10 +209,47 @@ describe('TC-28 · KeywordsTable ✦ column-header batch (progressive SSE fill)'
 
     // The failing cell shows a retry affordance; its siblings show their summaries — unpolluted.
     await waitFor(() =>
-      expect(within(aiCellOf('cheap running shoes')).getByRole('button', { name: /重試/ })).toBeInTheDocument(),
+      expect(
+        within(aiCellOf('cheap running shoes')).getByRole('button', { name: /重試/ }),
+      ).toBeInTheDocument(),
     );
     expect(within(aiCellOf('running shoes')).getByText('導購型摘要')).toBeInTheDocument();
     expect(within(aiCellOf('best trail shoes')).getByText('資訊型摘要')).toBeInTheDocument();
+  });
+
+  it('retrying a failed batch cell re-generates just that cell via the single-cell path (shared map)', async () => {
+    // The one endpoint answers both scopes: snapshot → 202 job; keyword → 200 summary.
+    server.use(
+      http.post(ROUTE, async ({ request }) => {
+        const body = (await request.json()) as { scope?: string; normalizedText?: string };
+        if (body.scope === 'snapshot') return HttpResponse.json({ jobId: 'b1' }, { status: 202 });
+        return HttpResponse.json(
+          { normalizedText: body.normalizedText, summary: '重試後摘要' },
+          { status: 200 },
+        );
+      }),
+    );
+    render(<KeywordsTable rows={rows} analysisId={ID} eventSourceFactory={factory} />, {
+      wrapper: wrapper(),
+    });
+    fireEvent.click(screen.getByRole('button', { name: BATCH_LABEL }));
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+    act(() =>
+      FakeEventSource.last().emit('progress', {
+        normalizedText: 'cheap running shoes',
+        error: 'llm_timeout',
+      }),
+    );
+
+    const retry = await within(aiCellOf('cheap running shoes')).findByRole('button', {
+      name: /重試/,
+    });
+    fireEvent.click(retry);
+
+    // Only that cell re-generates (keyword scope) and fills — its siblings are untouched.
+    await waitFor(() =>
+      expect(within(aiCellOf('cheap running shoes')).getByText('重試後摘要')).toBeInTheDocument(),
+    );
   });
 
   it('when the batch completes, the header settles into a non-interactive done ✦ (one-way, no re-trigger)', async () => {

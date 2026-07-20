@@ -38,9 +38,7 @@ interface AiIntentSummaryStubPaths {
       parameters: { query?: never; header?: never; path: { id: string }; cookie?: never };
       requestBody: {
         content: {
-          'application/json':
-            | { scope: 'keyword'; normalizedText?: string }
-            | { scope: 'snapshot' };
+          'application/json': { scope: 'keyword'; normalizedText?: string } | { scope: 'snapshot' };
         };
       };
       responses: {
@@ -69,8 +67,7 @@ export type AiIntentSummaryResult =
   | { readonly ok: false; readonly status: number; readonly kind: AiCellErrorKind };
 
 export type StartBatchIntentSummaryResult =
-  | { readonly ok: true; readonly jobId: string }
-  | { readonly ok: false; readonly status: number };
+  { readonly ok: true; readonly jobId: string } | { readonly ok: false; readonly status: number };
 
 /**
  * Summarise one keyword's search intent (`scope:'keyword'`). On 200 the (stub)
@@ -111,9 +108,7 @@ export async function summarizeKeywordIntent(
  * body is zod-validated to `{ jobId }`; a 202 without a valid jobId, or any non-2xx,
  * degrades to `ok:false` (the header surfaces a whole-job failure). Never throws.
  */
-export async function startBatchIntentSummary(
-  id: string,
-): Promise<StartBatchIntentSummaryResult> {
+export async function startBatchIntentSummary(id: string): Promise<StartBatchIntentSummaryResult> {
   const { data, response } = await summaryClient.POST(
     '/api/v1/keyword-analyses/{id}/ai-intent-summary',
     { params: { path: { id } }, body: { scope: 'snapshot' } },

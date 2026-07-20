@@ -65,7 +65,11 @@ describe('TC-28 · aiBatchReducer — progress maps to exactly one cell (isolati
 
     const next = aiBatchReducer(started, { type: 'cell_resolved', key: B, summary: '導購型意圖' });
 
-    expect(cellStateOf(next, B)).toEqual({ status: 'done', summary: '導購型意圖', errorKind: null });
+    expect(cellStateOf(next, B)).toEqual({
+      status: 'done',
+      summary: '導購型意圖',
+      errorKind: null,
+    });
     // A and C are untouched — same object references (structural per-cell isolation).
     expect(cellStateOf(next, A)).toBe(aBefore);
     expect(cellStateOf(next, C)).toBe(cBefore);
@@ -136,7 +140,9 @@ describe('TC-28 · aiBatchReducer — job lifecycle', () => {
 
 describe('TC-28 · toAiBatchCellEvent (pure per-cell SSE frame decoder)', () => {
   it('decodes a resolved frame → cell_resolved keyed on normalizedText', () => {
-    expect(toAiBatchCellEvent(JSON.stringify({ normalizedText: A, summary: '導購型意圖' }))).toEqual({
+    expect(
+      toAiBatchCellEvent(JSON.stringify({ normalizedText: A, summary: '導購型意圖' })),
+    ).toEqual({
       type: 'cell_resolved',
       key: A,
       summary: '導購型意圖',
@@ -144,11 +150,13 @@ describe('TC-28 · toAiBatchCellEvent (pure per-cell SSE frame decoder)', () => 
   });
 
   it('decodes a rejected frame → cell_rejected (default unavailable = retryable)', () => {
-    expect(toAiBatchCellEvent(JSON.stringify({ normalizedText: B, error: 'llm_timeout' }))).toEqual({
-      type: 'cell_rejected',
-      key: B,
-      kind: 'unavailable',
-    });
+    expect(toAiBatchCellEvent(JSON.stringify({ normalizedText: B, error: 'llm_timeout' }))).toEqual(
+      {
+        type: 'cell_rejected',
+        key: B,
+        kind: 'unavailable',
+      },
+    );
   });
 
   it('maps an explicit invalid error code to the non-retryable invalid kind', () => {

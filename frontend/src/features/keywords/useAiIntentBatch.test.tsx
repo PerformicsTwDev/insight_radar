@@ -72,9 +72,7 @@ function renderBatch(keys: string[]) {
 beforeEach(() => {
   FakeEventSource.instances = [];
   // Default: the snapshot job starts successfully.
-  server.use(
-    http.post(ROUTE, () => HttpResponse.json({ jobId: 'batch-job-1' }, { status: 202 })),
-  );
+  server.use(http.post(ROUTE, () => HttpResponse.json({ jobId: 'batch-job-1' }, { status: 202 })));
 });
 
 describe('TC-28 · useAiIntentBatch — startBatch fans the column out over SSE', () => {
@@ -139,7 +137,10 @@ describe('TC-28 · useAiIntentBatch — startBatch fans the column out over SSE'
     act(() => FakeEventSource.last().emit('progress', { normalizedText: A, summary: 'A 摘要' }));
     act(() => FakeEventSource.last().emit('progress', { normalizedText: C, summary: 'C 摘要' }));
 
-    expect(result.current.cellStateFor(B)).toMatchObject({ status: 'error', errorKind: 'unavailable' });
+    expect(result.current.cellStateFor(B)).toMatchObject({
+      status: 'error',
+      errorKind: 'unavailable',
+    });
     expect(result.current.cellStateFor(A)).toMatchObject({ status: 'done', summary: 'A 摘要' });
     expect(result.current.cellStateFor(C)).toMatchObject({ status: 'done', summary: 'C 摘要' });
   });
@@ -180,6 +181,30 @@ describe('TC-28 · useAiIntentBatch — startBatch fans the column out over SSE'
 
     expect(result.current.job).toBe('error');
     expect(FakeEventSource.instances.length).toBe(0);
+  });
+
+  it('an EventSource transport error (onerror) → whole-job failure', async () => {
+    const { result } = renderBatch([A]);
+    await act(async () => {
+      await result.current.startBatch();
+    });
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+
+    act(() => FakeEventSource.last().emitError());
+    await waitFor(() => expect(result.current.job).toBe('error'));
+  });
+
+  it('no EventSource on the platform (factory returns null) → whole-job failure', async () => {
+    const { result } = renderHook(
+      () => useAiIntentBatch(ID, [A], { eventSourceFactory: () => null }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await result.current.startBatch();
+    });
+
+    await waitFor(() => expect(result.current.job).toBe('error'));
   });
 });
 
