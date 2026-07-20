@@ -126,6 +126,52 @@
         ],
         "type": "object"
       },
+      "CreateAiSearchAnalysisDto": {
+        "properties": {
+          "brandProfileId": {
+            "description": "品牌檔案（FR-40）；供 M15 可見度分析，本抓取層僅記錄關聯",
+            "format": "uuid",
+            "type": "string"
+          },
+          "channels": {
+            "description": "AI 渠道（extension primary / serpapi reserved，S20）；某渠道缺→partial",
+            "example": [
+              "chatGpt",
+              "googleAiMode"
+            ],
+            "items": {
+              "enum": [
+                "chatGpt",
+                "geminiApp",
+                "googleAiMode",
+                "googleSearch",
+                "aiOverview",
+                "aiMode",
+                "bingCopilot"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "keywords": {
+            "example": [
+              "asus zenbook",
+              "macbook air"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "keywords",
+          "channels"
+        ],
+        "type": "object"
+      },
       "CreateBrandProfileDto": {
         "properties": {
           "brand": {
@@ -473,6 +519,76 @@
         },
         "tags": [
           "ideation"
+        ]
+      }
+    },
+    "/api/v1/ai-search-analyses": {
+      "post": {
+        "operationId": "AiSearchController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAiSearchAnalysisDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ai-search-analyses"
+        ]
+      }
+    },
+    "/api/v1/ai-search-analyses/{id}": {
+      "get": {
+        "operationId": "AiSearchController_getStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ai-search-analyses"
+        ]
+      }
+    },
+    "/api/v1/ai-search-analyses/{id}/stream": {
+      "get": {
+        "operationId": "AiSearchController_stream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ai-search-analyses"
         ]
       }
     },

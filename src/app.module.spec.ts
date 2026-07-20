@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
 import { AppModule } from './app.module';
+import { AiSearchProcessor } from './ai-search/ai-search.processor';
 import { CustomClassifyAssignProcessor } from './custom-classify/custom-classify-assign.processor';
 import { JourneyProcessor } from './journey/journey.processor';
 import { KeywordAnalysisProcessor } from './keyword-analysis/keyword-analysis.processor';
@@ -20,6 +21,10 @@ import {
   TOPIC_JOB_EVENTS_CONNECTION,
   TOPIC_QUEUE_EVENTS,
 } from './queue/topic-job-events.constants';
+import {
+  AI_SEARCH_JOB_EVENTS_CONNECTION,
+  AI_SEARCH_QUEUE_EVENTS,
+} from './queue/ai-search-job-events.constants';
 import { BULL_CONNECTION } from './queue/queue.constants';
 
 describe('AppModule (smoke)', () => {
@@ -52,6 +57,10 @@ describe('AppModule (smoke)', () => {
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(KeywordAnalysisProcessor)
@@ -63,6 +72,8 @@ describe('AppModule (smoke)', () => {
       .overrideProvider(JourneyProcessor)
       .useValue({})
       .overrideProvider(CustomClassifyAssignProcessor)
+      .useValue({})
+      .overrideProvider(AiSearchProcessor)
       .useValue({})
       .compile();
 

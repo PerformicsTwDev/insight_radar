@@ -194,6 +194,8 @@ export const validationSchema = Joi.object({
   SERPAPI_AI_CREDITS_BUDGET: Joi.number().integer().min(1).default(1000),
   SERPAPI_AI_HL: Joi.string().default('zh-tw'), // 語言（AC-38.5）
   SERPAPI_AI_GL: Joi.string().default('tw'), // 地區（AC-38.5）
+  // AI Search 抓取 job worker 並發（BullMQ；預設 3，同 topics/journey/custom-classify；T14.6，Design §14）。
+  AI_SEARCH_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3),
 
   // —— Clustering（M8，Design §16；HTTP → Python cluster-service）——
   // topics 分群一律經此服務（無 enable 旗標）→ URL 必填、開機即 fail-fast（缺值不留到 job 才炸）。
