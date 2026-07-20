@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import zlib from 'node:zlib';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
@@ -308,6 +309,36 @@ describe('TC-72: capture ingestion endpoint (e2e · FR-36 · AC-36.1/36.4/36.5)'
       const over = 'x'.repeat(2.5 * 1024 * 1024); // ~2.5MB：> ingest 2MB
       const res = await asSession(validBody({ items: [{ text: over }] }));
       expect(res.status).toBe(413);
+    });
+
+    // M13-R3 [1]（gzip inflate parity）：gzip 壓縮的合法大 batch（解壓後 > 全域 1MB、< ingest 2MB）→ 202。
+    // captures parser 必須 inflate Content-Encoding: gzip（全域 useBodyParser inflate:true），否則 JSON.parse
+    // 對壓縮位元組拋錯 → 400，正是此路由存在要服務的大 payload 情境。
+    it('gzip-encoded batch within INGEST_BODY_LIMIT_MB → inflated + accepted (202)', async () => {
+      const big = 'x'.repeat(1.5 * 1024 * 1024); // 解壓後 ~1.5MB
+      const gz = zlib.gzipSync(Buffer.from(JSON.stringify(validBody({ items: [{ text: big }] }))));
+      const res = await request(server())
+        .post(url)
+        .set('Cookie', cookie)
+        .set('Origin', ORIGIN)
+        .set('Content-Type', 'application/json')
+        .set('Content-Encoding', 'gzip')
+        .serialize((v) => v as string) // identity：直送 gzip Buffer，避免 superagent 對其 JSON.stringify
+        .send(gz);
+      expect(res.status).toBe(202);
+    });
+
+    // M13-R3 [5]（case-insensitive content-type parity）：Content-Type: Application/json 的合法大 batch
+    // （> 全域 1MB、< ingest 2MB）→ 用 INGEST 限額 → 202。case-sensitive `includes` 會讓它落到較小全域上限誤 413。
+    it('Content-Type Application/json (mixed case) within INGEST limit → 202 (not spurious 413)', async () => {
+      const big = 'x'.repeat(1.5 * 1024 * 1024); // > 全域 1MB、< ingest 2MB
+      const res = await request(server())
+        .post(url)
+        .set('Cookie', cookie)
+        .set('Origin', ORIGIN)
+        .set('Content-Type', 'Application/json')
+        .send(validBody({ items: [{ text: big }] }));
+      expect(res.status).toBe(202);
     });
   });
 

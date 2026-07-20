@@ -104,6 +104,24 @@ describe('configureApp', () => {
     expect(typeof capturesCall?.[1]).toBe('function');
   });
 
+  // M13-R5（#556 · finding [13]）：斷言「掛載順序」不變式，而非僅存在。captures parser 必須**先於**全域
+  // useBodyParser 掛載——否則較小的全域 BODY_LIMIT_MB 會先於此路由擋掉大 body、放大上限形同虛設。用 jest
+  // 全域遞增的 `invocationCallOrder`（跨 mock 共用）比較兩者相對順序，reorder 迴歸即紅。
+  it('mounts the captures parser BEFORE the global useBodyParser (order invariant, AC-36.5)', () => {
+    const app = makeApp({ 'app.helmetEnabled': false, 'ingest.bodyLimitMb': 10 });
+    configureApp(app as unknown as INestApplication);
+
+    const capturesIdx = (app.use.mock.calls as unknown[][]).findIndex(
+      (c) => c[0] === '/api/v1/captures',
+    );
+    expect(capturesIdx).toBeGreaterThanOrEqual(0);
+    const capturesOrder = app.use.mock.invocationCallOrder[capturesIdx];
+    const globalOrder = app.useBodyParser.mock.invocationCallOrder[0];
+    expect(typeof capturesOrder).toBe('number');
+    expect(typeof globalOrder).toBe('number');
+    expect(capturesOrder).toBeLessThan(globalOrder);
+  });
+
   it('registers config secret values for redaction so they never surface in logs (T7.3/TC-29)', () => {
     const secrets = {
       'app.apiKey': 'API_KEY_VALUE_xxxx',
