@@ -18,8 +18,17 @@ import { appendDedupedSeeds } from '../../lib/aiIdeation';
 export interface CustomClassifyModalProps {
   readonly analysisId: string;
   readonly onClose: () => void;
-  /** Advance to stage-two classification with the HITL-confirmed labels (wired at T5.2). */
-  readonly onConfirm: (labels: readonly string[]) => void | Promise<void>;
+  /**
+   * Advance to stage-two classification (T5.2): the assignment job needs the stage-one
+   * classification the modal generated (its `id` = the `cid` the assignment run posts to,
+   * its `name` = the dynamic tab label) plus the HITL-confirmed label strings. The
+   * classification is the **last** successful generate (labels accumulate across
+   * generates; the last cid receives the confirmed set, last-write-wins).
+   */
+  readonly onConfirm: (
+    classification: { id: string; name: string },
+    labels: readonly string[],
+  ) => void | Promise<void>;
 }
 
 const GENERIC_ERROR = '生成分類架構失敗，請稍後再試。';
@@ -40,6 +49,8 @@ export function CustomClassifyModal({
   const [name, setName] = useState('');
   const [instruction, setInstruction] = useState('');
   const [labels, setLabels] = useState<readonly string[]>([]);
+  // The last successful stage-one generate — carries the cid + name into stage two (T5.2).
+  const [classification, setClassification] = useState<{ id: string; name: string } | null>(null);
   const [hasGenerated, setHasGenerated] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +81,8 @@ export function CustomClassifyModal({
               result.classification.labels.map((l) => l.label),
             ),
           );
+          // Track the classification the confirmed labels will be assigned to (T5.2 seam).
+          setClassification({ id: result.classification.id, name: result.classification.name });
           setHasGenerated(true);
         } else {
           setError(GENERIC_ERROR);
@@ -86,10 +99,12 @@ export function CustomClassifyModal({
     setLabels((prev) => prev.filter((existing) => existing !== label));
   }, []);
 
+  // Takes the (narrowed, non-null) classification from the render scope so there is no
+  // nullable guard — the button only wires this handler once a generate has produced one.
   const handleStart = useCallback(
-    () =>
+    (cls: { id: string; name: string }) =>
       guardStart(async () => {
-        await onConfirm([...labels]);
+        await onConfirm(cls, [...labels]);
       }),
     [guardStart, onConfirm, labels],
   );
@@ -194,7 +209,7 @@ export function CustomClassifyModal({
           <button
             type="button"
             disabled={!canStart}
-            onClick={() => void handleStart()}
+            onClick={classification ? () => void handleStart(classification) : undefined}
             className={PRIMARY_BTN}
           >
             開始分析
