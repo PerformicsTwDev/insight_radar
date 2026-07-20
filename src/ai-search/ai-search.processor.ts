@@ -91,7 +91,10 @@ export class AiSearchProcessor
       const covered = new Set(merged.map((capture) => capture.channel));
       const status = channels.some((channel) => !covered.has(channel)) ? 'partial' : 'completed';
       await this.runRepo.markStatus(runId, status, { captureCount });
-      await this.reportProgress(job, runId, 'done', 100);
+      // INV-3: the run is now durably terminal (completed/partial). The trailing 'done' tick is
+      // cosmetic (SSE/GET) — write it best-effort so a transient DB/SSE error can never throw into
+      // the catch and flip the already-committed terminal status to `failed` (#578, M14-R2).
+      await this.reportProgressBestEffort(job, runId, 'done', 100);
       return { status, captureCount };
     } catch (error) {
       // 只餘基礎設施錯（mapper/provider 皆不 throw）。**僅最終 attempt**（BullMQ 不再重試）才標 failed（否則重試窗內
@@ -182,6 +185,26 @@ export class AiSearchProcessor
       await job.updateProgress(progress);
     } catch (error) {
       this.logger.warn(`job progress publish failed (best-effort): ${scrubSecrets(String(error))}`);
+    }
+  }
+
+  /**
+   * 終態後的 'done' 進度 tick：run 已 durably 落 completed/partial，此寫入純為顯示（SSE/GET）。整段 best-effort
+   * （吞 DB 寫入錯 + observability log，比照 `reportProgress` 的 `job.updateProgress` publish 慣例）——**絕不**讓瞬時
+   * 錯誤 throw 進 catch 而覆寫已 committed 的終態（INV-3，#578）。
+   */
+  private async reportProgressBestEffort(
+    job: Job<AiSearchJobPayload>,
+    runId: string,
+    phase: AiSearchPhase,
+    percent: number,
+  ): Promise<void> {
+    try {
+      await this.reportProgress(job, runId, phase, percent);
+    } catch (error) {
+      this.logger.warn(
+        `terminal progress write failed (best-effort): ${scrubSecrets(String(error))}`,
+      );
     }
   }
 }

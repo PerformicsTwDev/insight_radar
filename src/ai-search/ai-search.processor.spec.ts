@@ -56,7 +56,9 @@ function build(opts: BuildOpts = {}) {
   const serpAi = { fetchAiOverviews, fetchAiModes, fetchBingCopilot } as unknown as SerpAiProvider;
 
   const markStatus = jest.fn(() => Promise.resolve());
-  const updateProgress = jest.fn(() => Promise.resolve());
+  const updateProgress = jest.fn((_runId: string, _progress: { phase: string; percent: number }) =>
+    Promise.resolve(),
+  );
   const runRepo = { markStatus, updateProgress } as unknown as AiSearchRunRepository;
 
   const deleteByJobId =
@@ -242,6 +244,29 @@ describe('TC-77: AiSearchProcessor', () => {
       const persisted = persistCanonical.mock.calls[0][2] as AiSearchCanonical[];
       expect(persisted.map((c) => c.channel).sort()).toEqual(['aiMode', 'bingCopilot']);
       expect(result.status).toBe('completed');
+    });
+
+    it('keeps a completed run completed when the trailing done-progress DB write fails (INV-3, #578)', async () => {
+      // Regression for M14-R2: process() commits the terminal status (markStatus completed/partial)
+      // BEFORE the trailing reportProgress('done', 100). A transient DB error on that post-terminal
+      // progress write must NOT throw into the catch and flip the already-committed status to failed.
+      const { processor, markStatus, updateProgress } = build({
+        rawExtension: [extRow('chatGpt', 'asus zenbook')],
+      });
+      // Only the final 'done'/100 progress write fails; the earlier phase writes succeed so the run
+      // reaches its terminal state normally (completed) before the failing write.
+      updateProgress.mockImplementation(
+        (_runId: string, progress: { phase: string; percent: number }) =>
+          progress.percent >= 100
+            ? Promise.reject(new Error('transient db error'))
+            : Promise.resolve(),
+      );
+      const { j } = makeJob({ channels: ['chatGpt'] }); // final attempt (attemptsMade 4, attempts 5)
+      const result = await processor.process(j);
+
+      expect(result).toEqual({ status: 'completed', captureCount: 1 });
+      expect(markStatus).toHaveBeenLastCalledWith('run-1', 'completed', { captureCount: 1 });
+      expect(markStatus).not.toHaveBeenCalledWith('run-1', 'failed', expect.anything());
     });
 
     it('completes even when job.updateProgress (SSE publish) fails — best-effort, non-blocking', async () => {
