@@ -323,6 +323,7 @@ describe('TC-72: capture ingestion endpoint (e2e · FR-36 · AC-36.1/36.4/36.5)'
         .set('Origin', ORIGIN)
         .set('Content-Type', 'application/json')
         .set('Content-Encoding', 'gzip')
+        .serialize((v) => v as string) // identity：直送 gzip Buffer，避免 superagent 對其 JSON.stringify
         .send(gz);
       expect(res.status).toBe(202);
     });

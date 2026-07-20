@@ -58,6 +58,14 @@ describe('scopedJsonBodyLimit (T13.2 · AC-36.5 獨立 body 上限)', () => {
     expect(req._body).toBeUndefined();
   });
 
+  it('passes through when content-type header is absent', () => {
+    const next = jest.fn();
+    const req = makeReq(); // 無 content-type
+    scopedJsonBodyLimit(LIMIT)(req as unknown as ReqArg, {}, next);
+    expect(next).toHaveBeenCalledWith();
+    expect(req._body).toBeUndefined();
+  });
+
   it('passes through when body already parsed (req._body=true)', () => {
     const next = jest.fn();
     const req = makeReq('application/json', true);
@@ -173,6 +181,15 @@ describe('scopedJsonBodyLimit (T13.2 · AC-36.5 獨立 body 上限)', () => {
       req.emit('end');
       expect(await done).toBeUndefined();
       expect(req.body).toEqual({ z: 9 });
+    });
+
+    it('inflates brotli (br) body → parses decoded JSON', async () => {
+      const req = makeReq('application/json', false, { 'content-encoding': 'br' });
+      const done = runAndAwaitNext(BIG, req);
+      req.emit('data', zlib.brotliCompressSync(Buffer.from('{"b":2}')));
+      req.emit('end');
+      expect(await done).toBeUndefined();
+      expect(req.body).toEqual({ b: 2 });
     });
 
     it('enforces the limit against DECODED size (decompression bomb → 413)', async () => {
