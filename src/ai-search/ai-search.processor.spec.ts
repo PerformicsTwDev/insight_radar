@@ -210,5 +210,42 @@ describe('TC-77: AiSearchProcessor', () => {
       await expect(processor.process(j)).rejects.toThrow('transient');
       expect(markStatus).not.toHaveBeenCalledWith('run-1', 'failed', expect.anything());
     });
+
+    it('pulls aiMode and bingCopilot via their provider methods when those channels are requested', async () => {
+      const { processor, fetchAiModes, fetchBingCopilot, persistCanonical } = build({
+        aiModes: [{ query: 'q', aiMode: serpCanonical('aiMode', 'q'), creditsUsed: 1 }],
+        copilots: [{ query: 'q', copilot: serpCanonical('bingCopilot', 'q'), creditsUsed: 1 }],
+      });
+      const { j } = makeJob({ channels: ['aiMode', 'bingCopilot'], keywords: ['q'] });
+      const result = await processor.process(j);
+      expect(fetchAiModes).toHaveBeenCalledWith(['q']);
+      expect(fetchBingCopilot).toHaveBeenCalledWith(['q']);
+      const persisted = persistCanonical.mock.calls[0][2] as AiSearchCanonical[];
+      expect(persisted.map((c) => c.channel).sort()).toEqual(['aiMode', 'bingCopilot']);
+      expect(result.status).toBe('completed');
+    });
+
+    it('completes even when job.updateProgress (SSE publish) fails — best-effort, non-blocking', async () => {
+      const { processor, persistCanonical } = build({
+        rawExtension: [extRow('chatGpt', 'asus zenbook')],
+      });
+      const { j } = makeJob({ channels: ['chatGpt'] });
+      (j.updateProgress as jest.Mock).mockRejectedValue(new Error('sse gone'));
+      const result = await processor.process(j);
+      expect(result.status).toBe('completed');
+      expect(persistCanonical).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('onApplicationBootstrap logs (does not throw) when worker.run() rejects', async () => {
+    const { processor } = build();
+    const run = jest.fn(() => Promise.reject(new Error('worker boom')));
+    (processor as unknown as { _worker: Worker })._worker = {
+      concurrency: 0,
+      run,
+    } as unknown as Worker;
+    await expect(processor.onApplicationBootstrap()).resolves.toBeUndefined();
+    await new Promise((resolve) => setImmediate(resolve)); // let the rejected run() settle
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

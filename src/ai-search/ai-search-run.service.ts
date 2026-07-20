@@ -1,11 +1,16 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import type { AuthenticatedUser } from '../common/authenticated-user';
+import { assertOwnedRow, canAccess, ownerIdOf } from '../common/owner-scope';
+import { scrubSecrets } from '../logger/redaction';
+import type { AiSearchJobPayload } from '../queue/ai-search-job.types';
 import { AI_SEARCH_QUEUE } from '../queue/queue.constants';
 import type { CreateAiSearchAnalysisDto } from './ai-search.dto';
+import { computeAiSearchIdempotencyKey } from './ai-search-idempotency';
 import { AiSearchRunRepository } from './ai-search-run.repository';
-import type { AiSearchStatusResponse } from './ai-search-run.types';
+import type { AiSearchRunParams, AiSearchStatusResponse } from './ai-search-run.types';
 
 /** DI token for AiSearchRunService 設定（由 module 從 queue config 組裝）。 */
 export const AI_SEARCH_RUN_CONFIG = Symbol('AI_SEARCH_RUN_CONFIG');
@@ -19,8 +24,9 @@ export interface AiSearchRunConfig {
 
 /**
  * AiSearchRunService（T14.6，FR-41/AC-41.1）。`create` = **enqueue-only**（NFR-1，POST 路徑零外部呼叫）：owner 歸屬
- * → idempotency（owner + 語意輸入 canonical key）→ `createRun`（命中回同一 jobId；terminal-failed/canceled→reset
- * 重入列）→ 僅 created 才入列。SerpAPI pull / extension push 合流皆在 worker（processor）。（實作於 green。）
+ * → idempotency（owner + 語意輸入 canonical key）→ `createRun`（命中回同一 jobId；terminal-failed/canceled→reset 重入列）
+ * → 僅 created 才入列（`enqueueReusingJobId`：探舊 job 狀態安全重用 jobId）。入列失敗 → 標 run `failed`（**非** delete，
+ * 保並發 idempotent 202 的 jobId 有效、可再 reset 重入列）。SerpAPI pull / extension push 合流皆在 worker（processor）。
  */
 @Injectable()
 export class AiSearchRunService {
@@ -32,22 +38,106 @@ export class AiSearchRunService {
     @Inject(AI_SEARCH_RUN_CONFIG) private readonly config: AiSearchRunConfig,
   ) {}
 
-  create(_dto: CreateAiSearchAnalysisDto, _actor: AuthenticatedUser): Promise<{ jobId: string }> {
-    void this.queue;
-    void this.repo;
-    void this.config;
-    this.logger.debug('stub');
-    throw new Error('AiSearchRunService.create not implemented');
+  async create(
+    dto: CreateAiSearchAnalysisDto,
+    actor: AuthenticatedUser,
+  ): Promise<{ jobId: string }> {
+    // owner 歸屬（FR-27/AC-27.1）：session→actor.id、apiKey→null（機器資源）。idempotency 依此分範圍（跨租戶不撞）。
+    const ownerId = ownerIdOf(actor);
+    const params: AiSearchRunParams = { schemaVersion: this.config.schemaVersion };
+    const brandProfileId = dto.brandProfileId ?? null;
+    const idempotencyKey = computeAiSearchIdempotencyKey(
+      dto.keywords,
+      dto.channels,
+      brandProfileId,
+      params,
+      ownerId,
+    );
+
+    const { runId, created } = await this.repo.createRun({
+      ownerId,
+      idempotencyKey,
+      params: params as unknown as Prisma.InputJsonValue,
+    });
+
+    // idempotency 命中（created=false）→ 既有 run，不重複 enqueue（AC-41.1）。
+    if (created) {
+      const payload: AiSearchJobPayload = {
+        runId,
+        ownerId,
+        keywords: dto.keywords,
+        channels: dto.channels,
+        brandProfileId,
+        params,
+      };
+      try {
+        await this.enqueueReusingJobId(runId, payload);
+      } catch (error) {
+        // 入列失敗（Redis 短暫不可用）→ 標 failed（**非** delete）：刪除會使並發 idempotent 202 已回的 jobId 變 404；
+        // 標 failed 則可由後續重送 reset 重入列，並發輪詢見 failed 非 404（比照 journey M12-R7）。
+        this.logger.error(`enqueue ai-search job failed: ${scrubSecrets(String(error))}`);
+        await this.repo.markStatus(runId, 'failed', {
+          error: `enqueue failed: ${scrubSecrets(String(error))}`,
+        });
+        throw error;
+      }
+    }
+
+    return { jobId: runId };
   }
 
-  getStatus(_id: string, _actor: AuthenticatedUser): Promise<AiSearchStatusResponse> {
-    throw new Error('AiSearchRunService.getStatus not implemented');
+  /**
+   * 以 jobId=runId 入列，安全處理「reset 沿用同一 jobId」與 BullMQ dedup 語意（比照 journey）：
+   * - 無同 id 舊 job → 直接 add（新 run 常態）。
+   * - 有且**非 active** → `job.remove()` 後 add（可移除、重用 jobId）。
+   * - 有且 **active**（舊 attempt 仍持鎖）→ 丟可重試 `503`：**不**盲 add（會 no-op dedup）；呼叫端標 failed（reset-eligible）。
+   */
+  private async enqueueReusingJobId(runId: string, payload: AiSearchJobPayload): Promise<void> {
+    const stale = await this.queue.getJob(runId);
+    if (stale) {
+      const state = await stale.getState();
+      if (state === 'active') {
+        throw new ServiceUnavailableException(
+          `ai search run ${runId} is finalizing a prior attempt; retry shortly`,
+        );
+      }
+      await stale.remove();
+    }
+    await this.queue.add(AI_SEARCH_QUEUE, payload, {
+      jobId: runId,
+      attempts: this.config.jobAttempts,
+      backoff: {
+        type: 'exponential',
+        delay: this.config.jobBackoffMs,
+        jitter: this.config.jobBackoffJitter,
+      },
+    });
   }
 
-  getRunRef(
-    _id: string,
-    _actor: AuthenticatedUser,
+  /** 取抓取 run 狀態（GET；owner 單點閘——未知/他人→同一 404，不洩漏存在性，AC-27.3/41.3）。 */
+  async getStatus(id: string, actor: AuthenticatedUser): Promise<AiSearchStatusResponse> {
+    const run = await this.repo.findById(id);
+    assertOwnedRow(run, actor, `ai search run ${id} not found`);
+    return {
+      jobId: run.id,
+      status: run.status,
+      progress: run.progress,
+      captureCount: run.captureCount,
+    };
+  }
+
+  /**
+   * SSE 用輕量 run 參照：id → {runId, status}。owner 過濾用 `canAccess`（非 assertOwnedRow）避免 SSE 路徑拋例外——
+   * 他人/未知 → null → 空串流（不洩漏存在性）。
+   */
+  async getRunRef(
+    id: string,
+    actor: AuthenticatedUser,
   ): Promise<{ runId: string; status: string } | null> {
-    throw new Error('AiSearchRunService.getRunRef not implemented');
+    const run = await this.repo.findById(id);
+    if (!run || !canAccess(run, actor)) {
+      return null;
+    }
+    return { runId: run.id, status: run.status };
   }
 }

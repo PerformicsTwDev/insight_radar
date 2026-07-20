@@ -7,7 +7,6 @@ import {
   Inject,
   Logger,
   type MessageEvent,
-  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -109,7 +108,10 @@ export class AiSearchController {
     return withHeartbeat(events$, this.config.sseHeartbeatMs);
   }
 
-  /** 查 run 參照；未知/他人/非預期錯誤皆回 null（SSE handler 不可 reject）；非預期錯誤記錄日誌（不靜默吞）。 */
+  /**
+   * 查 run 參照（`getRunRef` 已把未知/他人收斂為 null，不拋）；僅餘非預期基礎設施錯 → 記錄日誌後降級 null
+   * （SSE handler 不可 reject → 空串流；不靜默吞、祕密遮罩，NFR-5/6）。
+   */
   private async fetchRef(
     id: string,
     actor: AuthenticatedUser,
@@ -117,9 +119,6 @@ export class AiSearchController {
     try {
       return await this.service.getRunRef(id, actor);
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        return null;
-      }
       this.logger.error(
         `SSE ref lookup failed for ${id}`,
         scrubSecrets(error instanceof Error ? error.stack : String(error)),
