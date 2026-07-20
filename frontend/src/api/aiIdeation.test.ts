@@ -4,17 +4,24 @@ import { generateIdeas } from './aiIdeation';
 import { server } from './msw/server';
 
 /**
- * TC-31 (contract) — AI-ideation stub egress. The real endpoint is backend
- * FR-35 (M12, not yet in openapi), so this stage stubs `/api/v1/ai-ideation` via
- * MSW and validates the body at runtime; T5.3 migrates to the generated client.
- * The typed request carries `{ template, seeds }`; the 200 body is `{ keywords }`.
+ * TC-31 / TC-42 (contract) — AI-ideation egress, now bound to the **generated**
+ * op `POST /api/v1/ai-ideation` (`IdeationController_generate`, backend FR-35) on
+ * the shared `api` client (T5.3 收斂 — the T1.5 hand-written stub client is gone; a
+ * path drift → compile error). The openapi types the `IdeationDto` request as
+ * `Record<string, never>` and the 200 body as `never` (#392 class), so the request
+ * goes through a `bodySerializer` and the response is runtime-zod-validated here
+ * (honest parse, not a cast). The typed request carries `{ template, seeds }`; the
+ * 200 body is `{ keywords }`. MSW intercepts the generated path — an unhandled path
+ * (a binding drift) would surface as an `onUnhandledRequest: 'error'` failure.
  */
 
 describe('TC-31 · generateIdeas', () => {
-  it('sends { template, seeds } and returns keywords on 200', async () => {
+  it('sends { template, seeds } (application/json) to the generated op and returns keywords on 200', async () => {
     let received: unknown;
+    let contentType: string | null = null;
     server.use(
       http.post('/api/v1/ai-ideation', async ({ request }) => {
+        contentType = request.headers.get('content-type');
         received = await request.json();
         return HttpResponse.json({ keywords: ['trail shoes', 'marathon'] }, { status: 200 });
       }),
@@ -23,6 +30,9 @@ describe('TC-31 · generateIdeas', () => {
     const result = await generateIdeas({ template: 'long-tail', seeds: ['running shoes'] });
 
     expect(result).toEqual({ ok: true, keywords: ['trail shoes', 'marathon'] });
+    // TC-42: the `bodySerializer` sends the real body cast-free as JSON (the
+    // openapi-gap handling that lets the under-typed `IdeationDto` carry a real payload).
+    expect(contentType).toMatch(/application\/json/);
     expect(received).toEqual({ template: 'long-tail', seeds: ['running shoes'] });
   });
 
