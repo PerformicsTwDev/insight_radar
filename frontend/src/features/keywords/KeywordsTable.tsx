@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties, type ReactElement } from 'react';
+import { useMemo, useRef, type CSSProperties, type ReactElement } from 'react';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { config } from '../../config/env';
@@ -11,6 +11,7 @@ import {
   resolveIntent,
   shouldVirtualize,
 } from '../../lib/keywordsTable';
+import { AiIntentCell } from './AiIntentCell';
 import { SparklineCell } from './SparklineCell';
 
 /**
@@ -19,8 +20,9 @@ import { SparklineCell } from './SparklineCell';
  * (sticky-left, narrow) with a sticky header; a page whose row count exceeds the
  * threshold (Design §14) is windowed, otherwise every row renders plainly. All
  * cell formatting is delegated to the pure `lib/keywordsTable` helpers so null
- * cells show `—` (C12), never 0. The ✦ on-demand column is a masked placeholder
- * (real AI-intent wiring is M4, FR-18). Tokens only — no hardcoded hex.
+ * cells show `—` (C12), never 0. The ✦ on-demand column renders interactive
+ * {@link AiIntentCell}s when an `analysisId` is supplied (single-cell AI-intent
+ * summary, T4.1/FR-18), else a masked ✦ placeholder. Tokens only — no hardcoded hex.
  *
  * Presentational: driven entirely by the `rows` prop (the data hook — server
  * pagination / sort / filter / view-metadata columns — lands in T2.6 / T3.1).
@@ -37,64 +39,82 @@ const COL_WIDTH = {
   ai: 72,
 };
 
-const columns: ColumnDef<KeywordRow>[] = [
-  {
-    id: 'text',
-    header: '搜尋詞',
-    accessorKey: 'text',
-    size: COL_WIDTH.text,
-    cell: ({ row }) => <span className="truncate font-medium text-white">{row.original.text}</span>,
-  },
-  {
-    id: 'intent',
-    header: '意圖',
-    size: COL_WIDTH.intent,
-    cell: ({ row }) => <IntentCell labels={row.original.intentLabels} />,
-  },
-  {
-    id: 'avgMonthlySearches',
-    header: '搜尋量',
-    accessorKey: 'avgMonthlySearches',
-    size: COL_WIDTH.volume,
-    cell: ({ row }) => (
-      <span className="font-mono tabular-nums">
-        {formatVolume(row.original.avgMonthlySearches)}
-      </span>
-    ),
-  },
-  {
-    id: 'competition',
-    header: '競爭度',
-    size: COL_WIDTH.competition,
-    cell: ({ row }) => (
-      <span>{formatCompetition(row.original.competition, row.original.competitionIndex)}</span>
-    ),
-  },
-  {
-    id: 'cpc',
-    header: 'CPC',
-    size: COL_WIDTH.cpc,
-    cell: ({ row }) => (
-      <span className="font-mono tabular-nums">
-        {formatCpcRange(row.original.cpcLow, row.original.cpcHigh)}
-      </span>
-    ),
-  },
-  {
-    id: 'trend',
-    header: '搜尋趨勢',
-    size: COL_WIDTH.trend,
-    // 搜尋趨勢 sparkline from each row's monthlyVolumes (FR-4 → FR-21); null months break, never 0.
-    cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
-  },
-  {
-    id: 'ai',
-    header: '✦',
-    size: COL_WIDTH.ai,
-    // ✦ on-demand AI-intent column — masked placeholder; real wiring is M4 (FR-18).
-    cell: () => <span className="text-white/30">✦</span>,
-  },
-];
+/**
+ * Column model. The ✦ on-demand column binds to `analysisId`: when provided, each
+ * cell is an interactive {@link AiIntentCell} (single-cell `POST :id/ai-intent-summary`,
+ * T4.1/FR-18) keyed on the row's `normalizedText`; when absent (no analysis context —
+ * e.g. a standalone/degraded render) it stays a masked ✦ placeholder. Built via a
+ * factory so the ✦ cell can close over `analysisId` without a global table-meta
+ * augmentation.
+ */
+function buildColumns(analysisId?: string): ColumnDef<KeywordRow>[] {
+  return [
+    {
+      id: 'text',
+      header: '搜尋詞',
+      accessorKey: 'text',
+      size: COL_WIDTH.text,
+      cell: ({ row }) => (
+        <span className="truncate font-medium text-white">{row.original.text}</span>
+      ),
+    },
+    {
+      id: 'intent',
+      header: '意圖',
+      size: COL_WIDTH.intent,
+      cell: ({ row }) => <IntentCell labels={row.original.intentLabels} />,
+    },
+    {
+      id: 'avgMonthlySearches',
+      header: '搜尋量',
+      accessorKey: 'avgMonthlySearches',
+      size: COL_WIDTH.volume,
+      cell: ({ row }) => (
+        <span className="font-mono tabular-nums">
+          {formatVolume(row.original.avgMonthlySearches)}
+        </span>
+      ),
+    },
+    {
+      id: 'competition',
+      header: '競爭度',
+      size: COL_WIDTH.competition,
+      cell: ({ row }) => (
+        <span>{formatCompetition(row.original.competition, row.original.competitionIndex)}</span>
+      ),
+    },
+    {
+      id: 'cpc',
+      header: 'CPC',
+      size: COL_WIDTH.cpc,
+      cell: ({ row }) => (
+        <span className="font-mono tabular-nums">
+          {formatCpcRange(row.original.cpcLow, row.original.cpcHigh)}
+        </span>
+      ),
+    },
+    {
+      id: 'trend',
+      header: '搜尋趨勢',
+      size: COL_WIDTH.trend,
+      // 搜尋趨勢 sparkline from each row's monthlyVolumes (FR-4 → FR-21); null months break, never 0.
+      cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
+    },
+    {
+      id: 'ai',
+      header: '✦',
+      size: COL_WIDTH.ai,
+      // ✦ on-demand AI-intent column (T4.1, FR-18): interactive per-row cell when an
+      // analysis context is present, else a masked ✦ placeholder.
+      cell: ({ row }) =>
+        analysisId !== undefined ? (
+          <AiIntentCell analysisId={analysisId} normalizedText={row.original.normalizedText} />
+        ) : (
+          <span className="text-white/30">✦</span>
+        ),
+    },
+  ];
+}
 
 const HEADER_BASE =
   'flex shrink-0 items-center overflow-hidden px-3 py-2 text-xs font-medium text-white/60';
@@ -105,8 +125,16 @@ function frozen(index: number, base: string, bg: string): string {
   return index === 0 ? `${base} sticky left-0 z-10 ${bg}` : base;
 }
 
-export function KeywordsTable({ rows }: { rows: KeywordRow[] }): ReactElement {
+export function KeywordsTable({
+  rows,
+  analysisId,
+}: {
+  rows: KeywordRow[];
+  /** Analysis context enabling the interactive ✦ on-demand cells (T4.1, FR-18); omit for a masked ✦. */
+  analysisId?: string;
+}): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const columns = useMemo(() => buildColumns(analysisId), [analysisId]);
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
   const tableRows = table.getRowModel().rows;
   const totalWidth = table.getTotalSize();

@@ -32,6 +32,12 @@ const MonthlyVolumeSchema = z.object({
 /** Result row (backend `KeywordListRow`, Design §6.4 / AC-6.1; nulls kept — 缺值≠0). */
 const KeywordRowSchema = z.object({
   text: z.string(),
+  // The C7 dedup/cache key (backend-returned `normalizedText`; same key as selection /
+  // tracking members). Optional: the current list DTO doesn't emit it yet (same documented
+  // cross-spec gap as `monthlyVolumes`) — when it starts arriving, no frontend change is
+  // needed. The ✦ on-demand cell (T4.1, FR-18) keys `POST :id/ai-intent-summary` on it; a
+  // row without it → 400 (AC-31.2) → the cell's `invalid` state.
+  normalizedText: z.string().optional(),
   intentLabels: z.array(z.string()),
   avgMonthlySearches: z.number().nullable(),
   competition: z.string(),

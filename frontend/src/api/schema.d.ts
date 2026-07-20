@@ -4,6 +4,70 @@
  */
 
 export interface paths {
+    "/api/v1/ai-ideation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["IdeationController_generate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-search-analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AiSearchController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-search-analyses/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["AiSearchController_getStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-search-analyses/{id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["AiSearchController_stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -68,6 +132,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/brand-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["BrandProfileController_list"];
+        put?: never;
+        post: operations["BrandProfileController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/brand-profiles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["BrandProfileController_get"];
+        put?: never;
+        post?: never;
+        delete: operations["BrandProfileController_remove"];
+        options?: never;
+        head?: never;
+        patch: operations["BrandProfileController_update"];
+        trace?: never;
+    };
+    "/api/v1/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CapturesController_ingest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/keyword-analyses": {
         parameters: {
             query?: never;
@@ -95,6 +207,119 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["KeywordAnalysisController_cancel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/ai-insight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** per-view AI 洞察（同步 200；LLM 失敗 → 502） */
+        post: operations["AiInsightController_generate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/custom-classifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CustomClassifyController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/custom-classifications/{cid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["CustomClassifyController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/custom-classifications/{cid}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["CustomClassifyAssignController_getStatus"];
+        put?: never;
+        post: operations["CustomClassifyAssignController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/custom-classifications/{cid}/assignments/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["CustomClassifyAssignController_stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/journey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["JourneyController_getStatus"];
+        put?: never;
+        post: operations["JourneyController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/keyword-analyses/{id}/journey/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["JourneyController_stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -180,6 +405,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tracking-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["TrackingListController_list"];
+        put?: never;
+        post: operations["TrackingListController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracking-lists/{listId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["TrackingListController_getDetail"];
+        put?: never;
+        post?: never;
+        delete: operations["TrackingListController_remove"];
+        options?: never;
+        head?: never;
+        patch: operations["TrackingListController_rename"];
+        trace?: never;
+    };
+    "/api/v1/tracking-lists/{listId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["TrackingListController_addMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracking-lists/{listId}/members/{normalizedText}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["TrackingListController_removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracking-lists/{listId}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["TrackingListController_refreshList"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracking-lists/{listId}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["TrackingListController_getSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/views": {
         parameters: {
             query?: never;
@@ -216,6 +537,92 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddMembersDto: {
+            /** @description 成員項（關鍵字列 / 主題列） */
+            items: components["schemas"]["MemberItemDto"][];
+        };
+        AiInsightDto: {
+            /** @description 套用於該 view 的篩選（共用 /query 的 FilterSpec；聚合僅由 (view, filters) 決定，AC-32.2） */
+            filters?: components["schemas"]["FilterSpecDto"];
+            /**
+             * @description 要總結的 view（view-router 白名單，如 keywords / journey / journey_funnel / custom:{cid}）
+             * @example keywords
+             */
+            view: string;
+        };
+        BrandEntryDto: {
+            /**
+             * @description 別名/縮寫/拼寫變體（正規化聯集比對用，FR-40）；缺省 []
+             * @example [
+             *       "華碩",
+             *       "Asus"
+             *     ]
+             */
+            aliases?: string[];
+            /**
+             * @description 品牌名稱（本品牌同 owner 內唯一）
+             * @example ASUS
+             */
+            name: string;
+            /**
+             * @description 官網 domain（citations 命中用，FR-43）；缺省 []
+             * @example [
+             *       "asus.com"
+             *     ]
+             */
+            sites?: string[];
+        };
+        CaptureIngestDto: {
+            /**
+             * @description AI 渠道（AI 類帶；S20）
+             * @enum {string}
+             */
+            channel?: "chatGpt" | "geminiApp" | "googleAiMode" | "googleSearch" | "aiOverview" | "aiMode" | "bingCopilot";
+            /** @description 該來源原始 payload 陣列（raw，逐筆落 captures.payload JSONB） */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * @description Social 平台（Social 類帶；S20）
+             * @enum {string}
+             */
+            platform?: "threads" | "facebook" | "dcard" | "ptt" | "customDomain";
+            /** @description schemaVersion 必帶（S15）；allowlist 比對於 T13.3 */
+            schemaVersion: string;
+            /**
+             * @description push 來源（extension=primary；serpapi/threadsApi=reserved）
+             * @enum {string}
+             */
+            source: "extension" | "serpapi" | "threadsApi";
+        };
+        CreateAiSearchAnalysisDto: {
+            /**
+             * Format: uuid
+             * @description 品牌檔案（FR-40）；供 M15 可見度分析，本抓取層僅記錄關聯
+             */
+            brandProfileId?: string;
+            /**
+             * @description AI 渠道（extension primary / serpapi reserved，S20）；某渠道缺→partial
+             * @example [
+             *       "chatGpt",
+             *       "googleAiMode"
+             *     ]
+             */
+            channels: ("chatGpt" | "geminiApp" | "googleAiMode" | "googleSearch" | "aiOverview" | "aiMode" | "bingCopilot")[];
+            /**
+             * @example [
+             *       "asus zenbook",
+             *       "macbook air"
+             *     ]
+             */
+            keywords: string[];
+        };
+        CreateBrandProfileDto: {
+            /** @description 本品牌（name + aliases + sites） */
+            brand: components["schemas"]["BrandEntryDto"];
+            /** @description 競品清單（各 name + aliases + sites）；缺省 [] */
+            competitors?: components["schemas"]["BrandEntryDto"][];
+        };
         CreateKeywordAnalysisDto: {
             /**
              * @description Google Ads geo target（國別）
@@ -248,6 +655,27 @@ export interface components {
             seeds: string[];
         };
         CreateTopicRunDto: Record<string, never>;
+        CreateTrackingListDto: {
+            /**
+             * @description Google Ads geo target（清單層固定）
+             * @example TW
+             */
+            geo: string;
+            /**
+             * @description 語言（清單層固定）
+             * @example zh-TW
+             */
+            language: string;
+            /**
+             * @description 追蹤清單名稱（同 owner 內唯一）
+             * @example Running shoes
+             */
+            name: string;
+        };
+        CustomClassifyAssignDto: Record<string, never>;
+        CustomClassifyDto: Record<string, never>;
+        FilterSpecDto: Record<string, never>;
+        IdeationDto: Record<string, never>;
         LoginDto: {
             /**
              * Format: email
@@ -256,6 +684,23 @@ export interface components {
             email: string;
             /** @example correct-horse-battery */
             password: string;
+        };
+        MemberItemDto: {
+            /** @description 主題來源分析 id（kind=topic 必填） */
+            analysisId?: string;
+            /** @description 該關鍵字來源分析的 geo 語境（kind=keyword 必填） */
+            geo?: string;
+            /**
+             * @description 成員項判別：關鍵字列 / 主題列
+             * @enum {string}
+             */
+            kind: "keyword" | "topic";
+            /** @description 該關鍵字來源分析的 language 語境（kind=keyword 必填） */
+            language?: string;
+            /** @description 關鍵字原字（kind=keyword 必填）；normalizedText 由伺服器導出 */
+            text?: string;
+            /** @description 主題名稱（kind=topic 必填）；展開為該分析最新 run 該群非-noise 關鍵字 */
+            topicName?: string;
         };
         QueryDto: Record<string, never>;
         RegisterDto: {
@@ -266,6 +711,13 @@ export interface components {
             email: string;
             /** @example correct-horse-battery */
             password: string;
+        };
+        RenameTrackingListDto: {
+            /**
+             * @description 新清單名稱（同 owner 內唯一）
+             * @example Trail shoes
+             */
+            name: string;
         };
         SseCompletedEventDto: {
             /** @example 1980 */
@@ -298,6 +750,19 @@ export interface components {
             /** @example 1980 */
             total?: number;
         };
+        UpdateBrandProfileDto: {
+            /** @description 本品牌別名（整組取代） */
+            aliases?: string[];
+            /** @description 競品清單（整組取代） */
+            competitors?: components["schemas"]["BrandEntryDto"][];
+            /**
+             * @description 本品牌新名稱（同 owner 內唯一）
+             * @example ASUS
+             */
+            name?: string;
+            /** @description 本品牌官網 domain（整組取代） */
+            sites?: string[];
+        };
     };
     responses: never;
     parameters: never;
@@ -307,6 +772,86 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    IdeationController_generate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdeationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiSearchController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAiSearchAnalysisDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiSearchController_getStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiSearchController_stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     AuthController_login: {
         parameters: {
             query?: never;
@@ -383,6 +928,126 @@ export interface operations {
             };
         };
     };
+    BrandProfileController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BrandProfileController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBrandProfileDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BrandProfileController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BrandProfileController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BrandProfileController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBrandProfileDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CapturesController_ingest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureIngestDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     KeywordAnalysisController_list: {
         parameters: {
             query?: {
@@ -446,6 +1111,222 @@ export interface operations {
         };
     };
     KeywordAnalysisController_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiInsightController_generate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiInsightDto"];
+            };
+        };
+        responses: {
+            /** @description { view, insight, generatedAt } */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 未知 view / 非 UUID id / 未宣告欄位（whitelist forbidNonWhitelisted） */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 未知或非 owner 的 analysis（owner 過濾單點 S8） */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description snapshot 未就緒 / feature 未 ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AI_INSIGHT_GENERATION_FAILED（LLM 失敗，不回半截摘要） */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CustomClassifyController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomClassifyDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CustomClassifyController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CustomClassifyAssignController_getStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CustomClassifyAssignController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomClassifyAssignDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CustomClassifyAssignController_stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    JourneyController_getStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    JourneyController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    JourneyController_stream: {
         parameters: {
             query?: never;
             header?: never;
@@ -573,6 +1454,193 @@ export interface operations {
             header?: never;
             path: {
                 id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTrackingListDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_getDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_rename: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameTrackingListDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_addMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMembersDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listId: string;
+                normalizedText: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_refreshList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TrackingListController_getSeries: {
+        parameters: {
+            query?: {
+                /** @description 起始觀測時點（含） */
+                from?: string;
+                /** @description 結束觀測時點（含） */
+                to?: string;
+                /** @description reserved（未定義分桶語意；目前回原始觀測點） */
+                granularity?: string;
+            };
+            header?: never;
+            path: {
+                listId: string;
             };
             cookie?: never;
         };
