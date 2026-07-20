@@ -5,7 +5,6 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
 import { AiInsightSidebar } from './AiInsightSidebar';
-import type { FilterSpec } from '../../lib/filterSpec';
 
 /**
  * TC-27 (FR-17 / AC-17.1) — the per-view AI 洞察 side panel. Reuses the view-gate
@@ -39,7 +38,9 @@ function wrapper() {
 }
 
 /** Register the ai-insight endpoint and record each request body it receives. */
-function recordInsight(body: unknown = OK_BODY): unknown[] {
+function recordInsight(
+  body: { view: string; insight: string; generatedAt: string } = OK_BODY,
+): unknown[] {
   const calls: unknown[] = [];
   server.use(
     http.post(ROUTE, async ({ request }) => {
@@ -107,7 +108,11 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
   });
 
   it('複製 writes the insight text to the clipboard and shows ✓', async () => {
-    recordInsight({ view: 'keywords', insight: 'COPY-ME insight', generatedAt: OK_BODY.generatedAt });
+    recordInsight({
+      view: 'keywords',
+      insight: 'COPY-ME insight',
+      generatedAt: OK_BODY.generatedAt,
+    });
 
     render(
       <AiInsightSidebar

@@ -103,7 +103,9 @@ describe('TC-42 · generateAiInsight (per-view ai-insight egress)', () => {
 
   it('degrades to ok:false when the 200 body is not a valid { view, insight, generatedAt } shape', async () => {
     // An empty insight is a half/absent summary — it must not surface as ok.
-    server.use(http.post(ROUTE, () => HttpResponse.json({ view: 'keywords', insight: '' }, { status: 200 })));
+    server.use(
+      http.post(ROUTE, () => HttpResponse.json({ view: 'keywords', insight: '' }, { status: 200 })),
+    );
     const result = await generateAiInsight(ID, 'keywords', {});
     expect(result).toEqual({ ok: false, status: 200 });
   });

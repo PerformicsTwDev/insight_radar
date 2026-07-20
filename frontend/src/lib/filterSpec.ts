@@ -278,8 +278,7 @@ export function clearField(spec: FilterSpec, field: FilterFieldKey): FilterSpec 
  * `min>max` ranges are dropped; key order is deterministic (input-order-independent).
  */
 export function canonicalFilters(spec: FilterSpec): FilterSpec {
-  // SHELL (red): identity — a non-canonical spec is NOT yet normalised.
-  return spec;
+  return normalizeSpec(spec);
 }
 
 // ── FilterSpec ↔ URL param ───────────────────────────────────────────────────
