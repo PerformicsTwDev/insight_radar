@@ -117,10 +117,20 @@ describe('TC-28 · aiBatchReducer — job lifecycle', () => {
     expect(aiBatchReducer(running, { type: 'job_failed' }).job).toBe('error');
   });
 
-  it('job_completed / job_failed are ignored unless running (no spurious terminal from idle)', () => {
+  it('job_completed is ignored from idle (a completed frame only arrives over the running stream)', () => {
     const idle = initialAiBatchState();
     expect(aiBatchReducer(idle, { type: 'job_completed' })).toBe(idle);
-    expect(aiBatchReducer(idle, { type: 'job_failed' })).toBe(idle);
+  });
+
+  it('job_failed from idle → error (a start whose POST rejected never reaches running)', () => {
+    // The header must surface a whole-job error even when the run never opened a stream.
+    expect(aiBatchReducer(initialAiBatchState(), { type: 'job_failed' }).job).toBe('error');
+  });
+
+  it('a settled done job absorbs a late job_failed (never regresses done → error)', () => {
+    const running = aiBatchReducer(initialAiBatchState(), { type: 'start', keys: [A] });
+    const done = aiBatchReducer(running, { type: 'job_completed' });
+    expect(aiBatchReducer(done, { type: 'job_failed' })).toBe(done);
   });
 });
 
@@ -153,5 +163,10 @@ describe('TC-28 · toAiBatchCellEvent (pure per-cell SSE frame decoder)', () => 
     expect(toAiBatchCellEvent(JSON.stringify({ summary: 'x' }))).toBeNull();
     expect(toAiBatchCellEvent('not-json')).toBeNull();
     expect(toAiBatchCellEvent(JSON.stringify({ normalizedText: A }))).toBeNull();
+  });
+
+  it('returns null for a non-object JSON payload (null / primitive)', () => {
+    expect(toAiBatchCellEvent('null')).toBeNull();
+    expect(toAiBatchCellEvent('42')).toBeNull();
   });
 });

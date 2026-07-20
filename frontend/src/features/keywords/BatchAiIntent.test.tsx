@@ -94,9 +94,16 @@ function wrapper() {
   };
 }
 
-/** The ✦ cell for a given 搜尋詞 row (last cell in the row). */
+/**
+ * The ✦ cell for a given 搜尋詞 row (last cell in the row). Matches on the frozen
+ * first cell's exact text so 'running shoes' never also selects 'cheap running shoes'.
+ */
 function aiCellOf(text: string): HTMLElement {
-  const row = screen.getByRole('row', { name: new RegExp(text) });
+  const row = screen.getAllByRole('row').find((r) => {
+    const cells = within(r).queryAllByRole('cell');
+    return cells.length > 0 && cells[0].textContent === text;
+  });
+  if (!row) throw new Error(`no row with 搜尋詞 "${text}"`);
   const cells = within(row).getAllByRole('cell');
   return cells[cells.length - 1];
 }
@@ -202,6 +209,42 @@ describe('TC-28 · KeywordsTable ✦ column-header batch (progressive SSE fill)'
     );
     expect(within(aiCellOf('running shoes')).getByText('導購型摘要')).toBeInTheDocument();
     expect(within(aiCellOf('best trail shoes')).getByText('資訊型摘要')).toBeInTheDocument();
+  });
+
+  it('when the batch completes, the header settles into a non-interactive done ✦ (one-way, no re-trigger)', async () => {
+    render(<KeywordsTable rows={rows} analysisId={ID} eventSourceFactory={factory} />, {
+      wrapper: wrapper(),
+    });
+    fireEvent.click(screen.getByRole('button', { name: BATCH_LABEL }));
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+
+    act(() => {
+      for (const k of ['running shoes', 'cheap running shoes', 'best trail shoes']) {
+        FakeEventSource.last().emit('progress', { normalizedText: k, summary: `${k} 摘要` });
+      }
+      FakeEventSource.last().emit('completed', {});
+    });
+
+    // Generation is one-way: no batch trigger and no spinner remain.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: BATCH_LABEL })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('status', { name: '批次生成中' })).not.toBeInTheDocument();
+  });
+
+  it('a whole-job SSE failure surfaces a retry on the column header (batch-level error)', async () => {
+    render(<KeywordsTable rows={rows} analysisId={ID} eventSourceFactory={factory} />, {
+      wrapper: wrapper(),
+    });
+    fireEvent.click(screen.getByRole('button', { name: BATCH_LABEL }));
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+
+    act(() => FakeEventSource.last().emit('failed', { error: 'boom' }));
+
+    const retry = await screen.findByRole('button', { name: /批次生成失敗/ });
+    // Retrying re-runs the whole-column job → a fresh stream opens.
+    fireEvent.click(retry);
+    await waitFor(() => expect(FakeEventSource.instances.length).toBe(2));
   });
 });
 
