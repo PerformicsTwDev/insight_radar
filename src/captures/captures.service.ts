@@ -30,8 +30,9 @@ export function unacceptedSchemaVersionMessage(version: string): string {
  * Capture ingestion service（T13.2 端點 + T13.3 idempotency，FR-36）。把 `POST /captures` 的批次 payload 逐筆落
  * raw append-only 層（`captures`），並以 **content-hash idempotency**（S16）去重。
  *
- * **去重鍵（S16）**：`contentHash = sha256(canonical(source, schemaVersion, item))`（`captures.content_hash`
- * NOT NULL + `@@unique`）。去重語意（AC-36.2）：
+ * **去重鍵（S16；owner-scoped，M13-R1/#552）**：`contentHash = sha256(canonical(ownerId?, source,
+ * schemaVersion, item))`（`captures.content_hash` NOT NULL + 全域 `@@unique`；`ownerId` fold 入 hash 使去重
+ * 天然 owner-scoped——回讀 `where contentHash in [...]` 因 hash 已編碼 owner 而不跨租戶）。去重語意（AC-36.2）：
  * - **同批內**同 hash → 只落一列（first occurrence），重複位置回同一 id、計入 `deduped`。
  * - **跨批重送**同內容 → 命中既有列、**不重複落列、不覆寫**（raw append-only），回既有 id、計入 `deduped`。
  * - **並發同 hash** → 以 `createMany({ skipDuplicates })` 的 `ON CONFLICT DO NOTHING` 讓 DB `@@unique`
@@ -64,9 +65,11 @@ export class CapturesService {
     const ownerId = ownerIdOf(actor);
     const capturedAt = new Date();
 
-    // 逐輸入 item 的 content-hash（S16），與輸入順序對齊——供最終 `ids` 逐筆回填。
+    // 逐輸入 item 的 content-hash（S16；owner-scoped，M13-R1/#552），與輸入順序對齊——供最終 `ids` 逐筆回填。
+    // `ownerId` fold 入 hash：不同 session owner 同內容 → 不同 hash（各落自己一列、各回自己 id，杜絕跨租戶
+    // ON CONFLICT DO NOTHING 回不可讀 id/丟列）；機器 null-owner 間 → 同 hash → 全域去重（S12b line 1863）。
     const hashes = dto.items.map((item) =>
-      captureContentHash({ source: dto.source, schemaVersion: dto.schemaVersion, item }),
+      captureContentHash({ ownerId, source: dto.source, schemaVersion: dto.schemaVersion, item }),
     );
 
     // 同批內去重：每個 distinct hash 取首次出現、mint 一個候選列（uuid 供並發下精確判定「誰落了列」）。

@@ -20,6 +20,7 @@ import { createPrismaTestApp } from '../utils';
  */
 
 const SESSION = (id: string): AuthenticatedUser => ({ kind: 'session', id, email: `${id}@x.test` });
+const MACHINE: AuthenticatedUser = { kind: 'apiKey' };
 
 const makeConfig = (
   over: Partial<ConfigType<typeof ingestConfig>> = {},
@@ -90,6 +91,79 @@ describe('Capture content-hash idempotency (integration · Testcontainers · TC-
       expect(second.accepted).toBe(0);
       expect(second.ids).toEqual(first.ids);
       expect(await prisma.capture.count()).toBe(1);
+    });
+  });
+
+  describe('content-hash idempotency — owner-scoped dedup (M13-R1 · #552 · FR-27 · S16/S12b)', () => {
+    it('two DIFFERENT session owners POST byte-identical content → each persists own row, each gets own id (no cross-tenant leak)', async () => {
+      const svc = makeService();
+      const ownerA = SESSION(randomUUID());
+      const ownerB = SESSION(randomUUID());
+      const body = dto({ items: [{ query: 'running shoes', answer: 'A' }] });
+
+      const first = await svc.ingest(body, ownerA);
+      expect(first.accepted).toBe(1);
+      expect(first.deduped).toBe(0);
+
+      // Owner B 送位元相同內容：**不得**命中 A 的列（#552 回歸）——各自落列、各回自己 id。
+      const second = await svc.ingest(body, ownerB);
+      expect(second.accepted).toBe(1);
+      expect(second.deduped).toBe(0);
+      expect(second.ids[0]).not.toBe(first.ids[0]);
+
+      // 兩列各屬其 owner；B 的列存在（不再靜默丟失）、B 不再拿到 A 的 id。
+      expect(await prisma.capture.count()).toBe(2);
+      const rowA = await prisma.capture.findUniqueOrThrow({ where: { id: first.ids[0] } });
+      const rowB = await prisma.capture.findUniqueOrThrow({ where: { id: second.ids[0] } });
+      expect(rowA.ownerId).toBe(ownerA.id);
+      expect(rowB.ownerId).toBe(ownerB.id);
+      // owner-scoped：兩列 content_hash 不同（ownerId 已 fold 入 hash）。
+      expect(rowA.contentHash).not.toBe(rowB.contentHash);
+    });
+
+    it('same session owner resend identical content → dedups to own existing row (owner-scope does not break same-owner idempotency)', async () => {
+      const svc = makeService();
+      const owner = SESSION(randomUUID());
+      const body = dto({ items: [{ query: 'same-owner', answer: 'Z' }] });
+
+      const first = await svc.ingest(body, owner);
+      const second = await svc.ingest(body, owner);
+
+      expect(second.accepted).toBe(0);
+      expect(second.deduped).toBe(1);
+      expect(second.ids).toEqual(first.ids);
+      expect(await prisma.capture.count()).toBe(1);
+    });
+
+    it('two machine (null-owner) requests of identical content → dedup to ONE row (S12b global dedup for machine actors)', async () => {
+      const svc = makeService();
+      const body = dto({ items: [{ query: 'machine', answer: 'M' }] });
+
+      const first = await svc.ingest(body, MACHINE);
+      const second = await svc.ingest(body, MACHINE);
+
+      expect(first.accepted).toBe(1);
+      expect(second.accepted).toBe(0);
+      expect(second.deduped).toBe(1);
+      expect(second.ids).toEqual(first.ids);
+      // 機器 actor 間全域去重：恰一列、ownerId=null。
+      expect(await prisma.capture.count()).toBe(1);
+      const row = await prisma.capture.findUniqueOrThrow({ where: { id: first.ids[0] } });
+      expect(row.ownerId).toBeNull();
+    });
+
+    it('session owner vs machine (null-owner) same content → distinct rows (session-owned never collides with shared machine row)', async () => {
+      const svc = makeService();
+      const owner = SESSION(randomUUID());
+      const body = dto({ items: [{ query: 'mixed', answer: 'X' }] });
+
+      const sessionRes = await svc.ingest(body, owner);
+      const machineRes = await svc.ingest(body, MACHINE);
+
+      expect(sessionRes.accepted).toBe(1);
+      expect(machineRes.accepted).toBe(1);
+      expect(machineRes.ids[0]).not.toBe(sessionRes.ids[0]);
+      expect(await prisma.capture.count()).toBe(2);
     });
   });
 
