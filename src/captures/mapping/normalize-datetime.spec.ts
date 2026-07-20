@@ -19,6 +19,13 @@ describe('normalizeChineseDateTime (AC-37.3 / FR-46 中文時間 → ISO)', () =
     expect(normalizeChineseDateTime('2025年11月21日 下午12:30')).toBe('2025-11-21T12:30:00+08:00');
   });
 
+  it('[10] 晚上12:xx → 午夜 00:xx（colloquial 半夜，非中午 12）；晚上1–11 → PM (+12)', () => {
+    expect(normalizeChineseDateTime('2025年11月21日 晚上12:30')).toBe('2025-11-21T00:30:00+08:00');
+    expect(normalizeChineseDateTime('2025年11月21日 晚上12:00')).toBe('2025-11-21T00:00:00+08:00');
+    expect(normalizeChineseDateTime('2025年11月21日 晚上11:00')).toBe('2025-11-21T23:00:00+08:00');
+    expect(normalizeChineseDateTime('2025年11月21日 晚上1:00')).toBe('2025-11-21T13:00:00+08:00');
+  });
+
   it('凌晨（AM）/ 晚上（PM）別名', () => {
     expect(normalizeChineseDateTime('2025年11月21日 凌晨3:00')).toBe('2025-11-21T03:00:00+08:00');
     expect(normalizeChineseDateTime('2025年11月21日 晚上8:00')).toBe('2025-11-21T20:00:00+08:00');
@@ -48,6 +55,10 @@ describe('normalizeChineseDateTime (AC-37.3 / FR-46 中文時間 → ISO)', () =
     expect(normalizeChineseDateTime('2025-11-21')).toBe('2025-11-21T00:00:00+08:00');
   });
 
+  it('[3] 純 ISO 日期同樣月曆驗證：2025-02-30 → null（非閏年 2 月無 30 日）', () => {
+    expect(normalizeChineseDateTime('2025-02-30')).toBeNull();
+  });
+
   it('缺值 / 不可解析 / 非字串 → null（不編造，不阻斷同批）', () => {
     expect(normalizeChineseDateTime(null)).toBeNull();
     expect(normalizeChineseDateTime(undefined)).toBeNull();
@@ -61,5 +72,33 @@ describe('normalizeChineseDateTime (AC-37.3 / FR-46 中文時間 → ISO)', () =
     expect(normalizeChineseDateTime('2025年13月01日')).toBeNull();
     expect(normalizeChineseDateTime('2025年12月32日')).toBeNull();
     expect(normalizeChineseDateTime('2025年11月21日 下午25:00')).toBeNull();
+  });
+
+  it('[3] 月曆有效性：Feb 30 / 4-31 界外 / 非閏年 2-29 / 6-31 → null（畸形契約）', () => {
+    expect(normalizeChineseDateTime('2025年2月30日')).toBeNull();
+    expect(normalizeChineseDateTime('2025年4月31日')).toBeNull();
+    expect(normalizeChineseDateTime('2025年2月29日')).toBeNull(); // 2025 非閏年
+    expect(normalizeChineseDateTime('2025年6月31日')).toBeNull();
+  });
+
+  it('[3] 合法邊界日仍解析（Jan 31 / 閏年 Feb 29 / Apr 30）', () => {
+    expect(normalizeChineseDateTime('2025年1月31日')).toBe('2025-01-31T00:00:00+08:00');
+    expect(normalizeChineseDateTime('2024年2月29日')).toBe('2024-02-29T00:00:00+08:00'); // 2024 閏年
+    expect(normalizeChineseDateTime('2025年4月30日')).toBe('2025-04-30T00:00:00+08:00');
+  });
+
+  it('[4] ISO 分支範圍驗證：界外 ISO → null（與 CJK 同標準，不原樣回 ok）', () => {
+    expect(normalizeChineseDateTime('2025-13-45T25:99:99')).toBeNull();
+    expect(normalizeChineseDateTime('2025-02-30T12:00:00Z')).toBeNull(); // 月曆界外
+    expect(normalizeChineseDateTime('2025-11-21T24:00:00+08:00')).toBeNull(); // 時界外
+    expect(normalizeChineseDateTime('2025-11-21T12:60:00+08:00')).toBeNull(); // 分界外
+  });
+
+  it('[4] 合法 ISO datetime 仍原樣返回（honor 既有 offset、含小數秒、無秒亦可）', () => {
+    expect(normalizeChineseDateTime('2025-11-21T02:01:00+08:00')).toBe('2025-11-21T02:01:00+08:00');
+    expect(normalizeChineseDateTime('2025-11-20T14:30:00.500+00:00')).toBe(
+      '2025-11-20T14:30:00.500+00:00',
+    );
+    expect(normalizeChineseDateTime('2025-11-21T02:01+08:00')).toBe('2025-11-21T02:01+08:00');
   });
 });

@@ -20,6 +20,7 @@ export const socialThreadsApiV1Golden: MapperGolden = {
       id: '17901234567890123',
       username: 'gadget_reviews',
       text: 'New foldable phone hands-on. Hinge feels sturdy, screen crease barely visible.',
+      // 尾斜線去除、host 收斂、**保留 shortcode `DAbCdEf` 大小寫**（path 大小寫敏感，S13）。
       permalink: 'https://www.threads.net/@gadget_reviews/post/DAbCdEf/',
       timestamp: '2025-11-20T14:30:00+00:00',
     },
@@ -31,7 +32,7 @@ export const socialThreadsApiV1Golden: MapperGolden = {
       source: 'threadsApi',
       platform: 'threads',
       schemaVersion: 'v1',
-      postKey: 'https://www.threads.net/@gadget_reviews/post/dabcdef',
+      postKey: 'https://www.threads.net/@gadget_reviews/post/DAbCdEf',
       author: 'gadget_reviews',
       profileLink: null,
       content: 'New foldable phone hands-on. Hinge feels sturdy, screen crease barely visible.',
