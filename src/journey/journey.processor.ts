@@ -76,7 +76,10 @@ export class JourneyProcessor
       await this.assignments.saveAssignments({ analysisId, snapshotId, staged });
 
       await this.runRepo.markStatus(runId, 'completed', { keywordCount: staged.length });
-      await this.reportProgress(job, runId, 'done', 100);
+      // INV-3: the run is now durably terminal (completed). The trailing 'done' tick is cosmetic
+      // (SSE/GET) — write it best-effort so a transient DB/SSE error can never throw into the catch
+      // and flip the already-committed terminal status to `failed` (#586, same class as M14-R2/#578).
+      await this.reportProgressBestEffort(job, runId, 'done', 100);
       return { status: 'completed', keywordCount: staged.length };
     } catch (error) {
       // classify 內部已降級 LLM 失敗、不 throw → 此處只餘基礎設施錯（Prisma/Redis）。rethrow 讓 BullMQ 依
@@ -111,6 +114,26 @@ export class JourneyProcessor
       await job.updateProgress(progress);
     } catch (error) {
       this.logger.warn(`job progress publish failed (best-effort): ${scrubSecrets(String(error))}`);
+    }
+  }
+
+  /**
+   * 終態後的 'done' 進度 tick：run 已 durably 落 completed，此寫入純為顯示（SSE/GET）。整段 best-effort（吞 DB
+   * 寫入錯 + observability log，比照 `reportProgress` 的 `job.updateProgress` publish 慣例）——**絕不**讓瞬時錯誤
+   * throw 進 catch 而覆寫已 committed 的終態（INV-3，#586；同 M14-R2/#578）。
+   */
+  private async reportProgressBestEffort(
+    job: Job<JourneyJobPayload>,
+    runId: string,
+    phase: JourneyPhase,
+    percent: number,
+  ): Promise<void> {
+    try {
+      await this.reportProgress(job, runId, phase, percent);
+    } catch (error) {
+      this.logger.warn(
+        `terminal progress write failed (best-effort): ${scrubSecrets(String(error))}`,
+      );
     }
   }
 
