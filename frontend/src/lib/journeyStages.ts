@@ -20,37 +20,40 @@ export type JourneyStage = (typeof JOURNEY_STAGES)[number];
 
 /** stage → 中文 label（單一權威；drift guard，見 journeyStages.test）。 */
 export const JOURNEY_STAGE_LABELS: Readonly<Record<JourneyStage, string>> = {
-  // RED stub (T4.4): placeholder labels so the enum↔zh 鎖死映射 lock fails red.
-  pain_awareness: '',
-  need_definition: '',
-  solution_exploration: '',
-  spec_comparison: '',
-  reputation_validation: '',
-  final_decision: '',
-  repurchase_retention: '',
+  pain_awareness: '痛點覺察',
+  need_definition: '需求確立',
+  solution_exploration: '方案探索',
+  spec_comparison: '規格比較',
+  reputation_validation: '口碑驗證',
+  final_decision: '最終決策',
+  repurchase_retention: '回購維護',
 };
 
-/** 解析後的階段顯示資訊：合法 stage → step(1-7)+中文；未分類/未知 → step null（缺值不編步驟，C12）。 */
-export interface ResolvedJourneyStage {
-  readonly step: number | null;
-  readonly label: string;
-  readonly known: boolean;
-}
+/**
+ * 解析後的階段顯示資訊（discriminated union）：合法 stage → known + step(1-7) + 中文；
+ * 未分類/未知 → 非 known、step null（缺值不編步驟，C12——不臆造階段）。
+ */
+export type ResolvedJourneyStage =
+  | { readonly known: true; readonly step: number; readonly label: string }
+  | { readonly known: false; readonly step: null; readonly label: '' };
+
+/** O(1) 成員查找集（避免每次 resolve 線性掃描 JOURNEY_STAGES）。 */
+const STAGE_SET: ReadonlySet<string> = new Set(JOURNEY_STAGES);
 
 /** 型別守衛：值是否為 7 階段之一（表格列 `stage` 為 unknown → 需防禦性收窄）。 */
-export function isJourneyStage(_value: unknown): _value is JourneyStage {
-  // RED stub (T4.4): not implemented — always false so lock/resolve tests fail red.
-  return false;
+export function isJourneyStage(value: unknown): value is JourneyStage {
+  return typeof value === 'string' && STAGE_SET.has(value);
 }
 
 /** 合法 stage → 步驟號（1-7；= JOURNEY_STAGES 中的序 +1）。 */
-export function journeyStageStep(_stage: JourneyStage): number {
-  // RED stub (T4.4): not implemented — wrong step so per-value tests fail red.
-  return 0;
+export function journeyStageStep(stage: JourneyStage): number {
+  return JOURNEY_STAGES.indexOf(stage) + 1;
 }
 
-/** 解析表格列的 `stage`（unknown）→ 步驟號 + 中文 label；未分類/未知 → step null + 空 label。 */
-export function resolveJourneyStage(_value: unknown): ResolvedJourneyStage {
-  // RED stub (T4.4): not implemented — never known so resolve tests fail red.
-  return { step: null, label: '', known: false };
+/** 解析表格列的 `stage`（unknown）→ 步驟號 + 中文 label；未分類/未知 → 非 known + step null。 */
+export function resolveJourneyStage(value: unknown): ResolvedJourneyStage {
+  if (isJourneyStage(value)) {
+    return { known: true, step: journeyStageStep(value), label: JOURNEY_STAGE_LABELS[value] };
+  }
+  return { known: false, step: null, label: '' };
 }

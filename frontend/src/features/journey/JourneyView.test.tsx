@@ -77,10 +77,9 @@ function wrapper() {
 }
 
 function renderView(features: unknown) {
-  return render(
-    <JourneyView analysisId={ID} features={features} eventSourceFactory={factory} />,
-    { wrapper: wrapper() },
-  );
+  return render(<JourneyView analysisId={ID} features={features} eventSourceFactory={factory} />, {
+    wrapper: wrapper(),
+  });
 }
 
 beforeEach(() => {
@@ -110,7 +109,9 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
   it('ready → fetches POST /query {view:"journey"} and renders the 購買歷程表 rows', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
-      http.get('/api/v1/keyword-analyses/:id/journey', () => HttpResponse.json(runBody('completed'))),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
     );
     renderView({ journey: { status: 'ready' } });
 
@@ -123,7 +124,9 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
   it('running → SSE completed → confirms via GET :id/journey → unlocks the 購買歷程表', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
-      http.get('/api/v1/keyword-analyses/:id/journey', () => HttpResponse.json(runBody('completed'))),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
     );
     renderView({ journey: { status: 'running' } });
 
@@ -206,10 +209,31 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /重試/ })).toBeInTheDocument());
   });
 
+  it('ready but POST /query returns a non-table shape → renders the empty state (defensive)', async () => {
+    // journey must always be a table view; a trend/chart body (backend drift) must not
+    // render half-parsed — the gate stays ready but the 表 falls back to the empty state.
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/query', () =>
+        HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] }),
+      ),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
+    );
+    renderView({ journey: { status: 'ready' } });
+
+    await waitFor(() => expect(screen.getByText(/尚無購買歷程資料/)).toBeInTheDocument());
+  });
+
   it('ready but POST /query fails → renders the empty state (no crash)', async () => {
     server.use(
-      http.post('/api/v1/keyword-analyses/:id/query', () => new HttpResponse(null, { status: 404 })),
-      http.get('/api/v1/keyword-analyses/:id/journey', () => HttpResponse.json(runBody('completed'))),
+      http.post(
+        '/api/v1/keyword-analyses/:id/query',
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
     );
     renderView({ journey: { status: 'ready' } });
 

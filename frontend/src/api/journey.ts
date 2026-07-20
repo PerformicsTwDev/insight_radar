@@ -41,8 +41,7 @@ export const JourneyRunSchema = z.object({
 export type JourneyRun = z.infer<typeof JourneyRunSchema>;
 
 export type FetchJourneyRunResult =
-  | { readonly ok: true; readonly run: JourneyRun }
-  | { readonly ok: false; readonly status: number };
+  { readonly ok: true; readonly run: JourneyRun } | { readonly ok: false; readonly status: number };
 
 /**
  * Start a journey run (enqueue-only). Egress via the typed `api` client (never a
@@ -53,9 +52,23 @@ export type FetchJourneyRunResult =
  * degrades to `ok:false`. The journey POST carries no request body (backend
  * `create` is enqueue-only).
  */
-export async function startJourney(_id: string): Promise<StartJourneyResult> {
-  // RED stub (T4.4): not implemented — returns a wrong result so TC-42 fails.
-  return { ok: false, status: 0 };
+export async function startJourney(id: string): Promise<StartJourneyResult> {
+  const { data, error, response } = await api.POST('/api/v1/keyword-analyses/{id}/journey', {
+    params: { path: { id } },
+  });
+
+  if (response.ok) {
+    const parsed = StartJourneyResponseSchema.safeParse(data);
+    if (parsed.success) return { ok: true, journeyJobId: parsed.data.journeyJobId };
+    return { ok: false, status: response.status };
+  }
+
+  const parsedError = ErrorResponseSchema.safeParse(error);
+  return {
+    ok: false,
+    status: response.status,
+    error: parsedError.success ? parsedError.data : undefined,
+  };
 }
 
 /**
@@ -64,9 +77,16 @@ export async function startJourney(_id: string): Promise<StartJourneyResult> {
  * `JourneyStatusResponse` → `{ ok:true, run }`; a parse failure or any non-2xx
  * degrades to `ok:false`.
  */
-export async function fetchJourneyRun(_id: string): Promise<FetchJourneyRunResult> {
-  // RED stub (T4.4): not implemented — returns a wrong result so TC-42 fails.
-  return { ok: false, status: 0 };
+export async function fetchJourneyRun(id: string): Promise<FetchJourneyRunResult> {
+  const { data, response } = await api.GET('/api/v1/keyword-analyses/{id}/journey', {
+    params: { path: { id } },
+  });
+  if (response.ok) {
+    const parsed = JourneyRunSchema.safeParse(data);
+    if (parsed.success) return { ok: true, run: parsed.data };
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
 }
 
 /**
@@ -77,7 +97,14 @@ export async function fetchJourneyRun(_id: string): Promise<FetchJourneyRunResul
  * analysis's status. 404 → not-found terminal; any other non-2xx, or an
  * unrecognised status string, → `unavailable` (keep polling).
  */
-export async function fetchJourneyStatus(_id: string): Promise<StatusFetch> {
-  // RED stub (T4.4): not implemented — always unavailable so TC-42 fails.
-  return { kind: 'unavailable' };
+export async function fetchJourneyStatus(id: string): Promise<StatusFetch> {
+  const res = await fetchJourneyRun(id);
+  if (!res.ok) {
+    return res.status === 404 ? { kind: 'not_found' } : { kind: 'unavailable' };
+  }
+  const status = ANALYSIS_STATUSES.find((s) => s === res.run.status);
+  if (!status) {
+    return { kind: 'unavailable' };
+  }
+  return { kind: 'ok', status: { status } };
 }

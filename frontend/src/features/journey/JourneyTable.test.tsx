@@ -63,6 +63,14 @@ describe('TC-25 · JourneyTable (步驟號 badge + 7 階段 enum↔zh)', () => {
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
   });
 
+  it('missing / non-string keyword text → —（defensive coercion of the untyped row cell）', () => {
+    // rows come from POST /query as Record<string, unknown> — a missing `text` must
+    // render — (not "undefined"). Locate the row by its stage label instead.
+    render(<JourneyTable rows={[{ stage: 'final_decision', avgMonthlySearches: 100 }]} />);
+    const row = screen.getByText('最終決策').closest('tr') as HTMLElement;
+    expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
+  });
+
   it('empty rows → 空狀態（不 crash）', () => {
     render(<JourneyTable rows={[]} />);
     expect(screen.getByText(/尚無購買歷程資料/)).toBeInTheDocument();
