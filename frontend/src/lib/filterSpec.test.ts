@@ -1,5 +1,6 @@
 import {
   applyChip,
+  canonicalFilters,
   chipsToSpec,
   clearField,
   deserializeFiltersFromUrl,
@@ -235,5 +236,25 @@ describe('applyChip / clearField / isValidRange (component-facing helpers)', () 
     expect(isValidRange(undefined, 500)).toBe(true);
     expect(isValidRange(undefined, undefined)).toBe(true);
     expect(isValidRange(500, 100)).toBe(false);
+  });
+});
+
+describe('TC-4 · canonicalFilters (wire canonicalisation single-point, C4)', () => {
+  it('drops empty-array options and impossible min>max ranges', () => {
+    expect(canonicalFilters({ volumeMin: 10, intent: [] })).toEqual({ volumeMin: 10 });
+    expect(canonicalFilters({ volumeMin: 50, volumeMax: 10 })).toEqual({});
+  });
+
+  it('is idempotent (canonicalising an already-canonical spec returns an equal spec)', () => {
+    const canon = canonicalFilters({ q: 'shoe', competition: [HIGH] });
+    expect(canonicalFilters(canon)).toEqual(canon);
+  });
+
+  it('is input-order-independent and serializes byte-identically to serializeFiltersToUrl (C4)', () => {
+    const a = canonicalFilters({ q: 'shoe', volumeMin: 100, intent: [INFO] });
+    const b = canonicalFilters({ intent: [INFO], volumeMin: 100, q: 'shoe' });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    const spec: FilterSpec = { intent: [COMM], volumeMin: 100 };
+    expect(JSON.stringify(canonicalFilters(spec))).toBe(serializeFiltersToUrl(spec));
   });
 });

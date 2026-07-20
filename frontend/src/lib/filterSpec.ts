@@ -267,6 +267,20 @@ export function clearField(spec: FilterSpec, field: FilterFieldKey): FilterSpec 
   return chipsToSpec(specToChips(spec).filter((c) => c.field !== field));
 }
 
+/**
+ * Canonicalise a `FilterSpec` for the wire (Design §6 C4). The ONE normalisation a
+ * spec passes through before it crosses a request boundary (the `/ai-insight`
+ * egress, T4.3), so the filters the backend hashes for its cache key
+ * (`(snapshotId, view, filters-hash)`) are byte-identical to the `/query` + the
+ * shareable-URL canonical form — both funnel through this same `normalizeSpec`
+ * (`serializeFiltersToUrl` is its string projection). Idempotent: canonicalising an
+ * already-canonical spec returns an equal spec; empty terms / empty-array options /
+ * `min>max` ranges are dropped; key order is deterministic (input-order-independent).
+ */
+export function canonicalFilters(spec: FilterSpec): FilterSpec {
+  return normalizeSpec(spec);
+}
+
 // ── FilterSpec ↔ URL param ───────────────────────────────────────────────────
 
 /**
