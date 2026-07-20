@@ -243,6 +243,57 @@ describe('TC-74: SerpApiAiProvider — AI Overview adapter (FR-38, reserved)', (
         jest.useRealTimers();
       }
     });
+
+    // ── issue #580 [3]：主 AIO searchGoogle 失敗須 degrade（比照 sibling），不得整批中止 ──
+    it('degrades to aiOverview=null when the PRIMARY searchGoogle fails (5xx) — not thrown (#580 [3])', async () => {
+      const { client, searchCalls, fetchCalls } = fakeClient({
+        onSearch: () => {
+          throw Object.assign(new Error('SERP HTTP 500'), { status: 500 });
+        },
+      });
+      const provider = new SerpApiAiProvider(client, AI_CONFIG);
+
+      const [result] = await provider.fetchAiOverviews(['primary fails']);
+
+      expect(searchCalls).toHaveLength(1);
+      expect(fetchCalls).toHaveLength(0); // 主查詢就失敗 → 無二次抓取
+      expect(result.aiOverview).toBeNull();
+      expect(result.creditsUsed).toBe(1); // 主查詢已發送 → 計費（比照 sibling degradation）
+    });
+
+    it('a single primary failure degrades only that query while the rest of the batch still succeeds (#580 [3])', async () => {
+      const { client, searchCalls } = fakeClient({
+        onSearch: (params) => {
+          if (params.q === 'boom') {
+            throw Object.assign(new Error('SERP HTTP 502'), { status: 502 });
+          }
+          return aiOverviewInlineV1;
+        },
+      });
+      const provider = new SerpApiAiProvider(client, AI_CONFIG);
+
+      const results = await provider.fetchAiOverviews(['boom', 'ok']);
+
+      expect(searchCalls).toHaveLength(2); // 第一筆失敗未中止全批（INV-6 partial）
+      expect(results[0].aiOverview).toBeNull();
+      expect(results[0].creditsUsed).toBe(1);
+      expect(results[1].aiOverview).not.toBeNull();
+      expect(results[1].creditsUsed).toBe(1);
+    });
+
+    // ── issue #580 [4]：ai_overview 為 non-object primitive（schema 漂移）→ isInline 不得 TypeError ──
+    it('degrades to null (not TypeError) when ai_overview is a non-object primitive — schema drift (#580 [4])', async () => {
+      const { client, fetchCalls } = fakeClient({
+        onSearch: () => ({ ai_overview: 'unavailable' }) as unknown as SerpApiGoogleSearchResponse,
+      });
+      const provider = new SerpApiAiProvider(client, AI_CONFIG);
+
+      const [result] = await provider.fetchAiOverviews(['drifted primitive']);
+
+      expect(fetchCalls).toHaveLength(0);
+      expect(result.aiOverview).toBeNull();
+      expect(result.creditsUsed).toBe(1);
+    });
   });
 
   describe('AC-38.5 · credit 預算治理（SERPAPI_AI_CREDITS_BUDGET）', () => {
