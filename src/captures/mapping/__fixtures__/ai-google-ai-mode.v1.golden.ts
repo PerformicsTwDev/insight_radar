@@ -1,15 +1,16 @@
 // grounded in Design §18.3; pending extension type.ts reconciliation at T13.6
 //
-// AI 線 · extension · googleAiMode · v1 — SKELETON-PARTIAL（pending T14.4 whitelist 擴充）。
+// AI 線 · extension · googleAiMode · v1 — FULL-MAP（T14.4 whitelist 已擴充）。
 // Design §18.3：AI Mode ＝ `blocks + references + reconstructed_markdown`；此外 extension 頁面尚帶 per-channel 專屬區塊
-// （如 follow-up「其他人也搜尋」`relatedQuestions`）——骨架白名單暫未涵蓋 → `unknown_field:relatedQuestions` →
-// `mapStatus=partial`（AC-37.4 漂移預警，**非 bug**）。core（query/blocks/references）仍完整收斂。per-channel 實欄位收斂屬
-// M14 T14.4，屆時本 golden 應由 partial→ok（contract test 會因此轉紅，逼出一次有意識的 fixture 對帳）。
+// （如 follow-up「其他人也搜尋」`relatedQuestions`）。T14.4 把 `relatedQuestions` 納入 googleAiMode **per-channel 認得欄位**
+// （auxiliary raw 欄位，保留於 raw〔INV-4〕、不投影進 `AiSearchCapture` 中立形狀——§18.3 model 無此欄）→ 不再判
+// `unknown_field` → `mapStatus=ok`。core（query/blocks/references）完整收斂。此 golden 由 T13.5 的 skeleton-partial
+// 於 T14.4 升 full-map（contract drift-guard 逼出的一次有意識對帳）。
 import type { MapperGolden } from './golden.types';
 
 export const aiGoogleAiModeV1Golden: MapperGolden = {
   id: 'extension|googleAiMode|v1',
-  coverage: 'skeleton-partial',
+  coverage: 'full-map',
   fixtureVersion: 1,
   input: {
     source: 'extension',
@@ -35,14 +36,14 @@ export const aiGoogleAiModeV1Golden: MapperGolden = {
     },
   },
   expected: {
-    mapStatus: 'partial',
-    reasons: ['unknown_field:relatedQuestions'],
+    mapStatus: 'ok',
+    reasons: [],
     canonical: {
       source: 'extension',
       channel: 'googleAiMode',
       schemaVersion: 'v1',
       query: 'is intermittent fasting effective for weight loss',
-      // 骨架 alias 先取 `blocks`（`reconstructed_markdown` 為 recognized 別名、不判 unknown，但被 blocks 覆蓋、canonical 不重出）。
+      // alias 先取 `blocks`（`reconstructed_markdown` 為 recognized 別名、不判 unknown，但被 blocks 覆蓋、canonical 不重出）。
       blocks: [
         'Intermittent fasting can support weight loss primarily via reduced calorie intake.',
         'Evidence is mixed on advantages beyond overall caloric restriction.',

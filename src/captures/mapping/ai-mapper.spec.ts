@@ -90,3 +90,127 @@ describe('mapAiCapture (T13.4 / FR-37/39 → AiSearchCapture 中立形狀 / TC-7
     expect(result.reasons).toContain('missing_channel');
   });
 });
+
+describe('TC-75: 四渠道 AI mapper 補全 → AiSearchCapture（FR-39 / AC-39.1~39.3）', () => {
+  describe('ChatGPT 多輪：ChatGptResponseFormat 凍結為最後一輪（AC-39.2）', () => {
+    it('多輪 turns[] → 僅取最後一輪的 answer + references（不串接前輪、不編造）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          {
+            query: 'best travel backpack',
+            turns: [
+              {
+                answer: 'Earlier turn: consider the Osprey Farpoint.',
+                references: [{ title: 'Osprey', link: 'https://example.com/osprey' }],
+              },
+              {
+                answer: 'Final turn: the Peak Design Travel is the top pick for 2025.',
+                references: [{ title: 'Peak Design', link: 'https://example.com/peak' }],
+              },
+            ],
+          },
+          { channel: 'chatGpt' },
+        ),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.reasons).toEqual([]);
+      expect(result.canonical?.blocks).toEqual([
+        'Final turn: the Peak Design Travel is the top pick for 2025.',
+      ]);
+      expect(result.canonical?.references).toEqual([
+        { title: 'Peak Design', link: 'https://example.com/peak', index: 0 },
+      ]);
+    });
+
+    it('turns 為空陣列 → 退回 top-level answer（可得輪缺，不編造）', () => {
+      const result = mapAiCapture(
+        aiInput({ query: 'q', answer: 'flat answer', turns: [] }, { channel: 'chatGpt' }),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.canonical?.blocks).toEqual(['flat answer']);
+    });
+
+    it('turns 末元素非物件 → 退回 top-level answer（best-effort，不編造）', () => {
+      const result = mapAiCapture(
+        aiInput({ query: 'q', answer: 'flat answer', turns: ['garbled'] }, { channel: 'chatGpt' }),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.canonical?.blocks).toEqual(['flat answer']);
+    });
+  });
+
+  describe('Gemini grounding 取捨（AC-39.2）', () => {
+    it('grounding 缺失（無 sources）→ references=[]（不編造），mapStatus ok', () => {
+      const result = mapAiCapture(
+        aiInput({ query: 'q', blocks: ['grounded-free answer'] }, { channel: 'geminiApp' }),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.canonical?.references).toEqual([]);
+    });
+
+    it('grounding 命中：Gemini `{name,url}` → 統一 `{title,link,index}`（AC-39.3）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          {
+            query: 'q',
+            blocks: ['a'],
+            sources: [{ name: 'Examine.com', url: 'https://examine.com/x' }],
+          },
+          { channel: 'geminiApp' },
+        ),
+      );
+      expect(result.canonical?.references).toEqual([
+        { title: 'Examine.com', link: 'https://examine.com/x', index: 0 },
+      ]);
+    });
+  });
+
+  describe('per-channel 認得欄位有界（S20；AC-37.4）', () => {
+    it('googleAiMode 的 `relatedQuestions` 認得 → ok（不投影進 canonical）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          { query: 'q', blocks: ['a'], relatedQuestions: ['x?', 'y?'] },
+          { channel: 'googleAiMode' },
+        ),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.reasons).toEqual([]);
+      expect(result.canonical).not.toHaveProperty('relatedQuestions');
+    });
+
+    it('googleSearch 的 `organicResults` 認得 → ok（不投影進 canonical）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          {
+            q: 'q',
+            blocks: ['a'],
+            organicResults: [{ position: 1, title: 't', link: 'https://l' }],
+          },
+          { channel: 'googleSearch' },
+        ),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.reasons).toEqual([]);
+      expect(result.canonical).not.toHaveProperty('organicResults');
+    });
+
+    it('`relatedQuestions` 於 chatGpt 為未知欄位（白名單不跨渠道外洩）→ partial', () => {
+      const result = mapAiCapture(
+        aiInput({ query: 'q', answer: 'a', relatedQuestions: ['x?'] }, { channel: 'chatGpt' }),
+      );
+      expect(result.mapStatus).toBe('partial');
+      expect(result.reasons).toContain('unknown_field:relatedQuestions');
+    });
+
+    it('`organicResults` 於 googleAiMode 為未知欄位（渠道專屬不互通）→ partial', () => {
+      const result = mapAiCapture(
+        aiInput(
+          { query: 'q', blocks: ['a'], organicResults: [{ position: 1 }] },
+          { channel: 'googleAiMode' },
+        ),
+      );
+      expect(result.mapStatus).toBe('partial');
+      expect(result.reasons).toContain('unknown_field:organicResults');
+    });
+  });
+});
