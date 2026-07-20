@@ -5,7 +5,7 @@ import { createPrismaTestApp } from '../utils/create-prisma-test-app';
 
 /**
  * TC-77 部分 (T14.6 · FR-41/AC-41.1 · Testcontainers): AiSearchRun 生命週期 + idempotency + reset。
- * 驗 createRun（queued）、idempotencyKey 命中回既有（不重建）、terminal-failed→reset 重跑、findByIdempotencyKey、
+ * 驗 createRun（queued）、idempotencyKey 命中回既有（不重建）、terminal-failed→reset 重跑、
  * markStatus、updateProgress、findById（owner 投影）。
  */
 const PARAMS = { schemaVersion: 'ai-search-v1' };
@@ -108,16 +108,6 @@ describe('AiSearchRunRepository (integration · Testcontainers, TC-77 部分)', 
     const row = await prisma.aiSearchRun.findUniqueOrThrow({ where: { id: runId } });
     expect(row.status).toBe('queued');
     expect(await prisma.aiSearchRun.count()).toBe(1);
-  });
-
-  it('findByIdempotencyKey returns {id,status} or null', async () => {
-    const { runId } = await repo.createRun({
-      ownerId: null,
-      idempotencyKey: 'k-2',
-      params: PARAMS,
-    });
-    expect(await repo.findByIdempotencyKey('k-2')).toEqual({ id: runId, status: 'queued' });
-    expect(await repo.findByIdempotencyKey('nope')).toBeNull();
   });
 
   it('markStatus updates status + captureCount + error (undefined fields untouched)', async () => {

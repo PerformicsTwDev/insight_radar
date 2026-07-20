@@ -37,21 +37,37 @@ export function brandMatches(mention: string, brand: BrandAliasInput): boolean {
 }
 
 /**
+ * 預算式品牌比對器（M14-R7/#583 [9]）：對一組品牌**一次**算好各自的 normalizedAliasUnion，回傳可**重複**比對多個
+ * mention 的閉包——避免每 mention 重建各 brand 的別名聯集 Set（供 FR-42 品牌抽取逐句掃描時對同一組品牌重用）。
+ * 比對語意同 {@link findMatchingBrand}：回第一個命中的品牌（呼叫端優先序），空提及（正規化後為空）→ null。
+ * prepared union 於建構時快照，之後改動來源陣列不影響已建立的比對器。
+ */
+export function createBrandMatcher<T extends BrandAliasInput>(
+  brands: readonly T[],
+): (mention: string) => T | null {
+  const prepared = brands.map((brand) => ({ brand, union: normalizedAliasUnion(brand) }));
+  return (mention: string): T | null => {
+    const normalized = normalizeText(mention);
+    if (normalized.length === 0) {
+      return null;
+    }
+    for (const { brand, union } of prepared) {
+      if (union.has(normalized)) {
+        return brand;
+      }
+    }
+    return null;
+  };
+}
+
+/**
  * 在一組品牌中找出第一個匹配該 mention 的品牌（無則 `null`）。品牌順序＝呼叫端優先序（本品牌先於競品）；
- * 供 FR-42 品牌抽取把 AI 回答中的品牌提及歸戶到已設定的 `BrandProfile`。
+ * 供 FR-42 品牌抽取把 AI 回答中的品牌提及歸戶到已設定的 `BrandProfile`。**單次**比對；逐句掃描多個 mention
+ * 請改用 {@link createBrandMatcher} 一次預算、重複比對（避免每 mention 重建別名聯集）。
  */
 export function findMatchingBrand<T extends BrandAliasInput>(
   mention: string,
   brands: readonly T[],
 ): T | null {
-  const normalized = normalizeText(mention);
-  if (normalized.length === 0) {
-    return null;
-  }
-  for (const brand of brands) {
-    if (normalizedAliasUnion(brand).has(normalized)) {
-      return brand;
-    }
-  }
-  return null;
+  return createBrandMatcher(brands)(mention);
 }

@@ -1,37 +1,17 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { overrideBackgroundWorkers } from './helpers/background-workers';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import RedisMock from 'ioredis-mock';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
-import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
 import { configureApp } from 'src/bootstrap';
-import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
-import {
-  AI_SEARCH_JOB_EVENTS_CONNECTION,
-  AI_SEARCH_QUEUE_EVENTS,
-} from 'src/queue/ai-search-job-events.constants';
-import {
-  CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
-  CUSTOM_CLASSIFY_QUEUE_EVENTS,
-} from 'src/queue/custom-classify-job-events.constants';
 import { JOB_EVENTS_CONNECTION, JOB_QUEUE_EVENTS } from 'src/queue/job-events.constants';
-import {
-  JOURNEY_JOB_EVENTS_CONNECTION,
-  JOURNEY_QUEUE_EVENTS,
-} from 'src/queue/journey-job-events.constants';
 import { AI_SEARCH_QUEUE, BULL_CONNECTION } from 'src/queue/queue.constants';
-import {
-  TOPIC_JOB_EVENTS_CONNECTION,
-  TOPIC_QUEUE_EVENTS,
-} from 'src/queue/topic-job-events.constants';
-import { JourneyProcessor } from 'src/journey/journey.processor';
 import { SERP_AI_PROVIDER } from 'src/serp/serpapi-ai.types';
-import { TopicClusterProcessor } from 'src/topics/topic-cluster.processor';
-import { TrackingRefreshProcessor } from 'src/tracking/tracking-refresh.processor';
 
 const API_KEY = 'test-api-key'; // matches .env.test
 const RID = '33333333-3333-3333-3333-333333333333'; // valid UUID (:id 經 ParseUUIDPipe)
@@ -67,7 +47,9 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
     serpFetchAiModes = jest.fn().mockResolvedValue([]);
     serpFetchBingCopilot = jest.fn().mockResolvedValue([]);
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(getQueueToken(AI_SEARCH_QUEUE))
       .useValue({ add: queueAdd, getJob: jest.fn().mockResolvedValue(null) })
       .overrideProvider(SERP_AI_PROVIDER)
@@ -82,37 +64,11 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
       .useValue(new RedisMock())
       .overrideProvider(JOB_QUEUE_EVENTS)
       .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(TOPIC_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(TOPIC_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(JOURNEY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(JOURNEY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
-      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
-      .useValue(new RedisMock())
-      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
-      .useValue({ on: () => undefined, close: () => Promise.resolve() })
       .overrideProvider(PrismaService)
       .useValue({
         aiSearchRun: { findUnique: runFindUnique, create: runCreate, update: jest.fn() },
       })
       .overrideProvider(KeywordAnalysisProcessor)
-      .useValue({})
-      .overrideProvider(TopicClusterProcessor)
-      .useValue({})
-      .overrideProvider(TrackingRefreshProcessor)
-      .useValue({})
-      .overrideProvider(JourneyProcessor)
-      .useValue({})
-      .overrideProvider(CustomClassifyAssignProcessor)
-      .useValue({})
-      .overrideProvider(AiSearchProcessor)
       .useValue({})
       .compile();
 

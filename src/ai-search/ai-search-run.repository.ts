@@ -88,16 +88,6 @@ export class AiSearchRunRepository {
     }
   }
 
-  /** 取某 idempotencyKey 的 run（無則 null）。 */
-  async findByIdempotencyKey(
-    idempotencyKey: string,
-  ): Promise<{ id: string; status: string } | null> {
-    return this.prisma.aiSearchRun.findUnique({
-      where: { idempotencyKey },
-      select: { id: true, status: true },
-    });
-  }
-
   /** 更新狀態（+ 選配 captureCount/error）。undefined 欄位 Prisma 略過、不覆寫既有值。 */
   async markStatus(
     runId: string,

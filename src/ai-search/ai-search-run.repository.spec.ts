@@ -118,18 +118,6 @@ describe('AiSearchRunRepository (unit, T14.6 / FR-41 / AC-41.1)', () => {
     await expect(repo.createRun(INPUT)).rejects.toThrow('db exploded');
   });
 
-  it('findByIdempotencyKey returns {id,status} or null', async () => {
-    const found = build({
-      findUnique: jest.fn(() => Promise.resolve({ id: 'run-1', status: 'running' })),
-    });
-    expect(await found.repo.findByIdempotencyKey('k-1')).toEqual({
-      id: 'run-1',
-      status: 'running',
-    });
-    const none = build({ findUnique: jest.fn(() => Promise.resolve(null)) });
-    expect(await none.repo.findByIdempotencyKey('nope')).toBeNull();
-  });
-
   it('markStatus updates status + optional captureCount/error', async () => {
     const update = jest.fn(() => Promise.resolve({}));
     const { repo } = build({ update });
