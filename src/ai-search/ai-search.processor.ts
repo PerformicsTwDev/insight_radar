@@ -19,6 +19,9 @@ export const AI_SEARCH_PROCESSOR_CONFIG = Symbol('AI_SEARCH_PROCESSOR_CONFIG');
 
 export interface AiSearchProcessorConfig {
   queueConcurrency: number;
+  // M14-R3/#579 [8]：extension raw capture 收斂掃描的回溯視窗（天）+ 筆數上限（防無界掃全歷史）。
+  captureLookbackDays: number;
+  captureScanLimit: number;
 }
 
 /**
@@ -154,7 +157,17 @@ export class AiSearchProcessor
     if (channels.length === 0) {
       return [];
     }
-    const raw = await this.captureRepo.readRawExtensionCaptures({ ownerId, channels });
+    // 有界掃描（M14-R3/#579 [8]）：回溯視窗（config 天數，job 執行當下計算——支援 async 到達的 capture 於窗內再收）+
+    // take 上限（防病態量拉全表 + 全 payload）。keyword 過濾於下方 map 後施加。
+    const capturedAfter = new Date(
+      Date.now() - this.config.captureLookbackDays * 24 * 60 * 60 * 1000,
+    );
+    const raw = await this.captureRepo.readRawExtensionCaptures({
+      ownerId,
+      channels,
+      capturedAfter,
+      limit: this.config.captureScanLimit,
+    });
     const wanted = new Set(keywords.map((keyword) => normalizeText(keyword)));
     const out: AiSearchCanonical[] = [];
     for (const row of raw) {

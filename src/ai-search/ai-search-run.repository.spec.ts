@@ -19,6 +19,7 @@ function build(
     create?: jest.Mock;
     findUniqueOrThrow?: jest.Mock;
     update?: jest.Mock;
+    updateMany?: jest.Mock;
   } = {},
 ) {
   const aiSearchRun = {
@@ -27,6 +28,7 @@ function build(
     findUniqueOrThrow:
       overrides.findUniqueOrThrow ?? jest.fn(() => Promise.resolve({ id: 'run-existing' })),
     update: overrides.update ?? jest.fn(() => Promise.resolve({ id: 'run-1' })),
+    updateMany: overrides.updateMany ?? jest.fn(() => Promise.resolve({ count: 1 })),
   };
   const prisma = { aiSearchRun } as unknown as PrismaService;
   return { repo: new AiSearchRunRepository(prisma), aiSearchRun };
@@ -63,21 +65,42 @@ describe('AiSearchRunRepository (unit, T14.6 / FR-41 / AC-41.1)', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it.each(['failed', 'canceled'])(
+  // [7] M14-R3/#579: partial is re-runnable too (extension captures arrive async → a re-submit must
+  // re-collect), unlike journey/custom-classify where partial is a stable terminal.
+  it.each(['failed', 'canceled', 'partial'])(
     'resets a terminal-%s run to queued and returns created:true (re-enqueueable)',
     async (status) => {
       const findUnique = jest.fn(() => Promise.resolve({ id: 'run-x', status }));
-      const update = jest.fn<Promise<{ id: string }>, [unknown]>(() =>
-        Promise.resolve({ id: 'run-x' }),
+      const updateMany = jest.fn<Promise<{ count: number }>, [unknown]>(() =>
+        Promise.resolve({ count: 1 }),
       );
       const create = jest.fn();
-      const { repo } = build({ findUnique, update, create });
+      const { repo } = build({ findUnique, updateMany, create });
       expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-x', created: true });
-      const arg = update.mock.calls[0][0] as { data: { status: string } };
+      // [6] M14-R3/#579: reset is an atomic conditional updateMany guarded by the terminal-status set,
+      // not a bare findUnique→update — so concurrent re-submits can't both win the transition.
+      const arg = updateMany.mock.calls[0][0] as {
+        where: { id: string; status: { in: string[] } };
+        data: { status: string };
+      };
+      expect(arg.where.id).toBe('run-x');
+      expect(arg.where.status.in.sort()).toEqual(['canceled', 'failed', 'partial']);
       expect(arg.data.status).toBe('queued');
       expect(create).not.toHaveBeenCalled();
     },
   );
+
+  it('a concurrent reset that loses the atomic transition (updateMany count=0) returns created:false — no double enqueue ([6] M14-R3/#579)', async () => {
+    // Two concurrent re-submits both read the run as terminal; only one conditional updateMany flips
+    // terminal→queued (count=1). The loser sees count=0 (row no longer terminal) → created:false, so
+    // the service enqueues exactly once.
+    const findUnique = jest.fn(() => Promise.resolve({ id: 'run-x', status: 'failed' }));
+    const updateMany = jest.fn(() => Promise.resolve({ count: 0 }));
+    const create = jest.fn();
+    const { repo } = build({ findUnique, updateMany, create });
+    expect(await repo.createRun(INPUT)).toEqual({ runId: 'run-x', created: false });
+    expect(create).not.toHaveBeenCalled();
+  });
 
   it('a concurrent P2002 (lost the race) → returns the winner run (created:false), no throw', async () => {
     const create = jest.fn(() => Promise.reject(P2002));

@@ -196,6 +196,10 @@ export const validationSchema = Joi.object({
   SERPAPI_AI_GL: Joi.string().default('tw'), // 地區（AC-38.5）
   // AI Search 抓取 job worker 並發（BullMQ；預設 3，同 topics/journey/custom-classify；T14.6，Design §14）。
   AI_SEARCH_QUEUE_CONCURRENCY: Joi.number().integer().min(1).default(3),
+  // extension raw capture 收斂掃描的 capturedAt 回溯視窗（天）+ 筆數上限（take）——防無界掃全 owner+渠道歷史 +
+  // 全 payload（M14-R3/#579，Design §14/§18.3）；視窗為主界、take 為病態量安全上限。
+  AI_SEARCH_CAPTURE_LOOKBACK_DAYS: Joi.number().integer().min(1).default(30),
+  AI_SEARCH_CAPTURE_SCAN_LIMIT: Joi.number().integer().min(1).default(500),
 
   // —— Clustering（M8，Design §16；HTTP → Python cluster-service）——
   // topics 分群一律經此服務（無 enable 旗標）→ URL 必填、開機即 fail-fast（缺值不留到 job 才炸）。

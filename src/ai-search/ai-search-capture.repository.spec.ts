@@ -30,11 +30,20 @@ function canonical(): AiSearchCanonical {
   };
 }
 
+const LOOKBACK = new Date('2026-06-21T00:00:00.000Z'); // now - 30d
+
 describe('AiSearchCaptureRepository (unit, T14.6 / FR-41 / AC-41.2)', () => {
   describe('readRawExtensionCaptures', () => {
     it('short-circuits to [] for an empty channel set (no DB hit)', async () => {
       const { repo, capture } = build();
-      expect(await repo.readRawExtensionCaptures({ ownerId: null, channels: [] })).toEqual([]);
+      expect(
+        await repo.readRawExtensionCaptures({
+          ownerId: null,
+          channels: [],
+          capturedAfter: LOOKBACK,
+          limit: 500,
+        }),
+      ).toEqual([]);
       expect(capture.findMany).not.toHaveBeenCalled();
     });
 
@@ -54,9 +63,18 @@ describe('AiSearchCaptureRepository (unit, T14.6 / FR-41 / AC-41.2)', () => {
       const rows = await repo.readRawExtensionCaptures({
         ownerId: 'owner-A',
         channels: ['chatGpt'],
+        capturedAfter: LOOKBACK,
+        limit: 500,
       });
       expect(findMany).toHaveBeenCalledWith({
-        where: { source: 'extension', channel: { in: ['chatGpt'] }, ownerId: 'owner-A' },
+        where: {
+          source: 'extension',
+          channel: { in: ['chatGpt'] },
+          ownerId: 'owner-A',
+          capturedAt: { gte: LOOKBACK },
+        },
+        orderBy: { capturedAt: 'desc' },
+        take: 500,
         select: {
           source: true,
           schemaVersion: true,
@@ -67,6 +85,26 @@ describe('AiSearchCaptureRepository (unit, T14.6 / FR-41 / AC-41.2)', () => {
       });
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ source: 'extension', channel: 'chatGpt' });
+    });
+
+    it('bounds the scan with a capturedAt window + take limit (never an unbounded full-table scan, M14-R3/#579)', async () => {
+      const findMany = jest.fn<Promise<never[]>, [unknown]>(() => Promise.resolve([]));
+      const { repo } = build({ findMany });
+      await repo.readRawExtensionCaptures({
+        ownerId: null,
+        channels: ['chatGpt', 'googleSearch'],
+        capturedAfter: LOOKBACK,
+        limit: 250,
+      });
+      const arg = findMany.mock.calls[0][0] as {
+        where: { capturedAt?: unknown };
+        take?: number;
+        orderBy?: unknown;
+      };
+      // The two bounds that stop the historical-full-table scan: a capturedAt lower bound + a row cap.
+      expect(arg.where.capturedAt).toEqual({ gte: LOOKBACK });
+      expect(arg.take).toBe(250);
+      expect(arg.orderBy).toEqual({ capturedAt: 'desc' });
     });
   });
 

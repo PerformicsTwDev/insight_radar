@@ -65,7 +65,9 @@ function build(opts: BuildOpts = {}) {
     'deleteError' in opts
       ? jest.fn().mockRejectedValue(opts.deleteError)
       : jest.fn(() => Promise.resolve());
-  const readRawExtensionCaptures = jest.fn(() => Promise.resolve(opts.rawExtension ?? []));
+  const readRawExtensionCaptures = jest.fn<Promise<RawExtensionCapture[]>, [unknown]>(() =>
+    Promise.resolve(opts.rawExtension ?? []),
+  );
   const persistCanonical = jest.fn((_jobId: string, _owner: string | null, rows: unknown[]) =>
     opts.persistError ? Promise.reject(opts.persistError) : Promise.resolve((rows as []).length),
   );
@@ -75,7 +77,11 @@ function build(opts: BuildOpts = {}) {
     persistCanonical,
   } as unknown as AiSearchCaptureRepository;
 
-  const processor = new AiSearchProcessor(serpAi, runRepo, captureRepo, { queueConcurrency: 3 });
+  const processor = new AiSearchProcessor(serpAi, runRepo, captureRepo, {
+    queueConcurrency: 3,
+    captureLookbackDays: 30,
+    captureScanLimit: 500,
+  });
   return {
     processor,
     fetchAiOverviews,
@@ -191,6 +197,27 @@ describe('TC-77: AiSearchProcessor', () => {
       expect(persisted).toHaveLength(1);
       expect(persisted[0].query).toBe('asus zenbook');
       expect(result.status).toBe('completed');
+    });
+
+    it('bounds the extension capture scan by the configured lookback window + scan limit ([8] M14-R3/#579)', async () => {
+      const { processor, readRawExtensionCaptures } = build({
+        rawExtension: [extRow('chatGpt', 'asus zenbook')],
+      });
+      const before = Date.now();
+      const { j } = makeJob({ channels: ['chatGpt'], keywords: ['asus zenbook'] });
+      await processor.process(j);
+      const after = Date.now();
+
+      const arg = readRawExtensionCaptures.mock.calls[0][0] as {
+        capturedAfter: Date;
+        limit: number;
+      };
+      expect(arg.limit).toBe(500);
+      // capturedAfter ≈ now - 30d (config), computed at job time — a real lower bound, not undefined.
+      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+      expect(arg.capturedAfter).toBeInstanceOf(Date);
+      expect(arg.capturedAfter.getTime()).toBeGreaterThanOrEqual(before - thirtyDaysMs - 1000);
+      expect(arg.capturedAfter.getTime()).toBeLessThanOrEqual(after - thirtyDaysMs + 1000);
     });
 
     it('only calls the SerpAPI provider methods for requested serpapi channels', async () => {
