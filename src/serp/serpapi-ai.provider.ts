@@ -102,7 +102,13 @@ export class SerpApiAiProvider implements SerpAiProvider {
 
       results.push({
         query,
-        aiOverview: inline ? this.toCanonical(query, inline) : null,
+        // AIO 內嵌形狀 → 共用 mapper（channel=aiOverview；與 AI Mode / Copilot 同一中立 AiSearchCapture 路徑）。
+        aiOverview: inline
+          ? this.mapEngineCapture('aiOverview', query, {
+              textBlocks: inline.text_blocks,
+              references: inline.references,
+            })
+          : null,
         creditsUsed,
       });
     }
@@ -246,26 +252,6 @@ export class SerpApiAiProvider implements SerpAiProvider {
         clearTimeout(timer);
       }
     }
-  }
-
-  /**
-   * SerpApi AIO 內嵌形狀 → `AiSearchCapture` 中立 canonical（複用 T14.4 `mapAiCapture`；source=serpapi、
-   * channel=aiOverview）。`text_blocks`/`references` 經 mapper alias 收斂（references 複用 `normalizeReferences`
-   * 統一為 `{title,link,snippet?,source?,index}`）。query 恆存在 → 不會 `failed`；理論上 `canonical=null` 亦 degrade。
-   */
-  private toCanonical(query: string, inline: SerpApiAiOverviewInline): AiSearchCanonical | null {
-    const { canonical } = mapAiCapture({
-      source: 'serpapi',
-      channel: 'aiOverview',
-      schemaVersion: SERPAPI_AI_SCHEMA_VERSION,
-      payload: {
-        q: query,
-        text_blocks: inline.text_blocks,
-        references: inline.references,
-      },
-      capturedAt: new Date(),
-    });
-    return canonical;
   }
 }
 
