@@ -110,12 +110,12 @@ export function mapAiCapture(input: MapperInput): MapResult<AiSearchCanonical> {
   const reasons: string[] = [];
   const query = coerceString(pickAlias(record, QUERY_ALIASES));
 
-  // ChatGPT 多輪：凍結末輪優先，缺則退回 top-level（AC-39.2）。其餘渠道直接取 top-level。
+  // ChatGPT 多輪：凍結末輪優先，**per-field** 缺則退回 top-level（AC-39.2；#577）。末輪只帶 references（answer 在
+  // top-level）→ blocks 退回 top-level answer；末輪只帶 answer → references 退回 top-level（缺則不編造，S17）。
+  // 其餘渠道 / 無可得末輪：直接取 top-level。`pickAlias` 缺值恆回 `undefined`，`??` 逐欄退回不影響 `0`/`''` 真值。
   const frozenTurn = channel === 'chatGpt' ? resolveChatGptTurn(record) : null;
-  const blocksSource = frozenTurn ? frozenTurn.blocks : pickAlias(record, BLOCKS_ALIASES);
-  const referencesSource = frozenTurn
-    ? frozenTurn.references
-    : pickAlias(record, REFERENCES_ALIASES);
+  const blocksSource = frozenTurn?.blocks ?? pickAlias(record, BLOCKS_ALIASES);
+  const referencesSource = frozenTurn?.references ?? pickAlias(record, REFERENCES_ALIASES);
 
   const blocks = toBlocks(blocksSource, reasons);
   const { references, issues } = normalizeReferences(referencesSource);
