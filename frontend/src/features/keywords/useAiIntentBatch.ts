@@ -9,6 +9,7 @@ import {
   type AiBatchJobStatus,
 } from '../../lib/aiIntentBatch';
 import type { AiCellState } from '../../lib/aiCellState';
+import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import {
   buildStreamUrl,
   defaultEventSourceFactory,
@@ -74,15 +75,23 @@ export function useAiIntentBatch(
     [analysisId],
   );
 
-  const startBatch = useCallback(async () => {
-    const res = await startBatchIntentSummary(analysisId);
-    if (!res.ok) {
-      dispatch({ type: 'job_failed' });
-      return;
-    }
-    // Mask the whole column loading; the SSE effect (below) opens once `job` is running.
-    dispatch({ type: 'start', keys: keysRef.current });
-  }, [analysisId]);
+  // The idle ✦ header stays clickable until the 202 lands (`job` flips to running only
+  // after the POST resolves), so a fast double-click would launch a duplicate snapshot
+  // batch — guard re-entry while the enqueue POST is outstanding (M4-R1, #603).
+  const guardStart = useInFlightGuard();
+  const startBatch = useCallback(
+    () =>
+      guardStart(async () => {
+        const res = await startBatchIntentSummary(analysisId);
+        if (!res.ok) {
+          dispatch({ type: 'job_failed' });
+          return;
+        }
+        // Mask the whole column loading; the SSE effect (below) opens once `job` is running.
+        dispatch({ type: 'start', keys: keysRef.current });
+      }),
+    [analysisId, guardStart],
+  );
 
   // Batch SSE: active ONLY while the job is running (opened after the 202, torn down
   // on completed/failed/unmount). Per-cell `progress` frames fan out to the map; the
