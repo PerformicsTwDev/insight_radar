@@ -88,7 +88,7 @@ describe('AiSearchCaptureRepository (unit, T14.6 / FR-41 / AC-41.2)', () => {
     });
 
     it('bounds the scan with a capturedAt window + take limit (never an unbounded full-table scan, M14-R3/#579)', async () => {
-      const findMany = jest.fn(() => Promise.resolve([]));
+      const findMany = jest.fn<Promise<never[]>, [unknown]>(() => Promise.resolve([]));
       const { repo } = build({ findMany });
       await repo.readRawExtensionCaptures({
         ownerId: null,

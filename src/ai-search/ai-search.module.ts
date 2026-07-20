@@ -45,7 +45,12 @@ import { AI_SEARCH_SCHEMA_VERSION } from './ai-search-run.types';
     },
     {
       provide: AI_SEARCH_PROCESSOR_CONFIG,
-      useFactory: () => ({ queueConcurrency: Number(process.env.AI_SEARCH_QUEUE_CONCURRENCY) }),
+      useFactory: () => ({
+        queueConcurrency: Number(process.env.AI_SEARCH_QUEUE_CONCURRENCY),
+        // M14-R3/#579 [8]：收斂掃描有界（Joi 已驗值域，§14）。
+        captureLookbackDays: Number(process.env.AI_SEARCH_CAPTURE_LOOKBACK_DAYS),
+        captureScanLimit: Number(process.env.AI_SEARCH_CAPTURE_SCAN_LIMIT),
+      }),
     },
   ],
 })

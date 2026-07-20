@@ -65,7 +65,9 @@ function build(opts: BuildOpts = {}) {
     'deleteError' in opts
       ? jest.fn().mockRejectedValue(opts.deleteError)
       : jest.fn(() => Promise.resolve());
-  const readRawExtensionCaptures = jest.fn(() => Promise.resolve(opts.rawExtension ?? []));
+  const readRawExtensionCaptures = jest.fn<Promise<RawExtensionCapture[]>, [unknown]>(() =>
+    Promise.resolve(opts.rawExtension ?? []),
+  );
   const persistCanonical = jest.fn((_jobId: string, _owner: string | null, rows: unknown[]) =>
     opts.persistError ? Promise.reject(opts.persistError) : Promise.resolve((rows as []).length),
   );

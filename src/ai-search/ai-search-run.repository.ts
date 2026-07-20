@@ -17,6 +17,13 @@ export interface CreateAiSearchRunResult {
   created: boolean;
 }
 
+/**
+ * 可 reset 重入列的終態集（M14-R3/#579 [7]，Design §18.3）：failed/canceled 外**含 partial**——AI Search 的 partial
+ * ＝job 執行當時某渠道尚無 capture，而 extension capture **async 到達**，故重送應能再收（異於 journey/custom-classify
+ * 的 partial＝輸入本身無法分類、屬穩定終態、不重跑）。
+ */
+const RESETTABLE_TERMINAL_STATUSES: AiSearchRunStatus[] = ['failed', 'canceled', 'partial'];
+
 /** markStatus 的可選終態欄位（僅提供者更新；undefined 由 Prisma 略過、不覆寫）。 */
 export interface AiSearchRunOutcome {
   captureCount?: number;
@@ -35,19 +42,25 @@ export class AiSearchRunRepository {
   /**
    * 建立抓取 run（狀態 queued）。idempotency：`idempotencyKey` 命中既有 → 回既有 runId（`created=false`），不重建。
    * 並發同 key（都未先查到）以 DB `@unique` 為最終仲裁（P2002 → 回既有，NFR-8 並發下仍 idempotent）。
-   * terminal-failed/canceled → reset 為 queued（沿用同一 runId）、回 `created=true` 使服務重跑（比照 journey M12-R1）。
+   * terminal（failed/canceled/**partial**，M14-R3/#579 [7]）→ reset 為 queued（沿用同一 runId）、回 `created=true` 使服務重跑。
+   *
+   * **reset 並發原子性（M14-R3/#579 [6]，Design §18.3）**：改用**條件式 `updateMany`**（`where: { id, status: { in: terminal } }`）——
+   * 單 SQL row-lock 下並發同 key 兩重送**只有一個** `count===1`（贏得 terminal→queued 轉態 → created=true → 唯一 enqueue），
+   * 另一個 `count===0`（該列已非 terminal）→ created=false、不重複 enqueue；比 journey/custom-classify 的非原子
+   * `findUnique+update`（「良性重複工」）更嚴，於 DB 層封閉 reset 轉態的 double-enqueue 窗。
    */
   async createRun(input: CreateAiSearchRunInput): Promise<CreateAiSearchRunResult> {
     const existing = await this.prisma.aiSearchRun.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
     });
     if (existing) {
-      if (existing.status === 'failed' || existing.status === 'canceled') {
-        await this.prisma.aiSearchRun.update({
-          where: { id: existing.id },
+      if (RESETTABLE_TERMINAL_STATUSES.includes(existing.status as AiSearchRunStatus)) {
+        const reset = await this.prisma.aiSearchRun.updateMany({
+          where: { id: existing.id, status: { in: RESETTABLE_TERMINAL_STATUSES } },
           data: { status: 'queued', progress: {}, error: null, captureCount: null },
         });
-        return { runId: existing.id, created: true };
+        // count===1 → 本呼叫贏得原子轉態（唯一 enqueue）；count===0 → 並發者已 reset（回 created=false，不重複 enqueue）。
+        return { runId: existing.id, created: reset.count === 1 };
       }
       return { runId: existing.id, created: false };
     }
