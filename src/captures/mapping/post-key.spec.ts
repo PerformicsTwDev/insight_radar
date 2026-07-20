@@ -1,13 +1,15 @@
 import { normalizePostKey } from './post-key';
 
 describe('normalizePostKey (S13 / AC-46.1 唯一去重鍵)', () => {
-  it('去 query、去 fragment、去尾斜線、大小寫收斂', () => {
+  it('去 query、去 fragment、去尾斜線；只收斂 scheme+host、保留 path 大小寫', () => {
+    // path 的 @User / shortcode ABC123 大小寫敏感（保留）；host 已 lowercase。
     expect(normalizePostKey('https://www.threads.net/@User/post/ABC123?utm=x#frag')).toBe(
-      'https://www.threads.net/@user/post/abc123',
+      'https://www.threads.net/@User/post/ABC123',
     );
     expect(normalizePostKey('https://example.com/path/')).toBe('https://example.com/path');
-    expect(normalizePostKey('https://example.com/Path///')).toBe('https://example.com/path');
-    expect(normalizePostKey('HTTPS://Example.com/A?b=1')).toBe('https://example.com/a');
+    expect(normalizePostKey('https://example.com/Path///')).toBe('https://example.com/Path');
+    // scheme + host 收斂為小寫、path 保留。
+    expect(normalizePostKey('HTTPS://Example.com/A?b=1')).toBe('https://example.com/A');
   });
 
   it('前後空白 trim', () => {
@@ -16,6 +18,18 @@ describe('normalizePostKey (S13 / AC-46.1 唯一去重鍵)', () => {
 
   it('同貼文不同 query → 同一 key（跨來源/跨平台 merge 去重）', () => {
     expect(normalizePostKey('https://t.co/p1?a=1')).toBe(normalizePostKey('https://t.co/p1?b=2'));
+  });
+
+  it('[9] 只 lowercase scheme+host、保留 path/shortcode 大小寫（host 仍收斂）', () => {
+    expect(normalizePostKey('https://t.co/AbC')).toBe('https://t.co/AbC');
+    expect(normalizePostKey('HTTPS://T.CO/AbC')).toBe('https://t.co/AbC');
+  });
+
+  it('[9] 大小寫不同的 path/shortcode → 不同 key（不因整串 lowercase 碰撞 @@unique）', () => {
+    expect(normalizePostKey('https://t.co/AbC')).not.toBe(normalizePostKey('https://t.co/abc'));
+    expect(normalizePostKey('https://www.threads.net/@u/post/C1a2B3')).not.toBe(
+      normalizePostKey('https://www.threads.net/@u/post/c1a2b3'),
+    );
   });
 
   it('僅 fragment 也剝除', () => {
