@@ -414,6 +414,25 @@ model AiSearchCapture {
   @@map("ai_search_captures")
 }
 
+// ai_search_runs：AI Search 抓取 job（T14.6，FR-41，INV-3；Design §18.3）——202→GET/SSE/idempotency/partial 契約，
+// 仿 journey_runs / custom_classify_runs（fresh top-level input：`id` 即 jobId，非巢狀於既有分析）。`owner_id` 第一天
+// 存在（FR-27，nullable、不回填）——owner 過濾唯一強制點在 service 層（S8）。`params`={schemaVersion}；`idempotency_key`
+// = sha256(canonical(owner, normalizedKeywords, channels, brandProfileId, params))（同語意→同 run；P2002 慢路徑仲裁並發）。
+// `capture_count`=合流落 ai_search_captures 的筆數（partial 時仍記已收筆數）。
+model AiSearchRun {
+  id             String   @id @default(uuid()) @db.Uuid
+  ownerId        String?  @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  status         String // queued|running|completed|partial|failed|canceled
+  params         Json // { schemaVersion }
+  progress       Json
+  idempotencyKey String   @unique @map("idempotency_key")
+  captureCount   Int?     @map("capture_count")
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("ai_search_runs")
+}
+
 // social_posts：Social 中立 canonical 骨架（INV-5；Design §18.5）。本 task 僅建表（可讀寫）；多平台 mapper、
 // 多來源 merge（`source=merged`）、per-post AI 於 M16/M17 逐步填。`post_key`=normalize(permalink/url)＝跨來源唯一
 // 去重鍵（S13，與 capture content-hash 分工）；metrics（likes/comments/reposts/shares）nullable——缺不補 0（S14）。

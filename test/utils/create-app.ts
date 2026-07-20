@@ -5,6 +5,11 @@ import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { JourneyProcessor } from 'src/journey/journey.processor';
+import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
+import {
+  AI_SEARCH_JOB_EVENTS_CONNECTION,
+  AI_SEARCH_QUEUE_EVENTS,
+} from 'src/queue/ai-search-job-events.constants';
 import {
   CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
   CUSTOM_CLASSIFY_QUEUE_EVENTS,
@@ -70,6 +75,12 @@ export async function createTestApp(): Promise<INestApplication<App>> {
     .overrideProvider(CUSTOM_CLASSIFY_QUEUE_EVENTS)
     .useValue({ on: () => undefined, close: () => Promise.resolve() })
     .overrideProvider(CustomClassifyAssignProcessor)
+    .useValue({})
+    .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
+    .useValue(new RedisMock())
+    .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
+    .useValue({ on: () => undefined, close: () => Promise.resolve() })
+    .overrideProvider(AiSearchProcessor)
     .useValue({})
     .compile();
 

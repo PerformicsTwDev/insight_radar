@@ -7,6 +7,7 @@ import type { App } from 'supertest/types';
 import { AppModule } from 'src/app.module';
 import { configureApp } from 'src/bootstrap';
 import { CustomClassifyAssignProcessor } from 'src/custom-classify/custom-classify-assign.processor';
+import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
 import { JourneyProcessor } from 'src/journey/journey.processor';
 import { KeywordAnalysisProcessor } from 'src/keyword-analysis/keyword-analysis.processor';
 import { PrismaService } from 'src/prisma';
@@ -15,6 +16,10 @@ import {
   CUSTOM_CLASSIFY_JOB_EVENTS_CONNECTION,
   CUSTOM_CLASSIFY_QUEUE_EVENTS,
 } from 'src/queue/custom-classify-job-events.constants';
+import {
+  AI_SEARCH_JOB_EVENTS_CONNECTION,
+  AI_SEARCH_QUEUE_EVENTS,
+} from 'src/queue/ai-search-job-events.constants';
 import {
   JOURNEY_JOB_EVENTS_CONNECTION,
   JOURNEY_QUEUE_EVENTS,
@@ -98,6 +103,12 @@ describe('POST/GET/SSE /keyword-analyses/:id/custom-classifications/:cid/assignm
       .overrideProvider(JourneyProcessor)
       .useValue({})
       .overrideProvider(CustomClassifyAssignProcessor)
+      .useValue({})
+      .overrideProvider(AI_SEARCH_JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(AI_SEARCH_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(AiSearchProcessor)
       .useValue({})
       .compile();
 
