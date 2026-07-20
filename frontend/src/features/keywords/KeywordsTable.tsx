@@ -11,8 +11,11 @@ import {
   resolveIntent,
   shouldVirtualize,
 } from '../../lib/keywordsTable';
-import { AiIntentCell } from './AiIntentCell';
+import { AiIntentBatchHeader, AiIntentCell } from './AiIntentCell';
 import { SparklineCell } from './SparklineCell';
+import { AiIntentBatchContext } from './aiIntentBatchContext';
+import { useAiIntentBatch } from './useAiIntentBatch';
+import type { EventSourceFactory } from '../job/useJobTracking';
 
 /**
  * Search-terms grand table (T2.1, FR-4). TanStack Table column model +
@@ -102,10 +105,13 @@ function buildColumns(analysisId?: string): ColumnDef<KeywordRow>[] {
     },
     {
       id: 'ai',
-      header: '✦',
+      // ✦ header = the column-header batch trigger when a coordinator is mounted
+      // (analysisId present), else a masked ✦ placeholder — driven by context (T4.2,
+      // FR-18), so `buildColumns` needn't thread the coordinator through the factory.
+      header: () => <AiIntentBatchHeader />,
       size: COL_WIDTH.ai,
-      // ✦ on-demand AI-intent column (T4.1, FR-18): interactive per-row cell when an
-      // analysis context is present, else a masked ✦ placeholder.
+      // ✦ on-demand AI-intent column (T4.1 single / T4.2 batch, FR-18): interactive
+      // per-row cell when an analysis context is present, else a masked ✦ placeholder.
       cell: ({ row }) =>
         analysisId !== undefined ? (
           <AiIntentCell analysisId={analysisId} normalizedText={row.original.normalizedText} />
@@ -128,13 +134,26 @@ function frozen(index: number, base: string, bg: string): string {
 export function KeywordsTable({
   rows,
   analysisId,
+  eventSourceFactory,
 }: {
   rows: KeywordRow[];
   /** Analysis context enabling the interactive ✦ on-demand cells (T4.1, FR-18); omit for a masked ✦. */
   analysisId?: string;
+  /** Injected SSE factory for the ✦ column-header batch (T4.2); prod uses the default. */
+  eventSourceFactory?: EventSourceFactory;
 }): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const columns = useMemo(() => buildColumns(analysisId), [analysisId]);
+
+  // The ✦ column-header batch coordinator (T4.2, FR-18): masks its target cells (the
+  // rows that carry a normalizedText key) and fills them progressively over SSE. The
+  // hook is always instantiated (Rules of Hooks) but is dormant until `startBatch`;
+  // it is only exposed to the cells/header via context when an analysis is present.
+  const batchKeys = useMemo(
+    () => rows.map((r) => r.normalizedText).filter((k): k is string => Boolean(k)),
+    [rows],
+  );
+  const batch = useAiIntentBatch(analysisId ?? '', batchKeys, { eventSourceFactory });
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
   const tableRows = table.getRowModel().rows;
   const totalWidth = table.getTotalSize();
@@ -162,7 +181,7 @@ export function KeywordsTable({
     </div>
   );
 
-  return (
+  const tableEl = (
     <div
       ref={scrollRef}
       role="table"
@@ -211,6 +230,14 @@ export function KeywordsTable({
         </div>
       </div>
     </div>
+  );
+
+  // Expose the coordinator to the ✦ cells + header only with an analysis context; a
+  // standalone/degraded render (no analysisId) keeps the masked ✦ placeholders.
+  return analysisId !== undefined ? (
+    <AiIntentBatchContext.Provider value={batch}>{tableEl}</AiIntentBatchContext.Provider>
+  ) : (
+    tableEl
   );
 }
 

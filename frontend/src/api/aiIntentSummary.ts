@@ -26,18 +26,24 @@ import type { AiCellErrorKind } from '../lib/aiCellState';
  * T4.1 is the generic state machine + gate decoupling, tested via a mock endpoint.
  */
 
-/** Local placeholder openapi path for the not-yet-generated ai-intent-summary op. */
+/**
+ * Local placeholder openapi path for the not-yet-generated ai-intent-summary op.
+ * The one endpoint answers two scopes: `scope:'keyword'` → synchronous 200 summary
+ * (single cell, T4.1); `scope:'snapshot'` → 202 async job whose per-cell results
+ * stream back progressively (column-header batch, T4.2, FR-18 / AC-18.1).
+ */
 interface AiIntentSummaryStubPaths {
   '/api/v1/keyword-analyses/{id}/ai-intent-summary': {
     post: {
       parameters: { query?: never; header?: never; path: { id: string }; cookie?: never };
       requestBody: {
         content: {
-          'application/json': { scope: 'keyword'; normalizedText?: string };
+          'application/json': { scope: 'keyword'; normalizedText?: string } | { scope: 'snapshot' };
         };
       };
       responses: {
         200: { content: { 'application/json': { normalizedText: string; summary: string } } };
+        202: { content: { 'application/json': { jobId: string } } };
       };
     };
   };
@@ -53,9 +59,15 @@ summaryClient.use(createAuthMiddleware(authProvider));
 /** 200 body (backend AC-31.2 → `{ normalizedText, summary }`). */
 const SummarySchema = z.object({ normalizedText: z.string(), summary: z.string() });
 
+/** 202 body (batch async job → `{ jobId }`, tracked over the batch SSE stream). */
+const BatchStartSchema = z.object({ jobId: z.string().min(1) });
+
 export type AiIntentSummaryResult =
   | { readonly ok: true; readonly summary: string }
   | { readonly ok: false; readonly status: number; readonly kind: AiCellErrorKind };
+
+export type StartBatchIntentSummaryResult =
+  { readonly ok: true; readonly jobId: string } | { readonly ok: false; readonly status: number };
 
 /**
  * Summarise one keyword's search intent (`scope:'keyword'`). On 200 the (stub)
@@ -87,4 +99,24 @@ export async function summarizeKeywordIntent(
     status: response.status,
     kind: response.status === 400 ? 'invalid' : 'unavailable',
   };
+}
+
+/**
+ * Start a column-header batch (`scope:'snapshot'`) run (T4.2, FR-18 / AC-18.1).
+ * The same endpoint answers 202 `{ jobId }` for the snapshot scope; the per-cell
+ * summaries then stream back progressively over the batch SSE. On 202 the (stub)
+ * body is zod-validated to `{ jobId }`; a 202 without a valid jobId, or any non-2xx,
+ * degrades to `ok:false` (the header surfaces a whole-job failure). Never throws.
+ */
+export async function startBatchIntentSummary(id: string): Promise<StartBatchIntentSummaryResult> {
+  const { data, response } = await summaryClient.POST(
+    '/api/v1/keyword-analyses/{id}/ai-intent-summary',
+    { params: { path: { id } }, body: { scope: 'snapshot' } },
+  );
+  if (response.ok) {
+    const parsed = BatchStartSchema.safeParse(data);
+    if (parsed.success) return { ok: true, jobId: parsed.data.jobId };
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
 }
