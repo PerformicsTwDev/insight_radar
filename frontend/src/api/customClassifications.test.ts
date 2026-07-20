@@ -82,4 +82,26 @@ describe('TC-26 · generateCustomLabels (custom-classifications stage-one egress
     const result = await generateCustomLabels(ID, { name: 'n', instruction: 'i' });
     expect(result).toEqual({ ok: false, status: 201 });
   });
+
+  it('degrades to ok:false when the 201 body carries an EMPTY labels array (AC-34.1 — no half result)', async () => {
+    // An empty label set is a half/absent classification (nothing to confirm / analyse);
+    // the egress contract requires it degrade to ok:false, matching `aiInsight` where an
+    // empty `insight` is likewise rejected. Without `labels.min(1)` this leaks as ok:true.
+    server.use(
+      http.post(ROUTE, () =>
+        HttpResponse.json(
+          {
+            id: 'c1',
+            name: 'n',
+            instruction: 'i',
+            labels: [],
+            createdAt: '2026-07-21T00:00:00.000Z',
+          },
+          { status: 201 },
+        ),
+      ),
+    );
+    const result = await generateCustomLabels(ID, { name: 'n', instruction: 'i' });
+    expect(result).toEqual({ ok: false, status: 201 });
+  });
 });

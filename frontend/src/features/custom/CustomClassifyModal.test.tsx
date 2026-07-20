@@ -191,6 +191,30 @@ describe('TC-26 · CustomClassifyModal (stage one)', () => {
     expect(postCount).toBe(1);
   });
 
+  it('fires onConfirm exactly ONCE on a rapid double 開始分析 (in-flight guard, M4-R1)', async () => {
+    // Symmetric to the 生成分類架構 guard: `開始分析` also stays clickable while its
+    // async work (onConfirm → stage-two classification, wired at T5.2) is outstanding,
+    // so guardStart must collapse a double-click to ONE call. A held-open async
+    // onConfirm keeps the flight window open — without the guard the re-entry would
+    // launch a duplicate stage-two run.
+    respondWith(['價格導向']);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const onConfirm = vi.fn(() => gate);
+    renderModal({ onConfirm });
+    fillInputs();
+    fireEvent.click(generateBtn());
+    await screen.findByText('價格導向');
+
+    fireEvent.click(startBtn());
+    fireEvent.click(startBtn()); // re-entry while the first onConfirm is outstanding → no-op
+    release();
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledExactlyOnceWith(['價格導向']));
+  });
+
   it('shows an error and adds no chips when generation fails (502) — 開始分析 stays disabled', async () => {
     server.use(http.post(ROUTE, () => new HttpResponse(null, { status: 502 })));
     renderModal();

@@ -31,15 +31,16 @@ const CustomLabelSchema = z.object({
 });
 
 /**
- * 201 body (backend FR-34 → `CustomClassification`). `labels` is required: a missing
- * / empty-label result is a half/absent result and must degrade to `ok:false` (AC-34.1
- * — the UI never shows a half classification).
+ * 201 body (backend FR-34 → `CustomClassification`). `labels` is required **and
+ * non-empty** (`.min(1)`): a missing / empty-label result is a half/absent result and
+ * must degrade to `ok:false` (AC-34.1 — the UI never shows a half classification;
+ * mirrors `aiInsight`'s `insight: .min(1)`).
  */
 const CustomClassificationSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   instruction: z.string(),
-  labels: z.array(CustomLabelSchema),
+  labels: z.array(CustomLabelSchema).min(1),
   createdAt: z.string(),
 });
 
