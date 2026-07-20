@@ -206,6 +206,36 @@ describe('TC-28 · useAiIntentBatch — startBatch fans the column out over SSE'
 
     await waitFor(() => expect(result.current.job).toBe('error'));
   });
+
+  it('rapid double startBatch → fires exactly ONE POST (in-flight guard, M4-R1 #603)', async () => {
+    // Regression for the double-submit race: the ✦ header stays clickable until the
+    // 202 lands (`job` flips to running only AFTER the POST resolves), so a fast
+    // double-click on the idle trigger would launch a second whole-snapshot LLM batch.
+    let postCount = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(ROUTE, async () => {
+        postCount += 1;
+        await gate; // hold the 202 open so the double-click race window stays open
+        return HttpResponse.json({ jobId: 'batch-job-1' }, { status: 202 });
+      }),
+    );
+    const { result } = renderBatch([A, B, C]);
+
+    await act(async () => {
+      // Two back-to-back triggers while the first POST is still outstanding.
+      const first = result.current.startBatch();
+      const second = result.current.startBatch();
+      release();
+      await Promise.all([first, second]);
+    });
+
+    expect(postCount).toBe(1);
+    expect(result.current.job).toBe('running');
+  });
 });
 
 describe('TC-28 · useAiIntentBatch — generateOne (single-cell path shares the same map)', () => {

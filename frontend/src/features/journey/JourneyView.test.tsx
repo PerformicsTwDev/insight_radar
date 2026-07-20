@@ -106,6 +106,33 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
     expect(FakeEventSource.last().url).toContain(`/keyword-analyses/${ID}/journey/stream`);
   });
 
+  it('rapid double-click on the start CTA → fires exactly ONE POST (in-flight guard, M4-R1 #603)', async () => {
+    // Regression for the double-submit race: the CTA stays clickable until the 202
+    // lands (`start` flips the gate to running only AFTER the POST resolves), so a
+    // fast double-click on 開始分析 would enqueue a second journey run.
+    let postCount = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/journey', async () => {
+        postCount += 1;
+        await gate; // hold the 202 open so the double-click race window stays open
+        return HttpResponse.json({ journeyJobId: 'job-1' }, { status: 202 });
+      }),
+    );
+    renderView({});
+
+    const cta = screen.getByRole('button', { name: /開始分析/ });
+    fireEvent.click(cta);
+    fireEvent.click(cta);
+    release();
+
+    await waitFor(() => expect(screen.getByText('分析進行中')).toBeInTheDocument());
+    expect(postCount).toBe(1);
+  });
+
   it('ready → fetches POST /query {view:"journey"} and renders the 購買歷程表 rows', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),

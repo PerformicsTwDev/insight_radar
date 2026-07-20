@@ -121,6 +121,37 @@ describe('TC-28 · AiIntentCell (single-cell 同步回填)', () => {
     await waitFor(() => expect(screen.getByText('重試成功摘要')).toBeInTheDocument());
     expect(calls).toBe(2);
   });
+
+  it('rapid double-click on the error-branch retry → fires exactly ONE POST (sibling of M4-R1 #603)', async () => {
+    // Sibling check for #603: unlike startBatch, the retry path dispatches `generate`
+    // synchronously BEFORE its await, so the first click flips the cell to loading and
+    // the retry button unmounts (→ a spinner) before a second click can land. Verifies
+    // the render-driven guard already prevents a duplicate regenerate POST here.
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(ROUTE, async () => {
+        calls += 1;
+        if (calls === 1) return new HttpResponse(null, { status: 500 });
+        await gate; // hold the retry POST open to keep the double-click window ajar
+        return HttpResponse.json({ normalizedText: 'running shoes', summary: '重試成功摘要' });
+      }),
+    );
+    render(<AiIntentCell analysisId={ID} normalizedText="running shoes" />);
+
+    fireEvent.click(screen.getByRole('button', { name: CELL_LABEL }));
+    const retry = await screen.findByRole('button', { name: /重試/ });
+    // Fast double-click on the same retry affordance.
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    release();
+
+    await waitFor(() => expect(screen.getByText('重試成功摘要')).toBeInTheDocument());
+    expect(calls).toBe(2); // 1 initial (500) + exactly 1 retry — never a duplicate.
+  });
 });
 
 describe('TC-28 · ✦ generation is decoupled from the left-side view-gate (C13)', () => {
