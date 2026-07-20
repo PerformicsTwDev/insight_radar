@@ -58,7 +58,7 @@ export class SerpApiAiProvider implements SerpAiProvider {
 
   async fetchAiOverviews(
     keywords: string[],
-    _ledger?: SerpCreditLedger,
+    ledger?: SerpCreditLedger,
   ): Promise<SerpApiAiOverviewResult[]> {
     // reserved：關閉時短路，不打供應商（TC-74「SERPAPI_AI_ENABLED=false 不啟用」）。
     if (!this.config.enabled) {
@@ -66,16 +66,18 @@ export class SerpApiAiProvider implements SerpAiProvider {
     }
 
     const results: SerpApiAiOverviewResult[] = [];
-    let spent = 0; // 全批已消耗 credit（per-job budget 治理）
+    // per-job credit ledger（NFR-18 / #581）：傳入則跨 serpapi 渠道 method 共用同一 per-job 預算；省略則自建一份
+    // （standalone/契約呼叫＝該 method 獨立一份預算）。budget 上限由本 provider 的 serpAi config 治理。
+    const credits = ledger ?? { spent: 0 };
     const budget = this.config.creditsBudget;
 
     for (const query of keywords) {
       // 主查詢 = 1 credit；會超出預算 → 不發送（degrade，creditsUsed=0）。
-      if (spent + 1 > budget) {
+      if (credits.spent + 1 > budget) {
         results.push({ query, aiOverview: null, creditsUsed: 0 });
         continue;
       }
-      spent += 1;
+      credits.spent += 1;
       let creditsUsed = 1;
       let inline: SerpApiAiOverviewInline | null = null;
 
@@ -93,12 +95,12 @@ export class SerpApiAiProvider implements SerpAiProvider {
           inline = aio;
         } else if (aio && !aio.error && aio.page_token) {
           // 路二：只回 page_token → 二次抓取（若預算允許再發送 → 一發送即 +1 credit）。
-          if (spent + 1 > budget) {
+          if (credits.spent + 1 > budget) {
             this.logger.warn(
               `AIO secondary fetch skipped (credit budget ${budget} reached): degrading to null`,
             );
           } else {
-            spent += 1;
+            credits.spent += 1;
             creditsUsed = 2;
             inline = await this.fetchAiOverviewWithinTimeout(aio.page_token);
           }
@@ -133,13 +135,16 @@ export class SerpApiAiProvider implements SerpAiProvider {
    */
   async fetchAiModes(
     keywords: string[],
-    _ledger?: SerpCreditLedger,
+    ledger?: SerpCreditLedger,
   ): Promise<SerpApiAiModeResult[]> {
     if (!this.config.enabled || !this.config.aiModeEnabled) {
       return keywords.map((query) => ({ query, aiMode: null, creditsUsed: 0 }));
     }
-    const rows = await this.runTopLevelEngine(keywords, 'aiMode', (params) =>
-      this.client.searchAiMode(params),
+    const rows = await this.runTopLevelEngine(
+      keywords,
+      'aiMode',
+      (params) => this.client.searchAiMode(params),
+      ledger,
     );
     return rows.map(({ query, capture, creditsUsed }) => ({ query, aiMode: capture, creditsUsed }));
   }
@@ -150,13 +155,16 @@ export class SerpApiAiProvider implements SerpAiProvider {
    */
   async fetchBingCopilot(
     keywords: string[],
-    _ledger?: SerpCreditLedger,
+    ledger?: SerpCreditLedger,
   ): Promise<SerpApiBingCopilotResult[]> {
     if (!this.config.enabled || !this.config.bingCopilotEnabled) {
       return keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }));
     }
-    const rows = await this.runTopLevelEngine(keywords, 'bingCopilot', (params) =>
-      this.client.searchBingCopilot(params),
+    const rows = await this.runTopLevelEngine(
+      keywords,
+      'bingCopilot',
+      (params) => this.client.searchBingCopilot(params),
+      ledger,
     );
     return rows.map(({ query, capture, creditsUsed }) => ({
       query,
@@ -175,17 +183,19 @@ export class SerpApiAiProvider implements SerpAiProvider {
     keywords: string[],
     channel: CaptureChannel,
     call: (params: SerpApiAiSearchParams) => Promise<SerpApiTopLevelAiResponse>,
+    ledger?: SerpCreditLedger,
   ): Promise<TopLevelEngineRow[]> {
     const rows: TopLevelEngineRow[] = [];
-    let spent = 0; // 全批已消耗 credit（per-job budget 治理，同 AIO）
+    // per-job credit ledger（NFR-18 / #581）：與 AIO 共用同一份（processor 傳入）；省略則自建一份（standalone）。
+    const credits = ledger ?? { spent: 0 };
     const budget = this.config.creditsBudget;
 
     for (const query of keywords) {
-      if (spent + 1 > budget) {
+      if (credits.spent + 1 > budget) {
         rows.push({ query, capture: null, creditsUsed: 0 });
         continue;
       }
-      spent += 1;
+      credits.spent += 1;
       let capture: AiSearchCanonical | null = null;
       try {
         const response = await call({ q: query, hl: this.config.hl, gl: this.config.gl });
