@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiInsightModule } from './ai-insight/ai-insight.module';
 import { AuthModule } from './auth';
+import { BrandProfileModule } from './brand-profile/brand-profile.module';
 import { CacheModule } from './cache';
 import { CapturesModule } from './captures/captures.module';
 import { CommonModule } from './common';
@@ -50,6 +51,7 @@ import { configNamespaces, validationSchema } from './config';
     CustomClassifyModule,
     IdeationModule,
     CapturesModule,
+    BrandProfileModule,
   ],
 })
 export class AppModule {}
