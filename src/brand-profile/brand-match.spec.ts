@@ -77,6 +77,10 @@ describe('TC-76: brand-match (aliases 聯集正規化比對純函式 · FR-40/AC
       expect(findMatchingBrand('華碩', [])).toBeNull();
     });
 
+    it('空提及（正規化後為空）→ null（不進聯集比對）', () => {
+      expect(findMatchingBrand('   ', brands)).toBeNull();
+    });
+
     it('多品牌含同義：正規化後比對（大小寫/全形不影響）', () => {
       expect(findMatchingBrand('ａｃｅｒ', brands)).toBe(acer); // 全形 → 'acer'
     });

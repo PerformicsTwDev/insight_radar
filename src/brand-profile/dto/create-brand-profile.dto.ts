@@ -1,6 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsOptional, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsDefined,
+  IsObject,
+  IsOptional,
+  ValidateNested,
+} from 'class-validator';
 import { BrandEntryDto } from './brand-entry.dto';
 
 /**
@@ -12,6 +19,8 @@ import { BrandEntryDto } from './brand-entry.dto';
  */
 export class CreateBrandProfileDto {
   @ApiProperty({ type: BrandEntryDto, description: '本品牌（name + aliases + sites）' })
+  @IsDefined() // 缺 brand → 400（@ValidateNested 對 undefined 不觸發，須顯式要求存在）
+  @IsObject()
   @ValidateNested()
   @Type(() => BrandEntryDto)
   brand!: BrandEntryDto;

@@ -477,6 +477,19 @@ describe('BrandProfile CRUD (e2e · TC-76 · FR-40/27)', () => {
       expect(body.brand.aliases).toEqual(['華碩', 'Asustek']);
     });
 
+    it('owner 改 sites + competitors（整組取代）→ 200', async () => {
+      const a = (await createAs(cookieA, validBody)).body as ProfileView;
+      const res = await patch(cookieA, a.id, {
+        sites: ['rog.asus.com'],
+        competitors: [{ name: 'Dell', aliases: [], sites: ['dell.com'] }],
+      });
+      expect(res.status).toBe(200);
+      const body = res.body as ProfileView;
+      expect(body.brand.sites).toEqual(['rog.asus.com']);
+      expect(body.brand.name).toBe('ASUS'); // 名稱未帶 → 保留
+      expect(body.competitors).toEqual([{ name: 'Dell', aliases: [], sites: ['dell.com'] }]);
+    });
+
     it('非 owner 改名 → 404（且未改動）', async () => {
       const a = (await createAs(cookieA, validBody)).body as ProfileView;
       expect((await patch(cookieB, a.id, { name: 'hijacked' })).status).toBe(404);
