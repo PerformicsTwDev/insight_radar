@@ -68,11 +68,23 @@ export async function summarizeKeywordIntent(
   id: string,
   normalizedText: string | undefined,
 ): Promise<AiIntentSummaryResult> {
-  // RED stub — issues the request but returns a wrong (always-unavailable) mapping.
-  const { data } = await summaryClient.POST('/api/v1/keyword-analyses/{id}/ai-intent-summary', {
-    params: { path: { id } },
-    body: { scope: 'keyword', normalizedText },
-  });
-  SummarySchema.safeParse(data);
-  return { ok: false, status: 0, kind: 'unavailable' };
+  const { data, response } = await summaryClient.POST(
+    '/api/v1/keyword-analyses/{id}/ai-intent-summary',
+    { params: { path: { id } }, body: { scope: 'keyword', normalizedText } },
+  );
+
+  if (response.ok) {
+    const parsed = SummarySchema.safeParse(data);
+    if (parsed.success) return { ok: true, summary: parsed.data.summary };
+    return { ok: false, status: response.status, kind: 'unavailable' };
+  }
+
+  // 400 = scope:'keyword' with no/blank normalizedText (AC-31.2) → a request-shape
+  // error a retry can't fix; any other non-2xx (incl. the deferred FR-31 409 serp
+  // gate) is a generic, retryable failure.
+  return {
+    ok: false,
+    status: response.status,
+    kind: response.status === 400 ? 'invalid' : 'unavailable',
+  };
 }

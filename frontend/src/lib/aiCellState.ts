@@ -33,14 +33,18 @@ export type AiCellStatus = (typeof AI_CELL_STATUSES)[number];
  */
 export type AiCellErrorKind = 'invalid' | 'unavailable';
 
-/** The normalised per-cell state the hook exposes to the cell component. */
-export interface AiCellState {
-  readonly status: AiCellStatus;
-  /** The AI-summarised search intent, set once `done`; null otherwise. */
-  readonly summary: string | null;
-  /** Why generation failed, set once `error`; null otherwise. */
-  readonly errorKind: AiCellErrorKind | null;
-}
+/**
+ * The normalised per-cell state the hook exposes to the cell component. Modelled
+ * as a **discriminated union** so illegal states are unrepresentable: only `done`
+ * carries a (non-null) `summary`, only `error` carries an `errorKind`. This lets
+ * the cell read `state.summary` / `state.errorKind` after narrowing without a
+ * null-coalescing fallback for a case that can't occur.
+ */
+export type AiCellState =
+  | { readonly status: 'idle'; readonly summary: null; readonly errorKind: null }
+  | { readonly status: 'loading'; readonly summary: null; readonly errorKind: null }
+  | { readonly status: 'done'; readonly summary: string; readonly errorKind: null }
+  | { readonly status: 'error'; readonly summary: null; readonly errorKind: AiCellErrorKind };
 
 /** Events the reducer understands (produced by the effectful shell from the egress result / user click). */
 export type AiCellEvent =
@@ -59,8 +63,7 @@ export function initialAiCellState(): AiCellState {
  * (no double-fire); `done` is terminal for a single cell (no silent re-fetch).
  */
 export function canGenerate(status: AiCellStatus): boolean {
-  // RED stub — not implemented (wrong predicate).
-  return status === 'loading';
+  return status === 'idle' || status === 'error';
 }
 
 /**
@@ -70,11 +73,21 @@ export function canGenerate(status: AiCellStatus): boolean {
  * never regresses).
  */
 export function aiCellReducer(state: AiCellState, event: AiCellEvent): AiCellState {
-  // RED stub — not implemented (never transitions).
   switch (event.type) {
     case 'generate':
+      // Only (re)start from a settled non-pending state; clear any prior summary/error.
+      return canGenerate(state.status)
+        ? { status: 'loading', summary: null, errorKind: null }
+        : state;
     case 'resolved':
+      // Apply only to the in-flight request — a late/duplicate result never revives a
+      // settled cell (per-cell isolation, AC-18.1).
+      return state.status === 'loading'
+        ? { status: 'done', summary: event.summary, errorKind: null }
+        : state;
     case 'rejected':
-      return state;
+      return state.status === 'loading'
+        ? { status: 'error', summary: null, errorKind: event.kind }
+        : state;
   }
 }
