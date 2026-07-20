@@ -1,5 +1,7 @@
 import { registerAs } from '@nestjs/config';
 
+import { parseCsvList } from './parse-csv-list';
+
 /**
  * Capture ingestion 設定（M13，FR-36 / NFR-17；Design §14/§18.2）。值已由 env.validation Joi schema
  * 驗證/補預設，故直接讀取。
@@ -36,17 +38,10 @@ export interface IngestConfig {
   bridgeRequiredFeatures: string[];
 }
 
-/** 逗號分隔 → 去空白、濾空的字串陣列（`"v1, v2" → ["v1","v2"]`）。 */
-function parseCsv(value: string | undefined): string[] {
-  return (value ?? '')
-    .split(',')
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-}
-
 export const ingestConfig = registerAs('ingest', (): IngestConfig => ({
   batchMax: Number(process.env.INGEST_BATCH_MAX),
   bodyLimitMb: Number(process.env.INGEST_BODY_LIMIT_MB),
-  acceptedSchemaVersions: parseCsv(process.env.CAPTURE_ACCEPTED_SCHEMA_VERSIONS),
-  bridgeRequiredFeatures: parseCsv(process.env.EXTENSION_BRIDGE_REQUIRED_FEATURES),
+  // 逗號分隔 → 去空白、濾空（共用 parseCsvList，M13-R6 [14]）。
+  acceptedSchemaVersions: parseCsvList(process.env.CAPTURE_ACCEPTED_SCHEMA_VERSIONS),
+  bridgeRequiredFeatures: parseCsvList(process.env.EXTENSION_BRIDGE_REQUIRED_FEATURES),
 }));

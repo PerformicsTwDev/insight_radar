@@ -1,6 +1,6 @@
 import { normalizePostKey } from './post-key';
 
-describe('normalizePostKey (S13 / AC-46.1 唯一去重鍵)', () => {
+describe('normalizePostKey (T13.4 / S13 / AC-46.1 唯一去重鍵 / TC-73)', () => {
   it('去 query、去 fragment、去尾斜線；只收斂 scheme+host、保留 path 大小寫', () => {
     // path 的 @User / shortcode ABC123 大小寫敏感（保留）；host 已 lowercase。
     expect(normalizePostKey('https://www.threads.net/@User/post/ABC123?utm=x#frag')).toBe(

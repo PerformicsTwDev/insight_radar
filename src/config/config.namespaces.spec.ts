@@ -19,7 +19,7 @@ const ENV: Record<string, string> = {
   PORT: '3000',
   API_PREFIX: 'api/v1',
   API_KEY: 'test-api-key',
-  ALLOWED_ORIGINS: 'http://a.test, http://b.test', // 逗號分隔 + 空白 → parseOrigins 去空白/去空
+  ALLOWED_ORIGINS: 'http://a.test, http://b.test', // 逗號分隔 + 空白 → parseCsvList 去空白/去空
   SSE_HEARTBEAT_MS: '15000',
   HELMET_ENABLED: 'true',
   BODY_LIMIT_MB: '1',
@@ -145,7 +145,7 @@ describe('config namespaces (registerAs, typed)', () => {
   it('appConfig allowedOrigins：未設或空 ALLOWED_ORIGINS → 空陣列（不允許跨域，安全預設）', () => {
     delete process.env.ALLOWED_ORIGINS; // 未設（undefined）→ 走 `?? ''` 分支
     expect(appConfig().allowedOrigins).toEqual([]);
-    process.env.ALLOWED_ORIGINS = '   ,  ,'; // 全空白/逗號 → filter(Boolean) 去盡
+    process.env.ALLOWED_ORIGINS = '   ,  ,'; // 全空白/逗號 → parseCsvList 濾盡
     expect(appConfig().allowedOrigins).toEqual([]);
   });
 

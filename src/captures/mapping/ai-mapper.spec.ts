@@ -14,7 +14,7 @@ function aiInput(payload: unknown, overrides: Partial<MapperInput> = {}): Mapper
   };
 }
 
-describe('mapAiCapture (FR-37/39 → AiSearchCapture 中立形狀)', () => {
+describe('mapAiCapture (T13.4 / FR-37/39 → AiSearchCapture 中立形狀 / TC-73)', () => {
   it('完整代表輸入 → ok，收斂 query/blocks/references + capturedAt(ISO)', () => {
     const result = mapAiCapture(
       aiInput({ query: 'q', blocks: ['a'], references: [{ title: 't', link: 'https://l' }] }),

@@ -7,14 +7,14 @@ import {
   pickAlias,
 } from './coalesce';
 
-describe('capturedAtToIso', () => {
+describe('capturedAtToIso (T13.4 / TC-73)', () => {
   it('Date → ISO 字串；既有字串 → 原樣', () => {
     expect(capturedAtToIso(new Date('2025-11-21T00:00:00.000Z'))).toBe('2025-11-21T00:00:00.000Z');
     expect(capturedAtToIso('2025-11-21T00:00:00+08:00')).toBe('2025-11-21T00:00:00+08:00');
   });
 });
 
-describe('asRecord', () => {
+describe('asRecord (T13.4 / TC-73)', () => {
   it('物件 → 同一 record；陣列/primitive/null → null', () => {
     const obj = { a: 1 };
     expect(asRecord(obj)).toBe(obj);
@@ -26,7 +26,7 @@ describe('asRecord', () => {
   });
 });
 
-describe('pickAlias (異名欄位收斂 author|channelName|name)', () => {
+describe('pickAlias (T13.4 / 異名欄位收斂 author|channelName|name / TC-73)', () => {
   const aliases = ['author', 'channelName', 'name'] as const;
 
   it('取 alias 順序第一個有值者', () => {
@@ -49,7 +49,7 @@ describe('pickAlias (異名欄位收斂 author|channelName|name)', () => {
   });
 });
 
-describe('coerceString', () => {
+describe('coerceString (T13.4 / TC-73)', () => {
   it('trim 後非空字串 → 該字串', () => {
     expect(coerceString('hello')).toBe('hello');
     expect(coerceString('  hi  ')).toBe('hi');
@@ -65,7 +65,7 @@ describe('coerceString', () => {
   });
 });
 
-describe('collectUnknownFields (未知欄位漂移預警 AC-37.4)', () => {
+describe('collectUnknownFields (T13.4 / 未知欄位漂移預警 AC-37.4 / TC-73)', () => {
   const recognized = new Set(['query', 'blocks', 'references']);
 
   it('回傳不在白名單的欄位名', () => {
