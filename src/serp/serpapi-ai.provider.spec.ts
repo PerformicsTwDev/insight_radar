@@ -17,6 +17,7 @@ import {
   type SerpApiGoogleAiModeResponse,
   type SerpApiGoogleAiOverviewResponse,
   type SerpApiGoogleSearchResponse,
+  type SerpCreditLedger,
 } from './serpapi-ai.types';
 
 const AI_CONFIG: ConfigType<typeof serpAiConfig> = {
@@ -543,6 +544,73 @@ describe('TC-74: SerpApiAiProvider — AI Overview adapter (FR-38, reserved)', (
       expect(copilotCalls).toHaveLength(1);
       expect(result.copilot).toBeNull();
       expect(result.creditsUsed).toBe(1);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // M14-R5 / #581 · per-job credit ledger 跨渠道共享（NFR-18）
+  // 缺陷：fetchAiOverviews / fetchAiModes / fetchBingCopilot 各自 reset spent=0，故單一 job 同時抓多個 serpapi
+  // 渠道時，各 method 各起一份 accumulator against 同 SERPAPI_AI_CREDITS_BUDGET → 總花費達 N×（此處 3×）per-job
+  // 上限（Design §14「每 job」/ NFR-18）。修正＝傳入單一 ledger 讓三個 method 共用同一 per-job 預算。
+  // ─────────────────────────────────────────────────────────────────────────
+  describe('M14-R5 / #581 · per-job credit ledger shared across serpapi channels (NFR-18)', () => {
+    const copilotResponse: SerpApiBingCopilotResponse = {
+      search_metadata: { status: 'Success' },
+      search_parameters: { engine: 'bing_copilot', q: 'x', hl: 'zh-tw', gl: 'tw' },
+      header: 'Copilot',
+      text_blocks: [{ type: 'paragraph', snippet: 'copilot 摘要', reference_indexes: [0] }],
+      references: [
+        { index: 0, title: 't', link: 'https://c.example.tw/a', source: 'c.example.tw' },
+      ],
+    };
+
+    it('caps TOTAL credits at the per-job budget across aiOverview+aiMode+bingCopilot (not N× per method)', async () => {
+      const { client, searchCalls, aiModeCalls, copilotCalls } = fakeClient({
+        onSearch: () => aiOverviewInlineV1, // 內嵌路 = 1 credit/query（無二次抓取）
+        onSearchAiMode: () => aiModeV1,
+        onSearchBingCopilot: () => copilotResponse,
+      });
+      // 全渠道啟用、per-job budget = 2；單一 job 抓 2 個關鍵字 × 3 渠道。
+      const provider = new SerpApiAiProvider(client, {
+        ...AI_CONFIG,
+        aiModeEnabled: true,
+        bingCopilotEnabled: true,
+        creditsBudget: 2,
+      });
+      const ledger: SerpCreditLedger = { spent: 0 };
+      const keywords = ['k1', 'k2'];
+
+      // caller（processor）建一次 ledger、傳給三個 method 共用 → 跨渠道累計同一 per-job 預算。
+      const aio = await provider.fetchAiOverviews(keywords, ledger);
+      const modes = await provider.fetchAiModes(keywords, ledger);
+      const copilots = await provider.fetchBingCopilot(keywords, ledger);
+
+      const totalCredits =
+        aio.reduce((s, r) => s + r.creditsUsed, 0) +
+        modes.reduce((s, r) => s + r.creditsUsed, 0) +
+        copilots.reduce((s, r) => s + r.creditsUsed, 0);
+      // 缺陷現況：每 method 各花 2 → 6；修正後：跨渠道共享 → ≤ 2（per-job cap，NFR-18）。
+      expect(totalCredits).toBeLessThanOrEqual(2);
+
+      // over-budget 的請求**不發送**（不打供應商）：總送出數 = per-job budget。
+      const totalSends = searchCalls.length + aiModeCalls.length + copilotCalls.length;
+      expect(totalSends).toBe(2);
+
+      // aiOverview 先跑用滿預算 → 兩筆皆有 capture；aiMode / copilot 預算已耗盡 → 全 degrade null。
+      expect(aio.every((r) => r.aiOverview !== null)).toBe(true);
+      expect(modes.every((r) => r.aiMode === null)).toBe(true);
+      expect(copilots.every((r) => r.copilot === null)).toBe(true);
+    });
+
+    it('omitting the ledger keeps each method on its own per-invocation budget (backward compatible)', async () => {
+      const { client } = fakeClient({ onSearch: () => aiOverviewInlineV1 });
+      const provider = new SerpApiAiProvider(client, { ...AI_CONFIG, creditsBudget: 2 });
+
+      // 不傳 ledger（standalone/契約呼叫）→ 該 method 獨立一份預算，行為與既有單 method 測試一致。
+      const aio = await provider.fetchAiOverviews(['k1', 'k2']);
+
+      expect(aio.reduce((s, r) => s + r.creditsUsed, 0)).toBe(2);
+      expect(aio.every((r) => r.aiOverview !== null)).toBe(true);
     });
   });
 });

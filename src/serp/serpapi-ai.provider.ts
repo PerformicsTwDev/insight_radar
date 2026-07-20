@@ -20,6 +20,7 @@ import {
   type SerpApiBingCopilotResult,
   type SerpApiGoogleAiOverviewResponse,
   type SerpApiTopLevelAiResponse,
+  type SerpCreditLedger,
 } from './serpapi-ai.types';
 
 /** {@link SerpApiAiProvider.runTopLevelEngine} 的逐 query 中立列（capture 或 degradation null + credit）。 */
@@ -55,7 +56,10 @@ export class SerpApiAiProvider implements SerpAiProvider {
     @Inject(serpAiConfig.KEY) private readonly config: ConfigType<typeof serpAiConfig>,
   ) {}
 
-  async fetchAiOverviews(keywords: string[]): Promise<SerpApiAiOverviewResult[]> {
+  async fetchAiOverviews(
+    keywords: string[],
+    _ledger?: SerpCreditLedger,
+  ): Promise<SerpApiAiOverviewResult[]> {
     // reserved：關閉時短路，不打供應商（TC-74「SERPAPI_AI_ENABLED=false 不啟用」）。
     if (!this.config.enabled) {
       return keywords.map((query) => ({ query, aiOverview: null, creditsUsed: 0 }));
@@ -127,7 +131,10 @@ export class SerpApiAiProvider implements SerpAiProvider {
    * per-engine gate `aiModeEnabled` 連同 master `enabled` 皆開才啟用；否則短路全 `null`、不打供應商（reserved）。
    * 單次呼叫（無 page_token 兩路）＝1 credit/query；degradation + budget 治理沿用 AIO（見 {@link runTopLevelEngine}）。
    */
-  async fetchAiModes(keywords: string[]): Promise<SerpApiAiModeResult[]> {
+  async fetchAiModes(
+    keywords: string[],
+    _ledger?: SerpCreditLedger,
+  ): Promise<SerpApiAiModeResult[]> {
     if (!this.config.enabled || !this.config.aiModeEnabled) {
       return keywords.map((query) => ({ query, aiMode: null, creditsUsed: 0 }));
     }
@@ -141,7 +148,10 @@ export class SerpApiAiProvider implements SerpAiProvider {
    * Bing Copilot（`engine=bing_copilot`，AC-38.4，**could**）批次抓取 → `AiSearchCapture`（channel=bingCopilot）。
    * per-engine gate `bingCopilotEnabled` 連同 master `enabled` 皆開才啟用；預設關 → 短路全 `null`、不打供應商。
    */
-  async fetchBingCopilot(keywords: string[]): Promise<SerpApiBingCopilotResult[]> {
+  async fetchBingCopilot(
+    keywords: string[],
+    _ledger?: SerpCreditLedger,
+  ): Promise<SerpApiBingCopilotResult[]> {
     if (!this.config.enabled || !this.config.bingCopilotEnabled) {
       return keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }));
     }
