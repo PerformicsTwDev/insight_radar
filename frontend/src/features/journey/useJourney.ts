@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchJourneyRun, fetchJourneyStatus, startJourney } from '../../api/journey';
 import { postQuery } from '../../api/query';
 import { useJobTracking, type EventSourceFactory } from '../job/useJobTracking';
+import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import type { FeatureStatus } from '../../lib/featureGate';
 import type { JobState, JobStatus } from '../../lib/jobState';
 
@@ -108,20 +109,28 @@ export function useJourney(
   });
   const partial = runQuery.data?.ok ? runQuery.data.run.status === 'partial' : false;
 
-  const start = useCallback(async () => {
-    setBlocked(false);
-    const res = await startJourney(analysisId);
-    if (res.ok) {
-      setOverride('running');
-    } else if (SNAPSHOT_NOT_READY_STATUSES.has(res.status)) {
-      // Base analysis snapshot isn't ready — not a failed run. Stay gated (CTA remains)
-      // and let the view show a "finish the analysis first" hint.
-      setOverride(null);
-      setBlocked(true);
-    } else {
-      setOverride('failed');
-    }
-  }, [analysisId]);
+  // The start CTA stays clickable until the 202 lands (`override` flips to running only
+  // after the POST resolves), so a fast double-click would enqueue a duplicate journey
+  // run — guard re-entry while the enqueue POST is outstanding (M4-R1, #603).
+  const guardStart = useInFlightGuard();
+  const start = useCallback(
+    () =>
+      guardStart(async () => {
+        setBlocked(false);
+        const res = await startJourney(analysisId);
+        if (res.ok) {
+          setOverride('running');
+        } else if (SNAPSHOT_NOT_READY_STATUSES.has(res.status)) {
+          // Base analysis snapshot isn't ready — not a failed run. Stay gated (CTA remains)
+          // and let the view show a "finish the analysis first" hint.
+          setOverride(null);
+          setBlocked(true);
+        } else {
+          setOverride('failed');
+        }
+      }),
+    [analysisId, guardStart],
+  );
 
   return { status, jobState: job.state, rows: table?.rows, blocked, partial, start };
 }
