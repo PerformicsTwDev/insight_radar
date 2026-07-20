@@ -12,6 +12,7 @@ export * from './cache.config';
 export * from './query.config';
 export * from './embeddings.config';
 export * from './serp.config';
+export * from './serp-ai.config';
 export * from './clustering.config';
 export * from './topics.config';
 export * from './tracking.config';
@@ -28,6 +29,7 @@ import { cacheConfig } from './cache.config';
 import { queryConfig } from './query.config';
 import { embeddingsConfig } from './embeddings.config';
 import { serpConfig } from './serp.config';
+import { serpAiConfig } from './serp-ai.config';
 import { clusteringConfig } from './clustering.config';
 import { topicsConfig } from './topics.config';
 import { trackingConfig } from './tracking.config';
@@ -46,6 +48,7 @@ export const configNamespaces = [
   queryConfig,
   embeddingsConfig,
   serpConfig,
+  serpAiConfig,
   clusteringConfig,
   topicsConfig,
   trackingConfig,

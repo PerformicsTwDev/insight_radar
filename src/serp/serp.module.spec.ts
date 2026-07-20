@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing';
 import { PrismaModule } from '../prisma';
 import { serpConfig } from '../config/serp.config';
 import { SERP_PROVIDER } from './serp-provider.port';
+import { SerpApiAiProvider } from './serpapi-ai.provider';
+import { SERP_AI_PROVIDER } from './serpapi-ai.types';
 import { SerpModule } from './serp.module';
 import { SerpService } from './serp.service';
 
@@ -34,6 +36,19 @@ describe('SerpModule (T8.3 wiring)', () => {
     }).compile();
 
     expect(moduleRef.get(SERP_PROVIDER)).toBeInstanceOf(SerpService);
+    await moduleRef.close();
+  });
+
+  it('resolves SERP_AI_PROVIDER to the reserved SerpApiAiProvider (T14.2 built into DI, not live-wired)', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ load: [serpConfig], ignoreEnvFile: true, isGlobal: true }),
+        PrismaModule,
+        SerpModule,
+      ],
+    }).compile();
+
+    expect(moduleRef.get(SERP_AI_PROVIDER)).toBeInstanceOf(SerpApiAiProvider);
     await moduleRef.close();
   });
 });
