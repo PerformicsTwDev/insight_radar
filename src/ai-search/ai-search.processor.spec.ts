@@ -211,6 +211,13 @@ describe('TC-77: AiSearchProcessor', () => {
       expect(markStatus).not.toHaveBeenCalledWith('run-1', 'failed', expect.anything());
     });
 
+    it('treats an undefined attempts opt as the final attempt (?? 1 fallback → marks failed)', async () => {
+      const { processor, markStatus } = build({ persistError: new Error('boom') });
+      const { j } = makeJob({}, { attemptsMade: 0, attempts: undefined }); // opts.attempts undefined → ?? 1
+      await expect(processor.process(j)).rejects.toThrow('boom');
+      expect(markStatus).toHaveBeenLastCalledWith('run-1', 'failed', expect.objectContaining({}));
+    });
+
     it('pulls aiMode and bingCopilot via their provider methods when those channels are requested', async () => {
       const { processor, fetchAiModes, fetchBingCopilot, persistCanonical } = build({
         aiModes: [{ query: 'q', aiMode: serpCanonical('aiMode', 'q'), creditsUsed: 1 }],
