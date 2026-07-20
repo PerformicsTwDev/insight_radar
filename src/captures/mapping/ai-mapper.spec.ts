@@ -137,6 +137,68 @@ describe('TC-75: 四渠道 AI mapper 補全 → AiSearchCapture（FR-39 / AC-39.
       expect(result.mapStatus).toBe('ok');
       expect(result.canonical?.blocks).toEqual(['flat answer']);
     });
+
+    it('末輪僅帶 references（缺 blocks alias）→ per-field 退回 top-level answer（不丟失，#577）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          {
+            query: 'best travel backpack',
+            answer: 'Top-level: the Peak Design Travel is the top pick for 2025.',
+            turns: [{ references: [{ title: 'Peak Design', link: 'https://example.com/peak' }] }],
+          },
+          { channel: 'chatGpt' },
+        ),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.reasons).toEqual([]);
+      // 末輪缺 blocks alias → 退回 top-level answer（非 [] / 丟失）。
+      expect(result.canonical?.blocks).toEqual([
+        'Top-level: the Peak Design Travel is the top pick for 2025.',
+      ]);
+      // 末輪帶 references → 取末輪 references（last-turn 優先）。
+      expect(result.canonical?.references).toEqual([
+        { title: 'Peak Design', link: 'https://example.com/peak', index: 0 },
+      ]);
+    });
+
+    it('末輪僅帶 answer（缺 references alias）→ per-field 退回 top-level references（不丟失，#577）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          {
+            query: 'best travel backpack',
+            references: [{ title: 'Osprey', link: 'https://example.com/osprey' }],
+            turns: [{ answer: 'Final turn: the Osprey Farpoint is the top pick.' }],
+          },
+          { channel: 'chatGpt' },
+        ),
+      );
+      expect(result.mapStatus).toBe('ok');
+      expect(result.reasons).toEqual([]);
+      // 末輪帶 answer → 取末輪 answer（last-turn 優先）。
+      expect(result.canonical?.blocks).toEqual([
+        'Final turn: the Osprey Farpoint is the top pick.',
+      ]);
+      // 末輪缺 references alias → 退回 top-level references。
+      expect(result.canonical?.references).toEqual([
+        { title: 'Osprey', link: 'https://example.com/osprey', index: 0 },
+      ]);
+    });
+
+    it('末輪缺 blocks 且 top-level 亦無 grounding references → references=[] 不編造（S17）', () => {
+      const result = mapAiCapture(
+        aiInput(
+          {
+            query: 'best travel backpack',
+            answer: 'Top-level answer only.',
+            turns: [{ someOtherField: 1 } as unknown as Record<string, unknown>],
+          },
+          { channel: 'chatGpt' },
+        ),
+      );
+      // 末輪缺 blocks → 退回 top-level answer；末輪與 top-level 皆無 references → [] 不編造。
+      expect(result.canonical?.blocks).toEqual(['Top-level answer only.']);
+      expect(result.canonical?.references).toEqual([]);
+    });
   });
 
   describe('Gemini grounding 取捨（AC-39.2）', () => {
