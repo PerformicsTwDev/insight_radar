@@ -358,6 +358,42 @@ describe('TC-72: capture ingestion endpoint (e2e · FR-36 · AC-36.1/36.4/36.5)'
     });
   });
 
+  // M13-R2 (#553): content-hash is computed over the already-parsed payload; two 64-bit post ids sent as
+  // JSON numbers that differ only beyond 2^53 collapse to the same IEEE-754 double → same hash → S16 dedup
+  // silently drops a distinct capture. Contract (Design §18.2): item numeric values must not exceed
+  // Number.MAX_SAFE_INTEGER (2^53-1); large ids must be strings. The ingest boundary rejects unsafe numbers
+  // with 400 before any hashing/DB, so the collision cannot occur.
+  describe('numeric-precision contract (AC-36.2 · S16 · M13-R2 · #553)', () => {
+    // Written as arithmetic (not literals) so the test source carries no precision-losing constant.
+    const unsafeA = Number.MAX_SAFE_INTEGER + 1; // 2^53 = 9007199254740992
+    const unsafeB = Number.MAX_SAFE_INTEGER + 2; // mathematically ...993, rounds to the SAME double
+
+    it('item with a JSON number > MAX_SAFE_INTEGER (2^53) → 400; nothing persisted', async () => {
+      const res = await asSession(validBody({ items: [{ postId: unsafeB }] }));
+      expect(res.status).toBe(400);
+      expect(db.captures).toHaveLength(0);
+    });
+
+    it('adjacent >2^53 numeric ids (which collapse to one double) → 400, not a silent dedup', async () => {
+      // Sent as JSON numbers, both ids arrive as the SAME double after HTTP parse.
+      // Old behaviour: same hash → deduped:1 (data loss). New behaviour: rejected at the boundary.
+      const res = await asSession(validBody({ items: [{ postId: unsafeA }, { postId: unsafeB }] }));
+      expect(res.status).toBe(400);
+      expect(db.captures).toHaveLength(0);
+    });
+
+    it('same ids sent as strings (id convention) → 202; distinct captures preserved', async () => {
+      const res = await asSession(
+        validBody({ items: [{ postId: '9007199254740992' }, { postId: '9007199254740993' }] }),
+      );
+      expect(res.status).toBe(202);
+      const body = res.body as IngestResult;
+      expect(body.accepted).toBe(2);
+      expect(body.deduped).toBe(0);
+      expect(db.captures).toHaveLength(2);
+    });
+  });
+
   describe('content-hash idempotency (AC-36.2 · S16)', () => {
     it('resending identical content → second call deduped, same ids, one row per distinct item', async () => {
       const first = await asSession(validBody());
