@@ -1,6 +1,7 @@
 import type { ConfigType } from '@nestjs/config';
 import type { serpAiConfig } from '../config/serp-ai.config';
 import {
+  aiModeV1,
   aiOverviewInlineV1,
   aiOverviewPageTokenStep1V1,
   aiOverviewPageTokenStep2V1,
@@ -12,12 +13,16 @@ import {
   type SerpApiAiOverviewFetchParams,
   type SerpApiAiOverviewInline,
   type SerpApiAiSearchParams,
+  type SerpApiBingCopilotResponse,
+  type SerpApiGoogleAiModeResponse,
   type SerpApiGoogleAiOverviewResponse,
   type SerpApiGoogleSearchResponse,
 } from './serpapi-ai.types';
 
 const AI_CONFIG: ConfigType<typeof serpAiConfig> = {
   enabled: true,
+  aiModeEnabled: false,
+  bingCopilotEnabled: false,
   aioPageTokenTimeoutMs: 50000,
   creditsBudget: 1000,
   hl: 'zh-tw',
@@ -25,22 +30,35 @@ const AI_CONFIG: ConfigType<typeof serpAiConfig> = {
 };
 
 interface FakeClientOpts {
-  onSearch: (params: SerpApiAiSearchParams) => SerpApiGoogleSearchResponse;
+  onSearch?: (params: SerpApiAiSearchParams) => SerpApiGoogleSearchResponse;
   onFetchAiOverview?: (
     params: SerpApiAiOverviewFetchParams,
   ) => SerpApiGoogleAiOverviewResponse | Promise<SerpApiGoogleAiOverviewResponse>;
+  onSearchAiMode?: (
+    params: SerpApiAiSearchParams,
+  ) => SerpApiGoogleAiModeResponse | Promise<SerpApiGoogleAiModeResponse>;
+  onSearchBingCopilot?: (
+    params: SerpApiAiSearchParams,
+  ) => SerpApiBingCopilotResponse | Promise<SerpApiBingCopilotResponse>;
 }
 
 function fakeClient(opts: FakeClientOpts): {
   client: SerpApiAiClient;
   searchCalls: SerpApiAiSearchParams[];
   fetchCalls: SerpApiAiOverviewFetchParams[];
+  aiModeCalls: SerpApiAiSearchParams[];
+  copilotCalls: SerpApiAiSearchParams[];
 } {
   const searchCalls: SerpApiAiSearchParams[] = [];
   const fetchCalls: SerpApiAiOverviewFetchParams[] = [];
+  const aiModeCalls: SerpApiAiSearchParams[] = [];
+  const copilotCalls: SerpApiAiSearchParams[] = [];
   const client: SerpApiAiClient = {
     searchGoogle: (params) => {
       searchCalls.push(params);
+      if (!opts.onSearch) {
+        return Promise.reject(new Error('unexpected searchGoogle call'));
+      }
       return Promise.resolve(opts.onSearch(params));
     },
     fetchAiOverview: (params) => {
@@ -50,8 +68,22 @@ function fakeClient(opts: FakeClientOpts): {
       }
       return Promise.resolve(opts.onFetchAiOverview(params));
     },
+    searchAiMode: (params) => {
+      aiModeCalls.push(params);
+      if (!opts.onSearchAiMode) {
+        return Promise.reject(new Error('unexpected searchAiMode call'));
+      }
+      return Promise.resolve(opts.onSearchAiMode(params));
+    },
+    searchBingCopilot: (params) => {
+      copilotCalls.push(params);
+      if (!opts.onSearchBingCopilot) {
+        return Promise.reject(new Error('unexpected searchBingCopilot call'));
+      }
+      return Promise.resolve(opts.onSearchBingCopilot(params));
+    },
   };
-  return { client, searchCalls, fetchCalls };
+  return { client, searchCalls, fetchCalls, aiModeCalls, copilotCalls };
 }
 
 describe('TC-74: SerpApiAiProvider — AI Overview adapter (FR-38, reserved)', () => {
@@ -258,6 +290,208 @@ describe('TC-74: SerpApiAiProvider — AI Overview adapter (FR-38, reserved)', (
         { query: 'a', aiOverview: null, creditsUsed: 0 },
         { query: 'b', aiOverview: null, creditsUsed: 0 },
       ]);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // AC-38.3 · AI Mode（engine=google_ai_mode）→ AiSearchCapture（channel=aiMode）
+  // ─────────────────────────────────────────────────────────────────────────
+  describe('AC-38.3 · AI Mode（engine=google_ai_mode，top-level blocks/references）', () => {
+    const AI_MODE_ON = { ...AI_CONFIG, aiModeEnabled: true };
+
+    it('parses google_ai_mode top-level text_blocks/references into an AiSearchCapture (channel=aiMode)', async () => {
+      const { client, aiModeCalls } = fakeClient({ onSearchAiMode: () => aiModeV1 });
+      const provider = new SerpApiAiProvider(client, AI_MODE_ON);
+
+      const [result] = await provider.fetchAiModes(['電動牙刷推薦 2026']);
+
+      expect(aiModeCalls).toHaveLength(1);
+      expect(result.query).toBe('電動牙刷推薦 2026');
+      expect(result.creditsUsed).toBe(1); // 單次呼叫（無 page_token 兩路）
+      expect(result.aiMode).not.toBeNull();
+      expect(result.aiMode).toMatchObject({
+        source: 'serpapi',
+        channel: 'aiMode',
+        schemaVersion: SERPAPI_AI_SCHEMA_VERSION,
+        query: '電動牙刷推薦 2026',
+      });
+      // blocks 取 top-level text_blocks（原樣保留，§18.3；reconstructed_markdown 不覆寫已有 text_blocks）
+      expect(result.aiMode!.blocks).toEqual(aiModeV1.text_blocks);
+      // references 統一為中立形狀（複用 normalizeReferences，與 AIO 同一套）
+      expect(result.aiMode!.references).toHaveLength(3);
+      expect(result.aiMode!.references[0]).toEqual({
+        index: 0,
+        title: '電動牙刷選購指南',
+        link: 'https://review.example.tw/electric-toothbrush-guide',
+        snippet: '整理清潔模式、刷頭與續航等挑選重點。',
+        source: 'review.example.tw',
+      });
+    });
+
+    it('AC-38.5: sends hl=zh-tw / gl=tw for AI Mode', async () => {
+      const { client, aiModeCalls } = fakeClient({ onSearchAiMode: () => aiModeV1 });
+      const provider = new SerpApiAiProvider(client, AI_MODE_ON);
+
+      await provider.fetchAiModes(['露營新手裝備推薦']);
+
+      expect(aiModeCalls[0]).toEqual({ q: '露營新手裝備推薦', hl: 'zh-tw', gl: 'tw' });
+    });
+
+    it('does not enable AI Mode when SERPAPI_AI_MODE_ENABLED=false (per-engine gate off)', async () => {
+      const { client, aiModeCalls } = fakeClient({ onSearchAiMode: () => aiModeV1 });
+      // master enabled 但 aiModeEnabled=false（AI_CONFIG 預設）→ 不啟用
+      const provider = new SerpApiAiProvider(client, AI_CONFIG);
+
+      const results = await provider.fetchAiModes(['a', 'b']);
+
+      expect(aiModeCalls).toHaveLength(0);
+      expect(results).toEqual([
+        { query: 'a', aiMode: null, creditsUsed: 0 },
+        { query: 'b', aiMode: null, creditsUsed: 0 },
+      ]);
+    });
+
+    it('does not enable AI Mode when the master SERPAPI_AI_ENABLED=false (even if aiModeEnabled=true)', async () => {
+      const { client, aiModeCalls } = fakeClient({ onSearchAiMode: () => aiModeV1 });
+      const provider = new SerpApiAiProvider(client, {
+        ...AI_CONFIG,
+        enabled: false,
+        aiModeEnabled: true,
+      });
+
+      const results = await provider.fetchAiModes(['a']);
+
+      expect(aiModeCalls).toHaveLength(0);
+      expect(results).toEqual([{ query: 'a', aiMode: null, creditsUsed: 0 }]);
+    });
+
+    it('degrades to aiMode=null when the AI Mode fetch fails (not an error, credit still spent)', async () => {
+      const { client, aiModeCalls } = fakeClient({
+        onSearchAiMode: () => {
+          throw Object.assign(new Error('SERP HTTP 500'), { status: 500 });
+        },
+      });
+      const provider = new SerpApiAiProvider(client, AI_MODE_ON);
+
+      const [result] = await provider.fetchAiModes(['fails']);
+
+      expect(aiModeCalls).toHaveLength(1);
+      expect(result.aiMode).toBeNull();
+      expect(result.creditsUsed).toBe(1); // 已發送 → 計費
+    });
+
+    it('degrades to null when the response is malformed (no top-level text_blocks)', async () => {
+      const { client } = fakeClient({
+        onSearchAiMode: () =>
+          ({ search_metadata: { status: 'Success' } }) as unknown as SerpApiGoogleAiModeResponse,
+      });
+      const provider = new SerpApiAiProvider(client, AI_MODE_ON);
+
+      const [result] = await provider.fetchAiModes(['malformed']);
+
+      expect(result.aiMode).toBeNull();
+      expect(result.creditsUsed).toBe(1);
+    });
+
+    it('stops issuing AI Mode searches once the credit budget is exhausted across the batch', async () => {
+      const { client, aiModeCalls } = fakeClient({ onSearchAiMode: () => aiModeV1 });
+      const provider = new SerpApiAiProvider(client, { ...AI_MODE_ON, creditsBudget: 1 });
+
+      const results = await provider.fetchAiModes(['first', 'second']);
+
+      expect(aiModeCalls).toHaveLength(1); // 只發第一個
+      expect(results[0].aiMode).not.toBeNull();
+      expect(results[0].creditsUsed).toBe(1);
+      expect(results[1].aiMode).toBeNull(); // 預算耗盡 → 不發送
+      expect(results[1].creditsUsed).toBe(0);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // AC-38.4 · Bing Copilot（engine=bing_copilot，could，SERPAPI_BING_COPILOT_ENABLED 預設關）
+  // ─────────────────────────────────────────────────────────────────────────
+  describe('AC-38.4 · Bing Copilot（could，flag-gated）', () => {
+    const copilotResponse: SerpApiBingCopilotResponse = {
+      search_metadata: { status: 'Success' },
+      search_parameters: { engine: 'bing_copilot', q: '筆電推薦', hl: 'zh-tw', gl: 'tw' },
+      header: 'Copilot 摘要',
+      text_blocks: [
+        { type: 'paragraph', snippet: '依用途與預算挑選筆電。', reference_indexes: [0] },
+      ],
+      references: [
+        {
+          index: 0,
+          title: '筆電選購指南',
+          link: 'https://tech.example.tw/laptop-guide',
+          source: 'tech.example.tw',
+        },
+      ],
+    };
+
+    it('does not enable Copilot when SERPAPI_BING_COPILOT_ENABLED=false (default; primary DoD)', async () => {
+      const { client, copilotCalls } = fakeClient({ onSearchBingCopilot: () => copilotResponse });
+      // master enabled 但 bingCopilotEnabled=false（AI_CONFIG 預設）→ 不啟用
+      const provider = new SerpApiAiProvider(client, AI_CONFIG);
+
+      const results = await provider.fetchBingCopilot(['a', 'b']);
+
+      expect(copilotCalls).toHaveLength(0);
+      expect(results).toEqual([
+        { query: 'a', copilot: null, creditsUsed: 0 },
+        { query: 'b', copilot: null, creditsUsed: 0 },
+      ]);
+    });
+
+    it('does not enable Copilot when the master SERPAPI_AI_ENABLED=false (even if flag on)', async () => {
+      const { client, copilotCalls } = fakeClient({ onSearchBingCopilot: () => copilotResponse });
+      const provider = new SerpApiAiProvider(client, {
+        ...AI_CONFIG,
+        enabled: false,
+        bingCopilotEnabled: true,
+      });
+
+      const results = await provider.fetchBingCopilot(['a']);
+
+      expect(copilotCalls).toHaveLength(0);
+      expect(results).toEqual([{ query: 'a', copilot: null, creditsUsed: 0 }]);
+    });
+
+    it('when enabled, maps bing_copilot top-level blocks/references into an AiSearchCapture (channel=bingCopilot)', async () => {
+      const { client, copilotCalls } = fakeClient({ onSearchBingCopilot: () => copilotResponse });
+      const provider = new SerpApiAiProvider(client, {
+        ...AI_CONFIG,
+        bingCopilotEnabled: true,
+      });
+
+      const [result] = await provider.fetchBingCopilot(['筆電推薦']);
+
+      expect(copilotCalls).toHaveLength(1);
+      expect(copilotCalls[0]).toEqual({ q: '筆電推薦', hl: 'zh-tw', gl: 'tw' });
+      expect(result.creditsUsed).toBe(1);
+      expect(result.copilot).not.toBeNull();
+      expect(result.copilot).toMatchObject({
+        source: 'serpapi',
+        channel: 'bingCopilot',
+        query: '筆電推薦',
+      });
+      expect(result.copilot!.blocks).toEqual(copilotResponse.text_blocks);
+      expect(result.copilot!.references).toHaveLength(1);
+      expect(result.copilot!.references[0].link).toBe('https://tech.example.tw/laptop-guide');
+    });
+
+    it('degrades to copilot=null when the enabled Copilot fetch fails', async () => {
+      const { client, copilotCalls } = fakeClient({
+        onSearchBingCopilot: () => {
+          throw Object.assign(new Error('SERP HTTP 503'), { status: 503 });
+        },
+      });
+      const provider = new SerpApiAiProvider(client, { ...AI_CONFIG, bingCopilotEnabled: true });
+
+      const [result] = await provider.fetchBingCopilot(['fails']);
+
+      expect(copilotCalls).toHaveLength(1);
+      expect(result.copilot).toBeNull();
+      expect(result.creditsUsed).toBe(1);
     });
   });
 });

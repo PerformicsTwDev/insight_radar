@@ -91,4 +91,75 @@ describe('HttpSerpApiAiClient (T14.2, reserved)', () => {
       });
     });
   });
+
+  describe('searchAiMode (engine=google_ai_mode)', () => {
+    it('builds engine=google_ai_mode URL with q/hl/gl + api_key and parses JSON', async () => {
+      let captured = '';
+      const fetchFn: FetchLike = (url) => {
+        captured = url;
+        return Promise.resolve(okResponse({ text_blocks: [], references: [] }));
+      };
+      const client = new HttpSerpApiAiClient('https://serpapi.com/search', 'secret-key', fetchFn);
+
+      const res = await client.searchAiMode({ q: '電動牙刷推薦', hl: 'zh-tw', gl: 'tw' });
+
+      const url = new URL(captured);
+      expect(url.origin + url.pathname).toBe('https://serpapi.com/search');
+      expect(url.searchParams.get('engine')).toBe('google_ai_mode');
+      expect(url.searchParams.get('q')).toBe('電動牙刷推薦');
+      expect(url.searchParams.get('hl')).toBe('zh-tw');
+      expect(url.searchParams.get('gl')).toBe('tw');
+      expect(url.searchParams.get('api_key')).toBe('secret-key');
+      expect(res.text_blocks).toBeDefined();
+    });
+
+    it('throws with numeric status on non-2xx (for degradation classification)', async () => {
+      const fetchFn: FetchLike = () =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      const client = new HttpSerpApiAiClient('https://serpapi.com/search', 'k', fetchFn);
+
+      await expect(client.searchAiMode({ q: 'x', hl: 'zh-tw', gl: 'tw' })).rejects.toMatchObject({
+        status: 500,
+      });
+    });
+  });
+
+  describe('searchBingCopilot (engine=bing_copilot, could)', () => {
+    it('builds engine=bing_copilot URL with q/hl/gl + api_key and parses JSON', async () => {
+      let captured = '';
+      const fetchFn: FetchLike = (url) => {
+        captured = url;
+        return Promise.resolve(okResponse({ text_blocks: [], references: [] }));
+      };
+      const client = new HttpSerpApiAiClient('https://serpapi.com/search', 'secret-key', fetchFn);
+
+      const res = await client.searchBingCopilot({ q: '筆電推薦', hl: 'zh-tw', gl: 'tw' });
+
+      const url = new URL(captured);
+      expect(url.searchParams.get('engine')).toBe('bing_copilot');
+      expect(url.searchParams.get('q')).toBe('筆電推薦');
+      expect(url.searchParams.get('hl')).toBe('zh-tw');
+      expect(url.searchParams.get('gl')).toBe('tw');
+      expect(url.searchParams.get('api_key')).toBe('secret-key');
+      expect(res.text_blocks).toBeDefined();
+    });
+
+    it('throws with numeric status on non-2xx', async () => {
+      const fetchFn: FetchLike = () =>
+        Promise.resolve({
+          ok: false,
+          status: 503,
+          json: () => Promise.resolve({}),
+        } as unknown as Response);
+      const client = new HttpSerpApiAiClient('https://serpapi.com/search', 'k', fetchFn);
+
+      await expect(
+        client.searchBingCopilot({ q: 'x', hl: 'zh-tw', gl: 'tw' }),
+      ).rejects.toMatchObject({ status: 503 });
+    });
+  });
 });

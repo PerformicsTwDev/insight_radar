@@ -99,6 +99,8 @@ const ENV: Record<string, string> = {
   SERP_MAX_RETRIES: '3',
   SERP_BACKOFF_BASE_MS: '500',
   SERPAPI_AI_ENABLED: 'false',
+  SERPAPI_AI_MODE_ENABLED: 'false',
+  SERPAPI_BING_COPILOT_ENABLED: 'false',
   SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS: '50000',
   SERPAPI_AI_CREDITS_BUDGET: '1000',
   SERPAPI_AI_HL: 'zh-tw',
@@ -266,6 +268,8 @@ describe('config namespaces (registerAs, typed)', () => {
   it('serpAiConfig maps SerpAPI AI env; enabled coerced from string (M14, reserved)', () => {
     expect(serpAiConfig()).toEqual({
       enabled: false,
+      aiModeEnabled: false,
+      bingCopilotEnabled: false,
       aioPageTokenTimeoutMs: 50000,
       creditsBudget: 1000,
       hl: 'zh-tw',

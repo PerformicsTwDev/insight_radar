@@ -110,6 +110,36 @@ export interface SerpApiGoogleAiModeResponse {
   readonly subsequent_request_token?: string;
 }
 
+/**
+ * `engine=bing_copilot`（2026-06）回應（AC-38.4，**could**，`SERPAPI_BING_COPILOT_ENABLED` 預設關）——top-level
+ * `header?` + `text_blocks` + `references`（Design §18.3「Bing Copilot（`engine=bing_copilot`）＝could，預設關」）。
+ * `header` = Copilot 摘要標題（非中立欄，不投影 canonical，比照 AIO `thumbnail` recognize-and-drop）。
+ */
+export interface SerpApiBingCopilotResponse {
+  readonly search_metadata?: SerpApiSearchMetadata;
+  readonly search_parameters?: {
+    readonly engine: 'bing_copilot';
+    readonly q?: string;
+    readonly hl?: string;
+    readonly gl?: string;
+    readonly location?: string;
+  };
+  readonly header?: string;
+  readonly text_blocks: readonly SerpApiAiTextBlock[];
+  readonly references: readonly SerpApiAiReference[];
+}
+
+/**
+ * 多 engine 共用的 **top-level `text_blocks`/`references` 形狀**（AI Mode / Bing Copilot；T14.3 refactor：單一中立解析
+ * 路徑）。AIO 走 `ai_overview.text_blocks` 內嵌形狀故不套此（另有 page_token 兩路）；AI Mode/Copilot 皆直接 top-level
+ * blocks → 共用 {@link SerpApiAiProvider} 的 `runTopLevelEngine`。`reconstructed_markdown` 供 blocks 缺時 fallback。
+ */
+export interface SerpApiTopLevelAiResponse {
+  readonly text_blocks: readonly SerpApiAiTextBlock[];
+  readonly references: readonly SerpApiAiReference[];
+  readonly reconstructed_markdown?: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Port 契約（DI 可 mock；契約測試以 T14.1 fixture 為 golden，CI 不需真憑證）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +171,10 @@ export interface SerpApiAiClient {
   searchGoogle(params: SerpApiAiSearchParams): Promise<SerpApiGoogleSearchResponse>;
   /** `engine=google_ai_overview` 以 `page_token` 二次抓取（回完整 `ai_overview.text_blocks`）。 */
   fetchAiOverview(params: SerpApiAiOverviewFetchParams): Promise<SerpApiGoogleAiOverviewResponse>;
+  /** `engine=google_ai_mode` 搜尋（回 top-level `text_blocks`/`references`(+`reconstructed_markdown`)，AC-38.3，T14.3）。 */
+  searchAiMode(params: SerpApiAiSearchParams): Promise<SerpApiGoogleAiModeResponse>;
+  /** `engine=bing_copilot` 搜尋（回 top-level `header?`/`text_blocks`/`references`，AC-38.4 **could**，T14.3）。 */
+  searchBingCopilot(params: SerpApiAiSearchParams): Promise<SerpApiBingCopilotResponse>;
 }
 
 /**
@@ -156,6 +190,28 @@ export interface SerpApiAiOverviewResult {
   readonly creditsUsed: number;
 }
 
+/**
+ * 單一 query 的 AI Mode（`engine=google_ai_mode`）抓取結果（AC-38.3）。`aiMode`＝成功解析的 `AiSearchCanonical`
+ * （channel=aiMode，與 AIO 同一中立形狀）；無回應 / 失敗 / 逾時 / credit 不足 → `null`（graceful degradation，非錯誤）。
+ * AI Mode 單次呼叫（無 page_token 兩路）→ `creditsUsed` = 1（已發送）或 0（budget 不足未發送）。
+ */
+export interface SerpApiAiModeResult {
+  readonly query: string;
+  readonly aiMode: AiSearchCanonical | null;
+  readonly creditsUsed: number;
+}
+
+/**
+ * 單一 query 的 Bing Copilot（`engine=bing_copilot`）抓取結果（AC-38.4，**could**）。`copilot`＝`AiSearchCanonical`
+ * （channel=bingCopilot，同一中立形狀）或 degradation `null`。`SERPAPI_BING_COPILOT_ENABLED` 關（預設）→ 全 `null`、
+ * `creditsUsed=0`、不打供應商。
+ */
+export interface SerpApiBingCopilotResult {
+  readonly query: string;
+  readonly copilot: AiSearchCanonical | null;
+  readonly creditsUsed: number;
+}
+
 /** SerpApi AI 拉取 provider 的 Port（reserved；本期建置不接線，T14.6 job 才接）。DI token 供 T14.6 消費。 */
 export const SERP_AI_PROVIDER = Symbol('SERP_AI_PROVIDER');
 
@@ -165,4 +221,15 @@ export interface SerpAiProvider {
    * 全批受 `SERPAPI_AI_CREDITS_BUDGET` 治理（超出預算的請求不發送 → 該 query degrade `aiOverview=null`）。
    */
   fetchAiOverviews(keywords: string[]): Promise<SerpApiAiOverviewResult[]>;
+  /**
+   * 批次抓取多個關鍵字的 Google AI Mode（AC-38.3；`engine=google_ai_mode`）→ `AiSearchCapture`（channel=aiMode）。
+   * `SERPAPI_AI_MODE_ENABLED`（＋master `SERPAPI_AI_ENABLED`）皆開時才啟用；否則全 `null`、`creditsUsed=0`、不打供應商。
+   * degradation（無回應/失敗/逾時→`null` 非拋）+ credit budget 治理沿用 AIO。
+   */
+  fetchAiModes(keywords: string[]): Promise<SerpApiAiModeResult[]>;
+  /**
+   * 批次抓取多個關鍵字的 Bing Copilot（AC-38.4，**could**；`engine=bing_copilot`）→ `AiSearchCapture`
+   * （channel=bingCopilot）。`SERPAPI_BING_COPILOT_ENABLED`（＋master）皆開時才啟用；預設關 → 全 `null`、不打供應商。
+   */
+  fetchBingCopilot(keywords: string[]): Promise<SerpApiBingCopilotResult[]>;
 }
