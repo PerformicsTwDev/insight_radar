@@ -121,6 +121,30 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
     expect(screen.getByText('4')).toBeInTheDocument();
   });
 
+  it('ready → 表格|圖表 toggle switches the 購買歷程表 ↔ 漏斗圖 off the SAME rows (T4.5)', async () => {
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
+    );
+    renderView({ journey: { status: 'ready' } });
+
+    // Default = 表格 (T4.4 behaviour unchanged): the per-keyword 購買歷程表.
+    await waitFor(() => expect(screen.getByText('iphone 16 vs 15 pro')).toBeInTheDocument());
+    expect(screen.queryByRole('img', { name: '購買歷程搜尋漏斗' })).not.toBeInTheDocument();
+
+    // Switch to 圖表 → the 漏斗圖 renders off the same rows; the 表 unmounts.
+    fireEvent.click(screen.getByRole('tab', { name: '圖表' }));
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: '購買歷程搜尋漏斗' })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('iphone 16 vs 15 pro')).not.toBeInTheDocument();
+    // Same data source: the spec_comparison row (12,000) → 規格比較 funnel node value.
+    expect(screen.getByText('規格比較')).toBeInTheDocument();
+    expect(screen.getByText('12,000')).toBeInTheDocument();
+  });
+
   it('running → SSE completed → confirms via GET :id/journey → unlocks the 購買歷程表', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
