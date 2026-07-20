@@ -6,8 +6,18 @@ import { registerAs } from '@nestjs/config';
  * 值已由 env.validation Joi schema 驗證/補預設。
  */
 export interface SerpAiConfig {
-  /** SerpApi AI adapters 開關（reserved，預設 false；關閉時 provider 短路回 `aiOverview=null`、不打供應商）。 */
+  /** SerpApi AI adapters master 開關（reserved，預設 false；關閉時 provider 短路回 null、不打供應商）。 */
   enabled: boolean;
+  /**
+   * `engine=google_ai_mode` 開關（AC-38.3，預設 false）——per-engine gate，須連同 master `enabled` 皆開才啟用
+   * AI Mode（zh-TW 穩定度待啟用 SerpApi reserved 來源時 smoke，Design §14）。
+   */
+  aiModeEnabled: boolean;
+  /**
+   * `engine=bing_copilot` 開關（AC-38.4，**could**，預設 false）——per-engine gate，須連同 master `enabled` 皆開才啟用
+   * Bing Copilot（Design §14）。
+   */
+  bingCopilotEnabled: boolean;
   /** AI Overview `page_token` 二次抓取時限（毫秒，預設 50000）；page_token <1min 過期，須留裕度（AC-38.1）。 */
   aioPageTokenTimeoutMs: number;
   /** 每 job SerpApi credit 預算上限（AC-38.5：內嵌=1、二次抓取=2 credits/query；超出不發送 → degrade，NFR-18）。 */
@@ -20,6 +30,8 @@ export interface SerpAiConfig {
 
 export const serpAiConfig = registerAs('serpAi', (): SerpAiConfig => ({
   enabled: process.env.SERPAPI_AI_ENABLED === 'true',
+  aiModeEnabled: process.env.SERPAPI_AI_MODE_ENABLED === 'true',
+  bingCopilotEnabled: process.env.SERPAPI_BING_COPILOT_ENABLED === 'true',
   aioPageTokenTimeoutMs: Number(process.env.SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS),
   creditsBudget: Number(process.env.SERPAPI_AI_CREDITS_BUDGET),
   hl: process.env.SERPAPI_AI_HL ?? 'zh-tw',

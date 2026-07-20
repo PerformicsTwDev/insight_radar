@@ -3,6 +3,8 @@ import type {
   SerpApiAiClient,
   SerpApiAiOverviewFetchParams,
   SerpApiAiSearchParams,
+  SerpApiBingCopilotResponse,
+  SerpApiGoogleAiModeResponse,
   SerpApiGoogleAiOverviewResponse,
   SerpApiGoogleSearchResponse,
 } from './serpapi-ai.types';
@@ -54,5 +56,15 @@ export class HttpSerpApiAiClient implements SerpApiAiClient {
       throw Object.assign(new Error(`SERP HTTP ${response.status}`), { status: response.status });
     }
     return (await response.json()) as SerpApiGoogleAiOverviewResponse;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async searchAiMode(_params: SerpApiAiSearchParams): Promise<SerpApiGoogleAiModeResponse> {
+    throw new Error('T14.3 searchAiMode not implemented (red)');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async searchBingCopilot(_params: SerpApiAiSearchParams): Promise<SerpApiBingCopilotResponse> {
+    throw new Error('T14.3 searchBingCopilot not implemented (red)');
   }
 }

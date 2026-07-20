@@ -9,9 +9,11 @@ import {
   SERPAPI_AI_SCHEMA_VERSION,
   type SerpAiProvider,
   type SerpApiAiClient,
+  type SerpApiAiModeResult,
   type SerpApiAiOverview,
   type SerpApiAiOverviewInline,
   type SerpApiAiOverviewResult,
+  type SerpApiBingCopilotResult,
   type SerpApiGoogleAiOverviewResponse,
 } from './serpapi-ai.types';
 
@@ -93,6 +95,16 @@ export class SerpApiAiProvider implements SerpAiProvider {
       });
     }
     return results;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async fetchAiModes(_keywords: string[]): Promise<SerpApiAiModeResult[]> {
+    throw new Error('T14.3 fetchAiModes not implemented (red)');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async fetchBingCopilot(_keywords: string[]): Promise<SerpApiBingCopilotResult[]> {
+    throw new Error('T14.3 fetchBingCopilot not implemented (red)');
   }
 
   /**

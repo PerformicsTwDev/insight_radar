@@ -288,6 +288,8 @@ describe('env validation schema (TC-19 fail-fast)', () => {
     it('defaults SerpAPI AI adapters off + tunable defaults (M14, reserved)', () => {
       const value = validatedValue(validEnv); // validEnv has no SERPAPI_AI_* keys
       expect(value.SERPAPI_AI_ENABLED).toBe(false);
+      expect(value.SERPAPI_AI_MODE_ENABLED).toBe(false); // AC-38.3 per-engine gate off by default
+      expect(value.SERPAPI_BING_COPILOT_ENABLED).toBe(false); // AC-38.4 could, off by default
       expect(value.SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS).toBe(50000);
       expect(value.SERPAPI_AI_CREDITS_BUDGET).toBe(1000);
       expect(value.SERPAPI_AI_HL).toBe('zh-tw');

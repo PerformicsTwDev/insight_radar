@@ -185,7 +185,9 @@ export const validationSchema = Joi.object({
   SERP_BACKOFF_BASE_MS: Joi.number().integer().min(0).default(500), // 退避起始延遲（2^(n-1)*base）
 
   // —— SerpAPI AI adapters（M14，FR-38/NFR-18；Design §14；**reserved，預設關**；憑證沿用 SERP_API_KEY/URL）——
-  SERPAPI_AI_ENABLED: Joi.boolean().default(false), // AI adapters 開關（reserved；主管道＝extension 橋接 FR-39）
+  SERPAPI_AI_ENABLED: Joi.boolean().default(false), // AI adapters master 開關（reserved；主管道＝extension 橋接 FR-39）
+  SERPAPI_AI_MODE_ENABLED: Joi.boolean().default(false), // google_ai_mode engine per-engine 開關（AC-38.3，預設關）
+  SERPAPI_BING_COPILOT_ENABLED: Joi.boolean().default(false), // bing_copilot engine（AC-38.4，could，預設關）
   // AI Overview page_token 二次抓取時限（ms）；page_token <1min 過期 → 須 < 60000 留裕度（AC-38.1）。
   SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS: Joi.number().integer().min(1).less(60000).default(50000),
   // 每 job SerpAPI credit 預算上限（AIO 二次抓取最多 2 credits/query，NFR-18；超出不發送 → degrade）。
