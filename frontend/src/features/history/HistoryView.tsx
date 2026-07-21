@@ -8,6 +8,7 @@ import {
   type AnalysisStatus,
 } from '../../api/keywordAnalyses';
 import { config } from '../../config/env';
+import { formatDateTime } from '../../lib/datetime';
 import { EM_DASH, formatVolume } from '../../lib/keywordsTable';
 import { totalPages } from '../../lib/pagination';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
@@ -30,11 +31,6 @@ const STATUS_ZH: Readonly<Record<AnalysisStatus, string>> = {
 
 /** `all` sentinel → no status filter (send undefined). */
 type StatusFilter = AnalysisStatus | 'all';
-
-/** ISO → `YYYY-MM-DD HH:mm` (UTC, deterministic — no locale/timezone drift). */
-function formatWhen(iso: string | null): string {
-  return iso === null ? EM_DASH : `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
-}
 
 /** Non-empty seeds joined; empty → —. */
 function formatSeeds(seeds: readonly string[]): string {
@@ -160,10 +156,10 @@ function HistoryBody({
               <td className="px-3 py-2">{STATUS_ZH[row.status]}</td>
               <td className="px-3 py-2 text-white/60">{formatParams(row.params)}</td>
               <td className="px-3 py-2 font-mono text-xs tabular-nums text-white/60">
-                {formatWhen(row.createdAt)}
+                {formatDateTime(row.createdAt)}
               </td>
               <td className="px-3 py-2 font-mono text-xs tabular-nums text-white/60">
-                {formatWhen(row.finishedAt)}
+                {formatDateTime(row.finishedAt)}
               </td>
               <td className="px-3 py-2 text-right font-mono tabular-nums">
                 {formatVolume(row.count)}
