@@ -174,6 +174,22 @@ describe('TC-41 · fetchTopicsStatus (topics-scoped DB status → StatusFetch, M
     expect(await fetchTopicsStatus('id')).toEqual({ kind: 'ok', status: { status: 'partial' } });
   });
 
+  it('forwards a live progress snapshot so the poll fallback keeps the bar (§7; #643)', async () => {
+    server.use(
+      http.get('/api/v1/keyword-analyses/:id/topics', () =>
+        HttpResponse.json({
+          ...TOPICS,
+          status: 'running',
+          progress: { phase: 'labeling', percent: 60 },
+        }),
+      ),
+    );
+    expect(await fetchTopicsStatus('id')).toEqual({
+      kind: 'ok',
+      status: { status: 'running', progress: { phase: 'labeling', percent: 60 } },
+    });
+  });
+
   it('maps a 404 (no topics run) to not_found', async () => {
     server.use(
       http.get(

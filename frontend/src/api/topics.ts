@@ -3,6 +3,7 @@ import { api } from './client';
 import {
   ANALYSIS_STATUSES,
   ErrorResponseSchema,
+  parseJobProgress,
   type ErrorResponse,
   type StatusFetch,
 } from './keywordAnalyses';
@@ -142,6 +143,8 @@ export async function fetchTopics(id: string): Promise<FetchTopicsResult> {
  * {@link StatusFetch}, so the topics job's C3-confirm + poll fallback never settle
  * off the (already-terminal) MAIN analysis's status. 404 → not-found terminal; any
  * other non-2xx, or an unrecognised status string, → `unavailable` (keep polling).
+ * The run's live `progress` is FORWARDED (not dropped) so a poll fallback keeps the
+ * bar instead of blanking it to 0%/'準備中' (§7; #643).
  */
 export async function fetchTopicsStatus(id: string): Promise<StatusFetch> {
   const res = await fetchTopics(id);
@@ -152,5 +155,5 @@ export async function fetchTopicsStatus(id: string): Promise<StatusFetch> {
   if (!status) {
     return { kind: 'unavailable' };
   }
-  return { kind: 'ok', status: { status } };
+  return { kind: 'ok', status: { status, progress: parseJobProgress(res.topics.progress) } };
 }

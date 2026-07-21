@@ -199,6 +199,68 @@ describe('TC-10 · db_status (poll) transitions', () => {
   });
 });
 
+describe('TC-10 · db_status must not blank a healthy live progress (§7 resilience; #643)', () => {
+  // A running job whose live progress was established by SSE (e.g. 60% / 'labeling').
+  const liveRunning: JobState = {
+    status: 'running',
+    transport: 'poll',
+    progress: { phase: 'labeling', percent: 60 },
+    result: { count: 5 },
+    error: null,
+  };
+
+  it('keeps last-known progress when a running db_status carries null progress (poll before persist)', () => {
+    // The SSE→poll fallback fetches `GET :id` whose progress is not yet persisted
+    // (null). That transient blip must NOT wipe the known 60%/'labeling' back to
+    // null → 0%/'準備中' (Design §7: transient blip 不得 blank 健康 live view).
+    const s = jobReducer(liveRunning, {
+      type: 'db_status',
+      status: 'running',
+      progress: null,
+      result: null,
+      error: null,
+    });
+    expect(s.progress).toEqual({ phase: 'labeling', percent: 60 });
+    expect(s.status).toBe('running');
+    expect(s.transport).toBe('poll');
+  });
+
+  it('keeps last-known result when a running db_status carries null result', () => {
+    const s = jobReducer(liveRunning, {
+      type: 'db_status',
+      status: 'running',
+      progress: null,
+      result: null,
+      error: null,
+    });
+    expect(s.result).toEqual({ count: 5 });
+  });
+
+  it('still applies a REAL newer progress snapshot (preservation must not freeze real updates)', () => {
+    const s = jobReducer(liveRunning, {
+      type: 'db_status',
+      status: 'running',
+      progress: { phase: 'labeling', percent: 80 },
+      result: null,
+      error: null,
+    });
+    expect(s.progress).toEqual({ phase: 'labeling', percent: 80 });
+  });
+
+  it('a real terminal db_status still settles (completed) despite last-known preservation', () => {
+    const s = jobReducer(liveRunning, {
+      type: 'db_status',
+      status: 'completed',
+      progress: null,
+      result: { resultSnapshotId: 'snap', count: 12 },
+      error: null,
+    });
+    expect(s.status).toBe('completed');
+    expect(s.transport).toBe('none');
+    expect(s.result).toEqual({ resultSnapshotId: 'snap', count: 12 });
+  });
+});
+
 describe('TC-10 · SSE-broken → poll fallback (§7)', () => {
   it('sse_error switches the authoritative transport to poll (non-terminal)', () => {
     expect(run([progressEvt, { type: 'sse_error' }]).transport).toBe('poll');

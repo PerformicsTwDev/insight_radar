@@ -70,7 +70,7 @@ export async function createKeywordAnalysis(
  * result are lenient/null-safe (null → not补0). `features` is opaque to job
  * tracking (M4 gates own it) → passed through untyped.
  */
-const JobProgressBodySchema = z.object({
+export const JobProgressBodySchema = z.object({
   phase: z.string().optional(),
   percent: z.number().optional(),
   expanded: z.number().optional(),
@@ -89,6 +89,20 @@ export const JobStatusSchema = z.object({
   features: z.unknown().optional(),
 });
 export type KeywordAnalysisStatus = z.infer<typeof JobStatusSchema>;
+
+/**
+ * Parse a status endpoint's opaque `progress` payload into the shared
+ * {@link JobProgressBodySchema}-shaped snapshot, so sub-job status adapters (topics /
+ * journey / custom) can FORWARD live progress into `useJobTracking` instead of dropping
+ * it (#643). Returns `undefined` when the endpoint has no usable progress yet (null /
+ * missing / non-object body) — the reducer then keeps the last-known live progress
+ * rather than blanking it (§7). A real snapshot is forwarded verbatim so the poll
+ * fallback bar stays accurate.
+ */
+export function parseJobProgress(raw: unknown): z.infer<typeof JobProgressBodySchema> | undefined {
+  const parsed = JobProgressBodySchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /**
  * Result of fetching the authoritative DB status (`GET :id`). A **404 is

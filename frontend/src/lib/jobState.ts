@@ -217,8 +217,17 @@ export function jobReducer(state: JobState, event: JobEvent): JobState {
       return {
         status: event.status,
         transport: isTerminal(event.status) ? 'none' : state.transport,
-        progress: event.progress,
-        result: event.result,
+        // §7 resilience: a `db_status` (poll / C3-confirm) snapshot is a
+        // **supplement/correction** to the live view, not a fresh replacement. Its
+        // `progress`/`result` may legitimately be null — the SSE→poll fallback fetches
+        // `GET :id` while the worker has not yet persisted a progress row, and a still-
+        // running snapshot carries no result. Null there means "no update yet", NOT
+        // "clear it". Coalescing to the last-known value keeps a healthy live progress
+        // (e.g. 60%/'labeling') from snapping to null → 0%/'準備中' on a transient blip.
+        // A real newer snapshot (non-null) still overrides, and a terminal status still
+        // settles above — so this never freezes a genuine update (#643).
+        progress: event.progress ?? state.progress,
+        result: event.result ?? state.result,
         error: event.error,
       };
   }
