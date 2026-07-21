@@ -78,6 +78,28 @@ function applyCell(
 }
 
 /**
+ * Fail every still-`loading` cell with a retryable error, in one Map copy (C6, #648).
+ * A whole-job failure means no further per-cell `progress` frame will arrive, so a
+ * masked cell would otherwise spin forever — the sweep turns each into a `↺ 重試`
+ * affordance instead. Delegates to `aiCellReducer` (its `rejected` guard applies only
+ * while `loading`), so an already-`done`/`error`/`idle` cell keeps its exact object
+ * reference; the same Map is returned unchanged when nothing was loading (no churn).
+ */
+function failLoadingCells(
+  cells: ReadonlyMap<string, AiCellState>,
+): ReadonlyMap<string, AiCellState> {
+  let copy: Map<string, AiCellState> | null = null;
+  for (const [key, cell] of cells) {
+    const next = aiCellReducer(cell, { type: 'rejected', kind: 'unavailable' });
+    if (next !== cell) {
+      copy ??= new Map(cells);
+      copy.set(key, next);
+    }
+  }
+  return copy ?? cells;
+}
+
+/**
  * The batch reducer. Pure; every per-cell transition delegates to `aiCellReducer`
  * (so its guards — no double-fire, no reviving a settled cell — hold per key). Job
  * terminals only apply while running.
@@ -109,10 +131,19 @@ export function aiBatchReducer(state: AiBatchState, event: AiBatchEvent): AiBatc
     case 'job_completed':
       // A `completed` frame only arrives over the (running-only) stream.
       return state.job === 'running' ? { ...state, job: 'done' } : state;
-    case 'job_failed':
+    case 'job_failed': {
       // Fails from `idle` too — a start whose POST rejected never reaches `running`,
       // yet the header must show the whole-job error. A settled `done` never regresses.
-      return state.job === 'done' ? state : { ...state, job: 'error' };
+      if (state.job === 'done') return state;
+      // A whole-job failure (transport onerror / `failed` frame / SSE heartbeat
+      // staleness, C6) means no further per-cell frame will arrive → sweep any cell
+      // still masked loading to a retryable error so none spins forever (#648).
+      const cells = failLoadingCells(state.cells);
+      // Already-error with nothing left loading → stable no-op (the heartbeat interval
+      // may re-fire job_failed before its cleanup clears it; avoid needless re-renders).
+      if (state.job === 'error' && cells === state.cells) return state;
+      return { job: 'error', cells };
+    }
   }
 }
 

@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { config } from '../../config/env';
 import { server } from '../../api/msw/server';
 import { useAiIntentBatch } from './useAiIntentBatch';
 import type { EventSourceFactory, EventSourceLike } from '../job/useJobTracking';
@@ -51,6 +52,10 @@ class FakeEventSource implements EventSourceLike {
   }
   emitError(): void {
     this.onerror?.(new Event('error'));
+  }
+  emitComment(): void {
+    // A heartbeat comment (`: keep-alive`) is consumed by the SSE layer and never
+    // surfaced to named-event listeners — modelled as a no-op, mirroring the browser (C6).
   }
 }
 
@@ -269,5 +274,90 @@ describe('TC-28 · useAiIntentBatch — generateOne (single-cell path shares the
     });
 
     expect(result.current.cellStateFor(A)).toMatchObject({ status: 'error', errorKind: 'invalid' });
+  });
+});
+
+describe('TC-28 · useAiIntentBatch — SSE liveness / heartbeat staleness guard (#648, C6)', () => {
+  it('a silently-stalled stream (no events, no onerror) past the heartbeat timeout → job errors and cells stop spinning', async () => {
+    // A buffering proxy / idle-timeout LB can hold the SSE socket open yet deliver
+    // nothing and never fire `onerror`. Without a liveness guard the job stays 'running'
+    // and every masked cell spins forever (#648). Mirroring useJobTracking's C6 heartbeat,
+    // the batch must detect the silence and fail the whole job (no per-cell poll exists).
+    vi.useFakeTimers();
+    try {
+      const { result } = renderBatch([A, B]);
+      await act(async () => {
+        await result.current.startBatch();
+      });
+
+      // Precondition: the job is running and both cells are masked loading.
+      expect(result.current.job).toBe('running');
+      expect(result.current.cellStateFor(A).status).toBe('loading');
+      expect(result.current.cellStateFor(B).status).toBe('loading');
+      const es = FakeEventSource.last();
+
+      // The socket goes silent — no named event, no onerror — for longer than the timeout.
+      act(() => {
+        vi.advanceTimersByTime(config.sseHeartbeatTimeoutMs + config.pollIntervalMs);
+      });
+
+      // Staleness detected → whole-job error, the stream is torn down, and NO cell is
+      // left as a permanent spinner (each masked cell surfaces a retry instead).
+      expect(result.current.job).toBe('error');
+      expect(result.current.cellStateFor(A).status).toBe('error');
+      expect(result.current.cellStateFor(B).status).toBe('error');
+      expect(es.closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a live stream (progress frames arriving within each window) is never falsely marked stale', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderBatch([A, B]);
+      await act(async () => {
+        await result.current.startBatch();
+      });
+      const es = FakeEventSource.last();
+
+      // Each iteration: advance to just under the timeout, confirm still running, then a
+      // progress frame resets the liveness clock (a real batch streams per-cell frames).
+      for (const [key, summary] of [
+        [A, 'A 摘要'],
+        [B, 'B 摘要'],
+      ] as const) {
+        act(() => {
+          vi.advanceTimersByTime(config.sseHeartbeatTimeoutMs - config.pollIntervalMs);
+        });
+        expect(result.current.job).toBe('running'); // not stale — a frame kept it alive
+        act(() => es.emit('progress', { normalizedText: key, summary }));
+      }
+      act(() => {
+        vi.advanceTimersByTime(config.pollIntervalMs); // still within a fresh window
+      });
+
+      expect(result.current.job).toBe('running');
+      expect(result.current.cellStateFor(A).status).toBe('done');
+      expect(result.current.cellStateFor(B).status).toBe('done');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a heartbeat comment is dropped: not decoded as an event and never settles the job (C6)', async () => {
+    const { result } = renderBatch([A]);
+    await act(async () => {
+      await result.current.startBatch();
+    });
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+    const es = FakeEventSource.last();
+
+    act(() => es.emitComment());
+
+    // A `: keep-alive` comment is not a completed/failed frame → no transition, stream open.
+    expect(result.current.job).toBe('running');
+    expect(result.current.cellStateFor(A).status).toBe('loading');
+    expect(es.closed).toBe(false);
   });
 });
