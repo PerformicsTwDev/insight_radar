@@ -319,3 +319,100 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
     await waitFor(() => expect(screen.getByText(/尚無購買歷程資料/)).toBeInTheDocument());
   });
 });
+
+/**
+ * C3 regression (#644 — /code-review xhigh). The `partial` flag drives the FeatureGate
+ * "部分完成" notice, read from the **authoritative** run status (`GET :id/journey`). A
+ * partial run must NEVER be shown as complete (C3). The bug: the derivation defaulted
+ * `partial=false` whenever the run-status fetch was non-ok (a transient blip) or not yet
+ * resolved (loading) — silently downgrading a known/possibly-partial run to "complete"
+ * (notice dropped). The fix keeps the last-known status across a blip and stays
+ * conservative while unknown; only a DEFINITIVE non-partial status clears the notice.
+ */
+describe('TC-25 · partial-notice C3 on run-status blip / loading (#644)', () => {
+  /** Notice copy from FeatureGate's `ready` + partial branch — the C3 "not complete" tell. */
+  const PARTIAL_NOTICE = /其餘項目未能完成/;
+
+  /** Render capturing the QueryClient so a test can force a background refetch (a "blip"). */
+  function renderCapturingClient(features: unknown) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const utils = render(
+      <QueryClientProvider client={client}>
+        <JourneyView analysisId={ID} features={features} eventSourceFactory={factory} />
+      </QueryClientProvider>,
+    );
+    return { ...utils, client };
+  }
+
+  it('partial run, then a run-status refetch BLIP → keeps the partial notice (never shown as complete)', async () => {
+    // The run completes as *partial* (authoritative GET :id/journey) — the 表 renders and
+    // the notice shows. A later *background* refetch of the run status transiently fails.
+    // Regression: the derivation used to default partial→false on any non-ok fetch,
+    // dropping the notice → a partial run shown as complete (C3 violation). It must survive.
+    let runCall = 0;
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
+      http.get('/api/v1/keyword-analyses/:id/journey', () => {
+        runCall += 1;
+        return runCall === 1
+          ? HttpResponse.json(runBody('partial'))
+          : new HttpResponse(null, { status: 500 });
+      }),
+    );
+    const { client } = renderCapturingClient({ journey: { status: 'ready' } });
+
+    await waitFor(() => expect(screen.getByText('iphone 16 vs 15 pro')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(PARTIAL_NOTICE)).toBeInTheDocument());
+
+    // Force a background refetch of the run status — it now blips (500).
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['journey-run', ID] });
+    });
+    await waitFor(() => expect(runCall).toBeGreaterThanOrEqual(2));
+
+    // C3: a transient run-status failure must NOT downgrade partial→complete.
+    expect(screen.getByText(PARTIAL_NOTICE)).toBeInTheDocument();
+  });
+
+  it('completed run → shows NO partial notice (a true-complete run is not mislabelled partial)', async () => {
+    // Guard against over-correcting: once the authoritative status resolves non-partial,
+    // the notice must clear (the fix must not pin every run to "partial").
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
+    );
+    renderView({ journey: { status: 'ready' } });
+
+    await waitFor(() => expect(screen.getByText('iphone 16 vs 15 pro')).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(PARTIAL_NOTICE)).not.toBeInTheDocument());
+  });
+
+  it('run status still loading → does NOT claim complete (conservative until authoritative)', async () => {
+    // The 表 renders before the authoritative run status resolves. While the status is
+    // unknown, the view must not present the content as definitively complete (C3) — the
+    // notice stays until a non-partial status is confirmed, then clears.
+    let releaseRun!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
+      http.get('/api/v1/keyword-analyses/:id/journey', async () => {
+        await runGate;
+        return HttpResponse.json(runBody('completed'));
+      }),
+    );
+    renderView({ journey: { status: 'ready' } });
+
+    // Content is visible while the run status is still in flight…
+    await waitFor(() => expect(screen.getByText('iphone 16 vs 15 pro')).toBeInTheDocument());
+    // …and the view does NOT claim complete (notice shown while the status is unknown).
+    expect(screen.getByText(PARTIAL_NOTICE)).toBeInTheDocument();
+
+    // Once the authoritative status resolves as non-partial, the notice clears.
+    releaseRun();
+    await waitFor(() => expect(screen.queryByText(PARTIAL_NOTICE)).not.toBeInTheDocument());
+  });
+});

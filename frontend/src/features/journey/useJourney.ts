@@ -56,6 +56,9 @@ export interface UseJourney {
    * The journey run completed only partially — read from the **authoritative** run
    * status (`GET :id/journey`), not the stage 表 (which carries no status). Drives
    * the FeatureGate partial notice so a partial run is never shown as complete (C3).
+   * `false` **only** when the status is a definitively non-partial run; while the
+   * status is unknown (loading / a transient fetch blip) it stays `true` — the
+   * conservative side of C3 (never claim complete without an authoritative status, #644).
    */
   readonly partial: boolean;
   /** Start (or retry) the journey run — POST :id/journey, then track the job. */
@@ -101,13 +104,25 @@ export function useJourney(
 
   // Partial is read from the authoritative journey run status (`GET :id/journey`)
   // once ready — the stage 表 has no status field, so unlike topics we cannot read it
-  // off the content response. A fetch failure defaults partial=false (shown complete).
+  // off the content response. The queryFn THROWS on a non-ok fetch so TanStack Query
+  // retains the last-known-good `data` instead of overwriting a known 'partial' with a
+  // blip: a transient run-status failure must never downgrade partial→complete (C3, #644).
   const runQuery = useQuery({
     queryKey: ['journey-run', analysisId],
-    queryFn: () => fetchJourneyRun(analysisId),
+    queryFn: async () => {
+      const res = await fetchJourneyRun(analysisId);
+      if (!res.ok) throw new Error(`journey run status unavailable (${res.status})`);
+      return res.run;
+    },
     enabled: status === 'ready',
   });
-  const partial = runQuery.data?.ok ? runQuery.data.run.status === 'partial' : false;
+  // C3 (#644): `data` is the last-known-good run status — TanStack retains it across a
+  // blip (the throwing queryFn errors without clearing it), so `data` present covers both
+  // a definitive status AND a blip-after-success. It is `undefined` only while the status
+  // is still unknown (never resolved yet). Only a DEFINITIVE non-partial status downgrades
+  // to complete (partial=false); an unknown status stays conservative (`true`), since a
+  // possibly-partial run shown without the notice would be shown as complete, violating C3.
+  const partial = runQuery.data ? runQuery.data.status === 'partial' : true;
 
   // The start CTA stays clickable until the 202 lands (`override` flips to running only
   // after the POST resolves), so a fast double-click would enqueue a duplicate journey
