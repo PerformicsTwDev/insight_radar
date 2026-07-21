@@ -1,16 +1,36 @@
 import { EM_DASH } from './keywordsTable';
 
 /**
- * Backend UTC ISO instant (`…Z`) → `YYYY-MM-DD HH:mm` for display (issue #651).
+ * A backend UTC ISO instant (`…Z`) → `YYYY-MM-DD HH:mm` in the viewer's local
+ * timezone (issue #651). `new Date(iso)` parses the `Z` offset into the correct
+ * UTC instant, and `Intl.DateTimeFormat` renders it as that instant's local
+ * wall-clock — so a TW/UTC+8 analyst who ran an analysis at 20:34 local sees
+ * '20:34' (not the bare-sliced UTC '12:34'), with dates near midnight on the
+ * right calendar day.
  *
- * ⚠ red-first shell: this reproduces the bug being fixed — the ISO is
- * string-sliced, so a UTC instant is shown as a bare wall-clock with no
- * timezone conversion (a TW/UTC+8 analyst who ran an analysis at 20:34 local
- * sees '12:34', and dates near midnight land on the wrong calendar day). The
- * `timeZone` arg is accepted but ignored here; the green commit replaces this
- * body with an `Intl.DateTimeFormat` conversion to the target/local zone.
+ * The format is assembled from `formatToParts` (fixed `en-CA`, Latin digits,
+ * `h23` hour cycle) so it is `YYYY-MM-DD HH:mm` regardless of the runtime
+ * locale — only the timezone follows the viewer. `timeZone` defaults to the
+ * environment's resolved zone; tests pass it explicitly to stay deterministic.
+ *
+ * `null` / empty / malformed input → an em-dash fallback, never `Invalid Date`.
  */
 export function formatDateTime(iso: string | null, timeZone?: string): string {
-  void timeZone;
-  return iso === null ? EM_DASH : `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+  if (iso === null) return EM_DASH;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return EM_DASH;
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const field: Record<string, string> = {};
+  for (const part of parts) field[part.type] = part.value;
+  return `${field.year}-${field.month}-${field.day} ${field.hour}:${field.minute}`;
 }
