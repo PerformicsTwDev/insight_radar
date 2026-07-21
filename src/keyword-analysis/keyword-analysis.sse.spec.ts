@@ -22,6 +22,7 @@ function statusResponse(status: AnalysisStatus): AnalysisStatusResponse {
       serp: { status: 'not_generated' },
       topics: { status: 'not_generated' },
       journey: { status: 'not_generated' },
+      ai_search: { status: 'not_generated' },
     },
   };
 }

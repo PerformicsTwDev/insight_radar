@@ -1,3 +1,4 @@
+import { AI_SEARCH_VIEWS } from './ai-search-views';
 import { cpcHistogramView } from './cpc-histogram.view';
 import { intentDistributionView } from './intent-distribution.view';
 import { journeyFunnelView } from './journey-funnel.view';
@@ -17,12 +18,14 @@ export { cpcHistogramView } from './cpc-histogram.view';
 export { serpQuestionsView, intentTopicsView } from './placeholder-view';
 export { journeyView } from './journey.view';
 export { journeyFunnelView } from './journey-funnel.view';
+export { AI_SEARCH_VIEWS } from './ai-search-views';
 // 動態 view 工廠（`custom:{cid}`，T12.9）：**不**入 BUILTIN_VIEWS（per-cid、由 SnapshotQueryService 動態解析）。
 export { customView } from './custom.view';
 
 /**
  * 本期內建 view（新增 dashboard 表 = 在此多加一個 ViewDefinition，免新 endpoint / 免 migration）。
- * `serp_questions`（M7 SERP）/`intent_topics`（M8 分群）已註冊但其 compute 尚未實作 → 由 feature-gating 擋（AC-14.7）。
+ * `serp_questions`（M7 SERP）/`intent_topics`（M8 分群）/AI Search views（M15，`ai_search` feature）已註冊但其
+ * compute 尚未接線 → 由 feature-gating 擋（AC-14.7；AI views 之維度組裝/落庫讀取＝後續 slice #678）。
  */
 export const BUILTIN_VIEWS: ViewDefinition[] = [
   keywordsView,
@@ -33,6 +36,7 @@ export const BUILTIN_VIEWS: ViewDefinition[] = [
   intentTopicsView,
   journeyView,
   journeyFunnelView,
+  ...AI_SEARCH_VIEWS,
 ];
 
 /** 建立含所有內建 view 的登錄（供 QueryViewService / DI）。 */

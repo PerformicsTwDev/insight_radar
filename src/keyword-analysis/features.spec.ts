@@ -39,6 +39,12 @@ describe('computeFeatures (T6.8)', () => {
     expect(features.topics).toEqual({ status: 'not_generated' });
   });
 
+  it('ai_search is not_generated (AI Search compute not wired, M15/T15.6/#678)', () => {
+    // AI view（ai_answers/ai_cited_*/*_ai_visibility）依賴之 → gated placeholder（AC-44.2）；接線前恆 not_generated。
+    const features = computeFeatures({ status: 'completed', resultSnapshotId: 'snap-1' });
+    expect(features.ai_search).toEqual({ status: 'not_generated' });
+  });
+
   it('journey derives from the latest JourneyRun status (T12.6 / AC-33.6)', () => {
     const ready = { status: 'completed' as const, resultSnapshotId: 'snap-1' };
     const derive = (journeyStatus?: string) =>
