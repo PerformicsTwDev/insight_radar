@@ -7,7 +7,12 @@ import {
   type TrackingSeriesMember,
   type VolumeSeriesResponse,
 } from '../../api/trackingLists';
-import { rangeToFrom, type SeriesRange, type VolumeMemberInput } from '../../lib/volumeSeries';
+import {
+  formatFetchedAt,
+  rangeToFrom,
+  type SeriesRange,
+  type VolumeMemberInput,
+} from '../../lib/volumeSeries';
 import { trackingListErrorMessage } from '../../lib/trackingListError';
 import { formatVolume } from '../../lib/keywordsTable';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -95,14 +100,9 @@ export function TrackingDetailView({ listId }: TrackingDetailViewProps): ReactEl
       const res = await removeTrackingMember(listId, member.normalizedText);
       setRemovingMember(null);
       if (res.ok) {
-        setSeries((prev) =>
-          prev
-            ? {
-                ...prev,
-                members: prev.members.filter((m) => m.normalizedText !== member.normalizedText),
-              }
-            : prev,
-        );
+        // Refetch rather than mutate locally: removing a member also changes the aggregate
+        // `total` + `axis`, so a re-read keeps the chart consistent (server-truth).
+        await load();
       } else {
         setError(trackingListErrorMessage(res.status, undefined));
       }
@@ -159,12 +159,6 @@ export function TrackingDetailView({ listId }: TrackingDetailViewProps): ReactEl
   );
 }
 
-/** ISO → `YYYY-MM-DD` (UTC) for the addedAt column (mirrors the observation-label convention). */
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toISOString().slice(0, 10);
-}
-
 /** Member table: latest search volume · sparkline (reused) · addedAt · confirm-gated remove. */
 function MemberTable({
   members,
@@ -213,7 +207,7 @@ function MemberTable({
                     }))}
                   />
                 </td>
-                <td className="py-2 text-white/50">{formatDate(member.addedAt)}</td>
+                <td className="py-2 text-white/50">{formatFetchedAt(member.addedAt)}</td>
                 <td className="py-2 text-right">
                   <button
                     type="button"

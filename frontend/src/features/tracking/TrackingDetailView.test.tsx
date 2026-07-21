@@ -90,6 +90,16 @@ function seriesBody(overrides: Partial<Record<string, unknown>> = {}): Record<st
   };
 }
 
+/** Members of `body` minus the removed `normalizedText` (for the refetch-after-remove flow). */
+function remaining(
+  body: Record<string, unknown>,
+  normalizedText: string,
+): Record<string, unknown>[] {
+  return (body.members as Record<string, unknown>[]).filter(
+    (m) => m.normalizedText !== normalizedText,
+  );
+}
+
 /** Register `GET /:listId/series`, recording each request's `from` query param. */
 function withSeries(body: Record<string, unknown>): string[] {
   const froms: string[] = [];
@@ -200,16 +210,15 @@ describe('TC-30 · member table (latest volume / sparkline / addedAt / remove)',
     expect(within(row).getByRole('img', { name: '搜尋趨勢走勢' })).toBeInTheDocument();
   });
 
-  it('removes a member behind a confirm dialog (reuses removeTrackingMember)', async () => {
-    withSeries(seriesBody());
+  it('removes a member behind a confirm dialog then refetches the reduced series', async () => {
+    let current = seriesBody();
     let seenMember: string | undefined;
     server.use(
+      http.get(SERIES_ROUTE, () => HttpResponse.json(current, { status: 200 })),
       http.delete(MEMBER_ROUTE, ({ params }) => {
         seenMember = params.normalizedText as string;
-        return HttpResponse.json(
-          { listId: LIST_ID, normalizedText: 'running shoes' },
-          { status: 200 },
-        );
+        current = seriesBody({ members: remaining(current, params.normalizedText as string) });
+        return HttpResponse.json({ listId: LIST_ID, normalizedText: seenMember }, { status: 200 });
       }),
     );
     render(<TrackingDetailView listId={LIST_ID} />);
@@ -224,19 +233,63 @@ describe('TC-30 · member table (latest volume / sparkline / addedAt / remove)',
     expect(screen.getByText('Trail Shoes')).toBeInTheDocument(); // the other member stays
   });
 
-  it('collapses a rapid double member removal to exactly ONE DELETE (in-flight guard)', async () => {
+  it('shows an error and keeps the member when the removal fails (404)', async () => {
     withSeries(seriesBody());
+    server.use(http.delete(MEMBER_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    render(<TrackingDetailView listId={LIST_ID} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '移除 Running Shoes' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '確定移除' }),
+    );
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText('Running Shoes')).toBeInTheDocument(); // stays on failure
+  });
+
+  it('closes the confirm dialog on cancel without removing', async () => {
+    withSeries(seriesBody());
+    render(<TrackingDetailView listId={LIST_ID} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '移除 Running Shoes' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '取消' }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByText('Running Shoes')).toBeInTheDocument();
+  });
+
+  it('shows the empty-member hint when the list has no members', async () => {
+    withSeries(
+      seriesBody({
+        axis: [],
+        total: [],
+        members: [],
+        summary: { memberCount: 0, latestFetchedAt: null },
+      }),
+    );
+    render(<TrackingDetailView listId={LIST_ID} />);
+
+    expect(await screen.findByText('此清單尚無成員。')).toBeInTheDocument();
+    expect(screen.getByText('尚無時序資料')).toBeInTheDocument();
+  });
+
+  it('collapses a rapid double member removal to exactly ONE DELETE (in-flight guard)', async () => {
+    let current = seriesBody();
     let deleted = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     server.use(
-      http.delete(MEMBER_ROUTE, async () => {
+      http.get(SERIES_ROUTE, () => HttpResponse.json(current, { status: 200 })),
+      http.delete(MEMBER_ROUTE, async ({ params }) => {
         deleted += 1;
+        current = seriesBody({ members: remaining(current, params.normalizedText as string) });
         await gate;
         return HttpResponse.json(
-          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { listId: LIST_ID, normalizedText: params.normalizedText },
           { status: 200 },
         );
       }),
@@ -270,6 +323,15 @@ describe('TC-30 · manual refresh (POST /:listId/refresh, guarded)', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '重新整理搜量' }));
     await waitFor(() => expect(refreshed).toBe(1));
+  });
+
+  it('shows an error when the refresh enqueue fails (404)', async () => {
+    withSeries(seriesBody());
+    server.use(http.post(REFRESH_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    render(<TrackingDetailView listId={LIST_ID} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '重新整理搜量' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
 
   it('collapses a rapid double refresh to exactly ONE POST (in-flight guard)', async () => {
