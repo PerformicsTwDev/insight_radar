@@ -11,6 +11,7 @@ import {
   upsertTab,
   type CustomTab,
 } from '../../lib/customView';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState, ErrorState } from '../../components/StateViews';
 import { CustomClassifyJob } from './CustomClassifyJob';
 import { CustomClassifyModal } from './CustomClassifyModal';
@@ -38,10 +39,6 @@ const ADD_BTN =
   'rounded-lg px-3 py-1.5 text-sm font-medium text-brand ring-1 ring-brand/40 enabled:hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-40';
 const ACTIVE_TAB = 'px-3 py-1.5 text-sm text-white';
 const IDLE_TAB = 'px-3 py-1.5 text-sm text-white/50 hover:bg-white/5 hover:text-white';
-const SEC_BTN = 'rounded-lg px-4 py-2 text-sm text-white/70 ring-1 ring-white/10 hover:bg-white/5';
-const DANGER_BTN =
-  'rounded-lg bg-trend-negative/90 px-4 py-2 text-sm font-semibold text-white hover:bg-trend-negative';
-
 export interface CustomClassifyViewProps {
   readonly analysisId: string;
   /**
@@ -196,52 +193,17 @@ export function CustomClassifyView({
       ) : null}
 
       {deleting ? (
-        <ConfirmDeleteDialog
-          name={deleting.name}
+        // Confirm gate between a tab's ✕ and the destructive DELETE (no accidental
+        // removal). Reuses the shared accessible dialog (useFocusTrap: Esc-cancel, focus
+        // trapped + restored to the opener — NFR-7 / TC-24, #649).
+        <ConfirmDialog
+          title="刪除自訂分類"
+          body={`確定要刪除「${deleting.name}」分類嗎？此動作無法復原。`}
+          confirmLabel="刪除"
           onCancel={() => setDeleting(null)}
           onConfirm={() => void handleDelete(deleting)}
         />
       ) : null}
-    </div>
-  );
-}
-
-/** Confirm gate between a tab's ✕ and the destructive DELETE (no accidental removal). */
-function ConfirmDeleteDialog({
-  name,
-  onCancel,
-  onConfirm,
-}: {
-  name: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}): ReactElement {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="刪除自訂分類"
-      className="fixed inset-0 z-[100] flex items-center justify-center"
-    >
-      <div
-        onClick={onCancel}
-        aria-hidden="true"
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-      />
-      <div className="relative w-[92%] max-w-sm rounded-2xl bg-bg-card p-6 shadow-2xl ring-1 ring-white/10">
-        <h3 className="text-base font-bold text-white">刪除自訂分類</h3>
-        <p className="mt-2 text-sm leading-relaxed text-white/70">
-          確定要刪除「{name}」分類嗎？此動作無法復原。
-        </p>
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button type="button" onClick={onCancel} className={SEC_BTN}>
-            取消
-          </button>
-          <button type="button" onClick={onConfirm} className={DANGER_BTN}>
-            刪除
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

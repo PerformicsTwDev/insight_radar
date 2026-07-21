@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { server } from '../../api/msw/server';
+import { axe } from '../../test/axe';
 import { CustomClassifyView } from './CustomClassifyView';
 import type { EventSourceFactory, EventSourceLike } from '../job/useJobTracking';
 
@@ -376,6 +377,62 @@ describe('TC-26 · CustomClassifyView (stage two)', () => {
 
     await screen.findByRole('alert');
     expect(screen.queryByRole('button', { name: '競爭優勢' })).not.toBeInTheDocument();
+  });
+
+  // #649 (NFR-7 / TC-24) — the delete confirm must be a keyboard-accessible modal, exactly
+  // like the shared `ConfirmDialog`: Esc cancels, focus is trapped inside (Tab / Shift+Tab
+  // wrap) and restored to the opener on close, and axe finds no WCAG violation. The inline
+  // dialog shipped without `useFocusTrap` — keyboard / screen-reader users could Tab out of
+  // it, Esc did nothing, and closing it lost focus (the /code-review xhigh regression).
+  describe('#649 · delete confirm a11y (NFR-7)', () => {
+    async function openDeleteConfirm(): Promise<HTMLElement> {
+      renderView();
+      await createTab({ cid: CID1, name: '競爭優勢', label: '價格導向' });
+      const opener = screen.getByRole('button', { name: '刪除 競爭優勢 分類' });
+      opener.focus();
+      fireEvent.click(opener);
+      return opener;
+    }
+
+    it('cancels the delete on Escape (nothing deleted)', async () => {
+      await openDeleteConfirm();
+      expect(screen.getByRole('dialog', { name: '刪除自訂分類' })).toBeInTheDocument();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      expect(screen.queryByRole('dialog', { name: '刪除自訂分類' })).not.toBeInTheDocument();
+      // Esc is a cancel, not a delete — the tab survives.
+      expect(screen.getByRole('button', { name: '競爭優勢' })).toBeInTheDocument();
+    });
+
+    it('moves initial focus into the dialog (the cancel button)', async () => {
+      await openDeleteConfirm();
+      expect(screen.getByRole('button', { name: '取消' })).toHaveFocus();
+    });
+
+    it('traps Tab within the dialog (last → first, first → last)', async () => {
+      await openDeleteConfirm();
+      const confirm = screen.getByRole('button', { name: '刪除' });
+      const cancel = screen.getByRole('button', { name: '取消' });
+      confirm.focus();
+      fireEvent.keyDown(confirm, { key: 'Tab' });
+      expect(cancel).toHaveFocus();
+      fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true });
+      expect(confirm).toHaveFocus();
+    });
+
+    it('restores focus to the opener when the confirm closes', async () => {
+      const opener = await openDeleteConfirm();
+      // focus moved into the dialog on open…
+      expect(screen.getByRole('button', { name: '取消' })).toHaveFocus();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      // …and returns to the opener (the ✕ trigger) on close.
+      expect(opener).toHaveFocus();
+    });
+
+    it('has no axe violations', async () => {
+      await openDeleteConfirm();
+      const dialog = screen.getByRole('dialog', { name: '刪除自訂分類' });
+      expect(await axe(dialog)).toHaveNoViolations();
+    });
   });
 
   // #647 (FR-1 / AC-1.2 reopen) — a shared / reopened `?view=custom:{cid}` deep-link must
