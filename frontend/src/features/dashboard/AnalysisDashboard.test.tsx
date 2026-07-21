@@ -188,6 +188,80 @@ describe('AnalysisDashboard · readiness → content routing', () => {
 });
 
 /**
+ * §7 completed-view retain (review #645). Viewing a COMPLETED (viewable) analysis, the
+ * dashboard's own authoritative `GET :id` snapshot must survive a transient blip (a
+ * `refetchOnReconnect` / poll that briefly 5xx's → `getKeywordAnalysisStatus` resolves
+ * `{kind:'unavailable'}`). The snapshot query must RETAIN the last-known-good viewable
+ * snapshot across the blip instead of overwriting it — a transient failure must never
+ * blank the healthy view (to a full-page retry, or a stale 「分析進行中」panel) and must
+ * self-heal on the next good fetch. A definitive `not_found` (real 404) is NOT transient:
+ * it must still surface AnalysisNotFound (never masked by the retain).
+ */
+describe('AnalysisDashboard · §7 completed-view retain (#645)', () => {
+  it('keeps the completed table across a transient GET :id blip and self-heals', async () => {
+    let blip = false;
+    server.use(
+      http.get(STATUS_ROUTE, () =>
+        blip
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({ status: 'completed', features: {} }),
+      ),
+      http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+    );
+    const { queryClient } = renderDashboard();
+
+    // A reopened completed analysis → the healthy keywords table (no live job tracked).
+    expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
+
+    // A transient `GET :id` blip (e.g. refetchOnReconnect) resolves unavailable. The
+    // trailing tick flushes the observer's deferred re-render so a blanking dashboard
+    // has actually collapsed by the time we assert.
+    const pollOnce = async () =>
+      act(async () => {
+        await queryClient.refetchQueries({ queryKey: ['analysis-status', ANALYSIS_ID] });
+        await new Promise((r) => setTimeout(r, 0));
+      });
+    blip = true;
+    await pollOnce();
+
+    // Regression pin (§7): the healthy table persists — NOT blanked to a retry error or a
+    // 「分析進行中」panel.
+    expect(screen.getByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重試' })).not.toBeInTheDocument();
+    expect(screen.queryByText('分析進行中')).not.toBeInTheDocument();
+
+    // The next successful poll heals on its own — still the table.
+    blip = false;
+    await pollOnce();
+    expect(screen.getByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
+  });
+
+  it('a real GET :id 404 on a viewable dashboard still surfaces not-found (not retained away)', async () => {
+    let gone = false;
+    server.use(
+      http.get(STATUS_ROUTE, () =>
+        gone
+          ? new HttpResponse(null, { status: 404 })
+          : HttpResponse.json({ status: 'completed', features: {} }),
+      ),
+      http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+    );
+    const { queryClient } = renderDashboard();
+    expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
+
+    // A definitive 404 is NOT transient → it is not retained away; the gone id settles
+    // into the explicit not-found (FR-3), never a frozen table.
+    gone = true;
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['analysis-status', ANALYSIS_ID] });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(await screen.findByText('找不到分析')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: '搜尋詞總表' })).not.toBeInTheDocument();
+  });
+});
+
+/**
  * M6-R1 / TC-55 (FR-3 · NFR-3 · Design §7 「單一權威傳輸 / 訂閱去重」). A running analysis
  * tracked live via a healthy SSE stream must survive a transient `GET :id` blip: the
  * dashboard must NOT open a second, un-deduped poller that blanks the whole page
