@@ -21,6 +21,9 @@ concurrency:
 
 defaults:
   run:
+    # Pinned Playwright image defaults `run:` steps to `sh` (dash); force bash so
+    # `set -euo pipefail` in the commit step is valid.
+    shell: bash
     working-directory: frontend
 
 jobs:

@@ -1,24 +1,27 @@
 import { expect, test } from '@playwright/test';
+import { stubFullViews } from './support';
 
-// Visual-regression PLACEHOLDER (T0.3) — see ./README.md and
-// `.claude/rules/visual-regression.md`.
+// Visual regression — TC-52 (NFR-6, FR-2/14): the 首頁 create-analysis form.
+// See ./README.md and `.claude/rules/visual-regression.md`.
 //
-// One screenshot of the current boot-smoke shell so the visual runner is
-// exercisable now. Real mockup-golden baselines land at M6/T6.3 from
-// `docs/_p/uiux/*.html` (Search Insight v3/v4, keyword-tracking v2).
+// The app root `/` (no `analysisId`) renders the create-analysis form (HomeRoute) —
+// the app-shell landing golden. `/views` is stubbed so the dimension menu resolves
+// (no degraded notice); the form itself is static (no async / no timestamp), so the
+// `關鍵字分析` region is a deterministic screenshot target.
 //
-// Baselines live next to this file in `app.visual.spec.ts-snapshots/` and MUST
-// be generated inside `mcr.microsoft.com/playwright:v1.61.1-noble` (linux +
-// chromium) — never on macOS (cross-OS/arch AA flake). Real mockup-golden
-// baselines land at M6/T6.3.
-//
-// PLACEHOLDER: marked `fixme` so the visual runner is exercisable now WITHOUT a
-// standing red (no baseline exists yet, by design) — this keeps a future
-// `frontend.yml` visual job green until M6 rather than red for M1–M5. T6.3
-// un-fixmes this, generates the Docker baseline, and adds the real page shots.
-test.fixme('app shell matches visual baseline (baseline lands at M6/T6.3)', async ({ page }) => {
+// Baselines live next to this file in `app.visual.spec.ts-snapshots/` and are
+// generated + verified ONLY inside `mcr.microsoft.com/playwright:v1.61.1-noble`
+// (linux + chromium) — never on macOS / arm64 (cross-OS/arch sub-pixel AA is the
+// biggest flake source). A missing baseline is a hard red (rule §2); CI must not
+// auto-generate one — they are produced by the `visual-baseline.yml` workflow.
+test('首頁 create-analysis form matches visual baseline (TC-52)', async ({ page }) => {
+  await stubFullViews(page);
+
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-  await expect(page).toHaveScreenshot('app-shell.png');
+  // The create form + AI-ideation card region (URL has no analysis → HomeRoute form).
+  const home = page.getByRole('region', { name: '關鍵字分析' });
+  await expect(home.getByRole('form', { name: '建立分析' })).toBeVisible();
+
+  await expect(home).toHaveScreenshot('home-create-form.png');
 });
