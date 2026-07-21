@@ -231,3 +231,83 @@ export async function removeTrackingMember(
   if (response.ok) return { ok: true };
   return { ok: false, status: response.status, error: parseError(error) };
 }
+
+// ── Volume time-series + manual refresh (T5.6, FR-19; backend FR-30 · AC-30.1~30.5 · §9.2) ──
+//
+// Same openapi gap: `getSeries` (200) and `refreshList` (202) declare no response body
+// (`content: never`, #392 class), so the 200 series body is zod-validated here (honest
+// parse, not a cast) against the backend `VolumeSeriesResult` contract. The X axis is the
+// observation timepoint `fetchedAt` (metric-revision snapshots, §9.2 / S1 — NOT months);
+// a member's per-observation `series` is aligned to `axis` with `null` breaks at missing
+// points (AC-30.2, never 0), and an empty axis (no snapshots / none in range) is the
+// AC-30.3 empty state (`axis:[]`, `summary.latestFetchedAt:null`). Never throws — a 404
+// (unknown / not owner) or an invalid body degrades to `ok:false` with the status.
+
+/** One metric observation point (backend `SeriesPoint`; `fetchedAt` ISO, cpc single-valued). */
+const SeriesPointSchema = z.object({
+  fetchedAt: z.string(),
+  avgMonthlySearches: z.number().nullable(),
+  competition: z.string().nullable(),
+  cpc: z.number().nullable(),
+});
+
+/** One member's time-series (backend `MemberSeries`): basics + `latest` + axis-aligned `series`. */
+const TrackingSeriesMemberSchema = z.object({
+  normalizedText: z.string(),
+  text: z.string(),
+  addedAt: z.string(),
+  lastCheckedAt: z.string().nullable(),
+  latest: SeriesPointSchema.nullable(),
+  series: z.array(SeriesPointSchema),
+});
+export type TrackingSeriesMember = z.infer<typeof TrackingSeriesMemberSchema>;
+
+/** Full series response (backend `VolumeSeriesResult`; `list` carries no `createdAt`). */
+const VolumeSeriesResponseSchema = z.object({
+  list: z.object({
+    listId: z.string().min(1),
+    name: z.string(),
+    geo: z.string(),
+    language: z.string(),
+  }),
+  axis: z.array(z.string()),
+  total: z.array(z.number()),
+  members: z.array(TrackingSeriesMemberSchema),
+  summary: z.object({
+    memberCount: z.number(),
+    latestFetchedAt: z.string().nullable(),
+  }),
+});
+export type VolumeSeriesResponse = z.infer<typeof VolumeSeriesResponseSchema>;
+
+/** Chart-window bounds (ISO). Both optional; omitted = full history (`granularity` reserved). */
+export interface SeriesRangeQuery {
+  readonly from?: string;
+  readonly to?: string;
+}
+
+export type GetTrackingListSeriesResult =
+  | { readonly ok: true; readonly series: VolumeSeriesResponse }
+  | { readonly ok: false; readonly status: number };
+
+/**
+ * Load a list's volume time-series over the `fetchedAt` observation axis (AC-30.1~30.5).
+ * `from`/`to` bound only the chart window (member `latest` is the member's actual latest,
+ * unfiltered — #471-1). On 200 the openapi-untyped body is zod-validated to
+ * `VolumeSeriesResponse`; a 404 (unknown / not owner) or an invalid body degrades to `ok:false`.
+ */
+export async function getTrackingListSeries(
+  listId: string,
+  range: SeriesRangeQuery = {},
+): Promise<GetTrackingListSeriesResult> {
+  throw new Error(`not implemented: getTrackingListSeries(${listId}, ${JSON.stringify(range)})`);
+}
+
+/**
+ * Enqueue a manual refresh of the list's members (AC-29.6; per-list single-flight server-side).
+ * Success is confirmatory (202 `{ status:'queued' }`), so this returns `{ ok:true }`; a 404
+ * (unknown / not owner) degrades to `ok:false` with the status.
+ */
+export async function refreshTrackingList(listId: string): Promise<MutateTrackingListResult> {
+  throw new Error(`not implemented: refreshTrackingList(${listId})`);
+}
