@@ -12,7 +12,11 @@ export default defineConfig({
     // Vitest owns unit/component tests under `src/` ONLY. Playwright owns `e2e/`
     // (its own `test`/`expect` API); without this scope Vitest would try to run
     // the `e2e/**/*.spec.ts` Playwright specs and crash (T0.3).
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // `scripts/**/*.test.mjs` is included so node build-tooling (the openapi
+    // version-lock drift gate, T6.5/TC-38) is unit-tested under the same gate;
+    // scripts stay out of the coverage `include` below (src only), so they are
+    // coverage-neutral.
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'scripts/**/*.{test,spec}.mjs'],
     coverage: {
       provider: 'v8',
       // `json-summary` → coverage/coverage-summary.json，供 frontend.yml 的 coverage ratchet（對 main 基準）。
