@@ -166,4 +166,37 @@ describe('TC-30 · rangeToFrom (6M / 12M / all window)', () => {
   it('all → undefined (no lower bound)', () => {
     expect(rangeToFrom('all', NOW)).toBeUndefined();
   });
+
+  // #650 — month-end day-overflow: `setUTCMonth(getUTCMonth() - n)` alone rolls a
+  // day-of-month that the target month lacks forward into the NEXT month (Aug 31 →
+  // Feb 28 → Mar 3), drifting the window bound ~3 days and dropping/including a
+  // boundary snapshot. Semantics (least-surprise, no explicit spec): clamp the
+  // day-of-month to the target month's last valid day — the bound stays inside the
+  // intended month and never leaks into the next one. UTC-only.
+  describe('month-end boundary (#650) — no day-overflow into next month', () => {
+    it('6m from Aug 31 → clamps to Feb 28 (not Mar 3)', () => {
+      const augEnd = new Date('2026-08-31T00:00:00.000Z');
+      expect(rangeToFrom('6m', augEnd)).toBe('2026-02-28T00:00:00.000Z');
+    });
+
+    it('6m from May 31 → clamps to Nov 30 prior year (30-day month)', () => {
+      const mayEnd = new Date('2026-05-31T00:00:00.000Z');
+      expect(rangeToFrom('6m', mayEnd)).toBe('2025-11-30T00:00:00.000Z');
+    });
+
+    it('12m from leap-day Feb 29 → clamps to Feb 28 of the non-leap prior year', () => {
+      const leapDay = new Date('2024-02-29T00:00:00.000Z');
+      expect(rangeToFrom('12m', leapDay)).toBe('2023-02-28T00:00:00.000Z');
+    });
+
+    it('6m from Mar 31 → clamps to Sep 30 prior year (30-day month)', () => {
+      const marEnd = new Date('2026-03-31T00:00:00.000Z');
+      expect(rangeToFrom('6m', marEnd)).toBe('2025-09-30T00:00:00.000Z');
+    });
+
+    it('preserves UTC time-of-day components while clamping the date', () => {
+      const augEndNoon = new Date('2026-08-31T13:45:30.500Z');
+      expect(rangeToFrom('6m', augEndNoon)).toBe('2026-02-28T13:45:30.500Z');
+    });
+  });
 });
