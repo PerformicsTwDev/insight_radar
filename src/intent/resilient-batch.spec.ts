@@ -122,4 +122,38 @@ describe('resilientChunk (T12.5 shared skeleton / FR-4·FR-33 共用)', () => {
     });
     await expect(resilientChunk(['x'], callBatch)).rejects.toBeInstanceOf(BadRequestError);
   });
+
+  // T15.2：泛化輸入項型別 `I`（預設 string）——AI 回答分析線（品牌/情緒/媒體）以 id'd block 物件為輸入。
+  describe('generic input item type I (block objects, T15.2 AI-visibility 線)', () => {
+    interface Block {
+      id: string;
+      text: string;
+    }
+    const okBlocks = (chunk: Block[]): ParseChatResult<{ results: R[] }> => ({
+      parsed: { results: chunk.map((b) => ({ id: b.id })) },
+      refusal: null,
+    });
+
+    it('halves a batch of block objects on length error, then succeeds (needsReview typed as Block[])', async () => {
+      const calls: Block[][] = [];
+      const callBatch = (chunk: Block[]): Promise<ParseChatResult<{ results: R[] }>> => {
+        calls.push([...chunk]);
+        if (chunk.length > 2) throw new LengthFinishReasonError();
+        return Promise.resolve(okBlocks(chunk));
+      };
+      const blocks: Block[] = ['a', 'b', 'c', 'd'].map((id) => ({ id, text: `t-${id}` }));
+      const out = await resilientChunk<R, Block>(blocks, callBatch);
+      expect(out.collected.map((r) => r.id)).toEqual(['a', 'b', 'c', 'd']);
+      expect(calls[0]).toHaveLength(4);
+      expect(calls.slice(1).map((c) => c.length)).toEqual([2, 2]);
+    });
+
+    it('returns the failing block objects in needsReview on refusal', async () => {
+      const blocks: Block[] = [{ id: 'x', text: 't-x' }];
+      const out = await resilientChunk<R, Block>(blocks, () =>
+        Promise.resolve({ parsed: null, refusal: 'no' }),
+      );
+      expect(out.needsReview).toEqual(blocks); // 降級清單為輸入 block 物件，非字串
+    });
+  });
 });
