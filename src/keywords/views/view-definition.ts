@@ -72,19 +72,28 @@ export interface ChartViewResult {
   meta: { total: number; truncated: boolean };
 }
 
-export type ViewResult = TableViewResult | TrendViewResult | ChartViewResult;
+/**
+ * summary view（`*_summary` KPI score cards，FR-44/T15.6）：單列 KPI 卡片（物化指標聚合）。`metrics` 承
+ * `number|null`（缺值不補 0，S14 語意）。gated placeholder 期間 `build` 不被呼叫、回空 `{}`（待接線落值）。
+ */
+export interface SummaryViewResult {
+  view: string;
+  metrics: Record<string, number | null>;
+}
 
-/** view 內部結果判別（對映 `ViewResult` 三型）。metadata 對外以 `responseShape` 表述（AC-22.2）。 */
-export type ViewKind = 'table' | 'trend' | 'chart';
+export type ViewResult = TableViewResult | TrendViewResult | ChartViewResult | SummaryViewResult;
+
+/** view 內部結果判別（對映 `ViewResult` 四型）。metadata 對外以 `responseShape` 表述（AC-22.2）。 */
+export type ViewKind = 'table' | 'trend' | 'chart' | 'summary';
 
 /** 欄位型別（`ColumnDef.type`）。 */
 export type ColumnType = ColumnDef['type'];
 
 /**
- * 對外回應形狀（AC-22.2）：`ViewKind` 三型 ＋ 保留 `summary`（KPI 卡片，M12+ 物化指標 view；
- * 目前無 summary view，但契約先納入以利前端 codegen 前瞻）。
+ * 對外回應形狀（AC-22.2：`'table'|'trend'|'chart'|'summary'`）＝ `ViewKind` 本身（`summary`＝KPI 卡片，
+ * `*_summary` 物化指標 view，FR-44/T15.6 落地）。由 `ViewDefinition.kind` 導出（單一來源，NFR-10 閉環）。
  */
-export type ResponseShape = ViewKind | 'summary';
+export type ResponseShape = ViewKind;
 
 /** view 未指定 `requiresFeature` 時的預設 feature（既有 snapshot pipeline，snapshot 就緒即 ready）。 */
 export const DEFAULT_VIEW_FEATURE: FeatureKey = 'keyword_metrics';

@@ -58,6 +58,16 @@ describe('GET /api/v1/views 自省 (e2e · TC-55 部分 · FR-22/NFR-10)', () =>
         'keywords',
         'serp_questions',
         'trend',
+        // AI Search views 自動出現於 /views（NFR-10 閉環，T15.6/#679）。
+        'ai_answers',
+        'ai_cited_media',
+        'ai_cited_pages',
+        'brand_ai_visibility',
+        'intent_ai_visibility',
+        'journey_ai_visibility',
+        'brand_ai_visibility_summary',
+        'intent_ai_visibility_summary',
+        'journey_ai_visibility_summary',
       ].sort(),
     );
 
@@ -86,5 +96,16 @@ describe('GET /api/v1/views 自省 (e2e · TC-55 部分 · FR-22/NFR-10)', () =>
     expect(serp?.requiresFeature).toBe('serp');
     expect(serp?.allowedSelect.find((f) => f.key === 'estimatedImpressions')?.type).toBe('number');
     expect(body.views.find((v) => v.name === 'intent_topics')?.requiresFeature).toBe('topics');
+    // AI Search views（T15.6/#679）：gated placeholder，requiresFeature=ai_search；*_summary → responseShape=summary。
+    const aiAnswers = body.views.find((v) => v.name === 'ai_answers');
+    expect(aiAnswers?.requiresFeature).toBe('ai_search');
+    expect(aiAnswers?.responseShape).toBe('table');
+    expect(aiAnswers?.allowedSelect.find((f) => f.key === 'brands')?.type).toBe('array');
+    expect(body.views.find((v) => v.name === 'brand_ai_visibility_summary')?.responseShape).toBe(
+      'summary',
+    );
+    expect(body.views.find((v) => v.name === 'journey_ai_visibility')?.requiresFeature).toBe(
+      'ai_search',
+    );
   });
 });

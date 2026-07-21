@@ -1,7 +1,10 @@
 import type { SnapshotRowData } from '../../keyword-analysis/result-snapshot.checksum';
 import {
+  AI_SEARCH_VIEWS,
   type ChartViewResult,
+  FILTER_KEYS,
   type QueryRequest,
+  type SummaryViewResult,
   type TableViewResult,
   type TrendViewResult,
   type ViewContext,
@@ -42,17 +45,29 @@ function ctx(rows: SnapshotRowData[], request: QueryRequest): ViewContext {
 describe('ViewRegistry (T5.5 / FR-14 / NFR-10)', () => {
   const registry = createViewRegistry();
 
-  it('registers the built-in views (incl. gated serp_questions/intent_topics) and gets by name', () => {
-    expect(registry.names().sort()).toEqual([
-      'cpc_histogram',
-      'intent_distribution',
-      'intent_topics',
-      'journey',
-      'journey_funnel',
-      'keywords',
-      'serp_questions',
-      'trend',
-    ]);
+  it('registers the built-in views (incl. gated serp_questions/intent_topics/AI Search) and gets by name', () => {
+    expect(registry.names().sort()).toEqual(
+      [
+        'cpc_histogram',
+        'intent_distribution',
+        'intent_topics',
+        'journey',
+        'journey_funnel',
+        'keywords',
+        'serp_questions',
+        'trend',
+        // AI Search views（T15.6，`ai_search` feature；gated placeholder，#679/#678）。
+        'ai_answers',
+        'ai_cited_media',
+        'ai_cited_pages',
+        'brand_ai_visibility',
+        'intent_ai_visibility',
+        'journey_ai_visibility',
+        'brand_ai_visibility_summary',
+        'intent_ai_visibility_summary',
+        'journey_ai_visibility_summary',
+      ].sort(),
+    );
     expect(registry.get('keywords')?.name).toBe('keywords');
     expect(registry.has('trend')).toBe(true);
     // T6.8：未來 view 已註冊，宣告依賴 feature（gating 由 QueryViewService 依 features 判定）。
@@ -234,6 +249,51 @@ describe('placeholder views (serp_questions / intent_topics, T6.8)', () => {
     ) as TableViewResult;
     expect(topics.view).toBe('intent_topics');
     expect(topics.rows).toEqual([]);
+  });
+});
+
+describe('AI Search views (T15.6 / FR-44 / #679, gated placeholders)', () => {
+  it('all declare requiresFeature=ai_search + unified FilterSpec allowedFilters', () => {
+    expect(AI_SEARCH_VIEWS).toHaveLength(9);
+    for (const view of AI_SEARCH_VIEWS) {
+      expect(view.requiresFeature).toBe('ai_search');
+      // 統一 FilterSpec（INV-1/2）：allowedFilters 沿用同一份 FILTER_KEYS（非另抄）。
+      expect(view.allowedFilters).toEqual(FILTER_KEYS);
+    }
+  });
+
+  it('detail/visibility views build an empty typed table shell (gated until compute lands)', () => {
+    const tableViews = AI_SEARCH_VIEWS.filter((v) => v.kind === 'table');
+    expect(tableViews.map((v) => v.name)).toEqual([
+      'ai_answers',
+      'ai_cited_media',
+      'ai_cited_pages',
+      'brand_ai_visibility',
+      'intent_ai_visibility',
+      'journey_ai_visibility',
+    ]);
+    const answers = tableViews[0].build(ctx([srow()], { view: 'ai_answers' })) as TableViewResult;
+    expect(answers.view).toBe('ai_answers');
+    expect(answers.rows).toEqual([]);
+    expect(answers.pagination.total).toBe(0);
+    expect(answers.columns.find((c) => c.key === 'brands')?.type).toBe('array');
+    expect(answers.columns.find((c) => c.key === 'positive')?.type).toBe('number');
+  });
+
+  it('*_summary views build an empty KPI-cards shell (kind=summary → responseShape=summary)', () => {
+    const summaryViews = AI_SEARCH_VIEWS.filter((v) => v.kind === 'summary');
+    expect(summaryViews.map((v) => v.name)).toEqual([
+      'brand_ai_visibility_summary',
+      'intent_ai_visibility_summary',
+      'journey_ai_visibility_summary',
+    ]);
+    for (const view of summaryViews) {
+      expect(view.allowedSelect).toEqual([]);
+      expect(view.allowedSort).toEqual([]);
+      const res = view.build(ctx([srow()], { view: view.name })) as SummaryViewResult;
+      expect(res.view).toBe(view.name);
+      expect(res.metrics).toEqual({});
+    }
   });
 });
 

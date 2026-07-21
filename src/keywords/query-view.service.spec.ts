@@ -204,6 +204,7 @@ describe('QueryViewService feature-gating (T6.8 / AC-14.7)', () => {
     serp: { status: 'not_generated' },
     topics: { status: 'not_generated' },
     journey: { status: 'not_generated' },
+    ai_search: { status: 'not_generated' },
   };
 
   it('rejects a view whose required feature is not ready with 409 FEATURE_NOT_READY', () => {
@@ -214,6 +215,13 @@ describe('QueryViewService feature-gating (T6.8 / AC-14.7)', () => {
     expect(() => gated.query([], { view: 'intent_topics' }, LIMITS, FEATURES)).toThrow(
       FeatureNotReadyException,
     );
+    // AI Search views 需 ai_search（not_generated）→ gate（T15.6/#679）：明細表與 *_summary 皆擋。
+    expect(() => gated.query([], { view: 'ai_answers' }, LIMITS, FEATURES)).toThrow(
+      FeatureNotReadyException,
+    );
+    expect(() =>
+      gated.query([], { view: 'brand_ai_visibility_summary' }, LIMITS, FEATURES),
+    ).toThrow(FeatureNotReadyException);
   });
 
   it('allows a keyword_metrics view when that feature is ready', () => {
