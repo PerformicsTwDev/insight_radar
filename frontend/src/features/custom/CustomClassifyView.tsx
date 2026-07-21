@@ -4,7 +4,13 @@ import {
   startCustomClassifyAssign,
 } from '../../api/customClassifyAssign';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
-import { nextActiveCid, removeTab, upsertTab, type CustomTab } from '../../lib/customView';
+import {
+  deepLinkTab,
+  nextActiveCid,
+  removeTab,
+  upsertTab,
+  type CustomTab,
+} from '../../lib/customView';
 import { EmptyState, ErrorState } from '../../components/StateViews';
 import { CustomClassifyJob } from './CustomClassifyJob';
 import { CustomClassifyModal } from './CustomClassifyModal';
@@ -38,15 +44,30 @@ const DANGER_BTN =
 
 export interface CustomClassifyViewProps {
   readonly analysisId: string;
+  /**
+   * A `custom:{cid}` deep-link / reopen (AC-1.2, #647): the URL cid to restore. When
+   * present the view seeds — and activates — that classification's tab on mount, so a
+   * shared / reopened `?view=custom:{cid}` shows its 分類表 (off `POST /query
+   * {view:'custom:{cid}'}`), never the empty create-state. Absent (the normal T5.2 flow:
+   * create → job → dynamic tab) the view opens on the empty create-state as before.
+   */
+  readonly initialCid?: string;
   readonly eventSourceFactory?: EventSourceFactory;
 }
 
 export function CustomClassifyView({
   analysisId,
+  initialCid,
   eventSourceFactory,
 }: CustomClassifyViewProps): ReactElement {
-  const [tabs, setTabs] = useState<readonly CustomTab[]>([]);
-  const [activeCid, setActiveCid] = useState<string | null>(null);
+  // A `custom:{cid}` deep-link / reopen seeds — and activates — that classification's tab
+  // on MOUNT (lazy init, so there is no empty-create-state flash before the 分類表 shows).
+  // The single seed point is the `deepLinkTab` pure helper (#647); the normal T5.2 flow
+  // (no `initialCid`) still opens on the empty create-state. Tabs stay client state.
+  const [tabs, setTabs] = useState<readonly CustomTab[]>(() =>
+    initialCid ? [deepLinkTab(initialCid)] : [],
+  );
+  const [activeCid, setActiveCid] = useState<string | null>(initialCid ?? null);
   const [modalOpen, setModalOpen] = useState(false);
   // The classify run in flight (its tab is registered only once the job completes).
   const [pending, setPending] = useState<CustomTab | null>(null);

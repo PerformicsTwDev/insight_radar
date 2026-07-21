@@ -179,8 +179,44 @@ describe('ViewContent · registry-driven view resolution (FR-1 / AC-1.2)', () =>
   });
 
   it('renders the custom-classification view for view=custom:{cid}', async () => {
+    // A `custom:{cid}` deep-link seeds that cid's tab → its 分類表 fetches on mount
+    // (`POST /query {view:'custom:{cid}'}`); stub it so the mount does not hit MSW's
+    // unhandled-request guard. The add-entry is always present in the custom view.
+    server.use(
+      http.post(QUERY_ROUTE, () =>
+        HttpResponse.json({
+          view: 'custom:c-123',
+          columns: [{ key: 'text', label: '關鍵字', type: 'text' }],
+          rows: [],
+          pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
     renderView({ view: 'custom:c-123' });
     expect(await screen.findByRole('button', { name: '+ 新增自訂分類' })).toBeInTheDocument();
+  });
+
+  it('restores the classification 分類表 for a view=custom:{cid} reopen (AC-1.2, #647)', async () => {
+    // The FR-1/AC-1.2 reopen bug: resolveView yields {kind:'custom',cid} but the router
+    // dropped `cid`, so a shared / reopened `?view=custom:{cid}` showed the empty
+    // create-state instead of the classification's 表. The cid must thread through so the
+    // 表 (off `POST /query {view:'custom:{cid}'}`) restores.
+    server.use(
+      http.post(QUERY_ROUTE, () =>
+        HttpResponse.json({
+          view: 'custom:c-123',
+          columns: [
+            { key: 'text', label: '關鍵字', type: 'text' },
+            { key: 'label', label: '分類', type: 'text' },
+          ],
+          rows: [{ text: 'iphone 16', label: '價格導向' }],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
+    renderView({ view: 'custom:c-123' });
+    expect(await screen.findByText('iphone 16')).toBeInTheDocument();
+    expect(screen.queryByText(/尚未建立自訂分類/)).not.toBeInTheDocument();
   });
 
   it('renders a non-blank not-found state for an unknown-but-valid string view (FR-1)', async () => {

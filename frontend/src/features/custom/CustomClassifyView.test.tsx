@@ -66,13 +66,29 @@ function emptyTable(cid: string) {
   };
 }
 
-function renderView() {
+function renderView(opts: { initialCid?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <CustomClassifyView analysisId={ID} eventSourceFactory={factory} />
+      <CustomClassifyView
+        analysisId={ID}
+        initialCid={opts.initialCid}
+        eventSourceFactory={factory}
+      />
     </QueryClientProvider>,
   );
+}
+
+function customTable(cid: string, rows: Record<string, unknown>[]) {
+  return {
+    view: `custom:${cid}`,
+    columns: [
+      { key: 'text', label: '關鍵字', type: 'text' },
+      { key: 'label', label: '分類', type: 'text' },
+    ],
+    rows,
+    pagination: { total: rows.length, page: 1, pageSize: 25, cursor: null },
+  };
 }
 
 /** Drive the full stage-two happy path for one classification until its tab appears. */
@@ -360,5 +376,44 @@ describe('TC-26 · CustomClassifyView (stage two)', () => {
 
     await screen.findByRole('alert');
     expect(screen.queryByRole('button', { name: '競爭優勢' })).not.toBeInTheDocument();
+  });
+
+  // #647 (FR-1 / AC-1.2 reopen) — a shared / reopened `?view=custom:{cid}` deep-link must
+  // restore that classification's 分類表, not the empty create-state. Tabs are client state
+  // seeded on mount from the URL cid (the pipeline `POST /query {view:'custom:{cid}'}` was
+  // already there; only the URL cid was dropped before reaching it).
+  describe('#647 · custom:{cid} deep-link reopen (AC-1.2)', () => {
+    it('seeds the URL cid as the active tab and renders its 分類表 (not the empty create-state)', async () => {
+      server.use(
+        http.post('/api/v1/keyword-analyses/:id/query', () =>
+          HttpResponse.json(customTable(CID1, [{ text: 'iphone 16', label: '價格導向' }])),
+        ),
+      );
+      renderView({ initialCid: CID1 });
+
+      // The reopened classification's 表 renders straight away…
+      expect(await screen.findByText('iphone 16')).toBeInTheDocument();
+      // …and the seeded tab is the active one, deletable like any other.
+      expect(screen.getByRole('button', { name: '自訂分類' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      // …NOT the empty create-state (the #647 bug: cid was dropped → always create-state).
+      expect(screen.queryByText(/尚未建立自訂分類/)).not.toBeInTheDocument();
+    });
+
+    it('a deep-linked cid whose classification is gone falls back to a benign state, not the create-state', async () => {
+      server.use(
+        http.post(
+          '/api/v1/keyword-analyses/:id/query',
+          () => new HttpResponse(null, { status: 404 }),
+        ),
+      );
+      renderView({ initialCid: 'missing-cid' });
+
+      // A reasonable no-data status — never a crash, never the misleading create-state.
+      expect(await screen.findByText('尚無分類資料')).toBeInTheDocument();
+      expect(screen.queryByText(/尚未建立自訂分類/)).not.toBeInTheDocument();
+    });
   });
 });

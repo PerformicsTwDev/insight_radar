@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   customAssignStreamPath,
   customViewName,
+  deepLinkTab,
+  DEEP_LINK_TAB_NAME,
   nextActiveCid,
   removeTab,
   upsertTab,
@@ -21,6 +23,12 @@ const B: CustomTab = { cid: 'b', name: '使用情境' };
 describe('TC-26 · customViewName', () => {
   it('prefixes the classification id with `custom:` (the view-router view name)', () => {
     expect(customViewName('abc')).toBe('custom:abc');
+  });
+});
+
+describe('TC-26 · deepLinkTab (#647, AC-1.2 deep-link seed)', () => {
+  it('builds the single seed tab for a custom:{cid} deep-link cid (generic display name)', () => {
+    expect(deepLinkTab('abc')).toEqual({ cid: 'abc', name: DEEP_LINK_TAB_NAME });
   });
 });
 
