@@ -7,11 +7,13 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
+import { fetchTopicsStatus } from '../../api/topics';
 import { server } from '../../api/msw/server';
 import { deserialize } from '../../lib/urlState';
+import { useJobTracking } from '../job/useJobTracking';
 import { AnalysisDashboard } from './AnalysisDashboard';
 
 /**
@@ -291,6 +293,75 @@ describe('AnalysisDashboard · §7 single authoritative transport (M6-R1, TC-22)
       expect(
         await screen.findByRole('status', { name: '找不到分析' }, { timeout: 4000 }),
       ).toBeInTheDocument();
+    });
+  });
+
+  it('a sub-job (topics) settling not_found does NOT flip a viewable dashboard (key scope)', async () => {
+    await withFakeEventSource(async () => {
+      server.use(
+        http.get(STATUS_ROUTE, () => HttpResponse.json({ status: 'completed', features: {} })),
+        http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+        // The topics sub-resource is gone → fetchTopicsStatus maps its 404 → not_found.
+        http.get(
+          '/api/v1/keyword-analyses/:id/topics',
+          () => new HttpResponse(null, { status: 404 }),
+        ),
+      );
+
+      // A completed main analysis renders ViewContent; a topics sub-job tracker
+      // (streamPath 'topics/stream', same analysisId) shares the ONE QueryClient —
+      // exactly like IntentTopicsView inside ViewContent coexisting with the dashboard.
+      const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
+      const indexRoute = createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/',
+        component: () => <AnalysisDashboard analysisId={ANALYSIS_ID} />,
+      });
+      const router = createRouter({
+        routeTree: rootRoute.addChildren([indexRoute]),
+        history: createMemoryHistory({ initialEntries: ['/'] }),
+      });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      function TopicsSubJob(): null {
+        useJobTracking(ANALYSIS_ID, {
+          streamPath: 'topics/stream',
+          statusFetcher: fetchTopicsStatus,
+        });
+        return null;
+      }
+      render(
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+          <TopicsSubJob />
+        </QueryClientProvider>,
+      );
+
+      // The dashboard is viewable — the keywords table is shown.
+      expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
+
+      // The topics sub-job settles not_found (its confirm GET :id/topics 404s).
+      const es = FakeEventSource.last();
+      act(() => {
+        es.emitOpen();
+        es.emit('completed', { count: 0 });
+      });
+
+      // Wait until the sub-job's not_found has been mirrored into the shared cache
+      // (whichever key the code writes) — so the dashboard has had its chance to react.
+      await waitFor(() => {
+        const bare = queryClient.getQueryData<{ status?: string }>(['job', ANALYSIS_ID]);
+        const scoped = queryClient.getQueryData<{ status?: string }>([
+          'job',
+          ANALYSIS_ID,
+          'topics/stream',
+        ]);
+        expect(bare?.status ?? scoped?.status).toBe('not_found');
+      });
+
+      // Regression pin: a SUB-job's not_found must not blank the whole dashboard — the
+      // main analysis is fine, so its ViewContent (the 搜尋詞總表) must survive.
+      expect(screen.queryByText('找不到分析')).not.toBeInTheDocument();
+      expect(screen.getByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
     });
   });
 });
