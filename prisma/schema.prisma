@@ -458,3 +458,70 @@ model SocialPost {
   @@index([jobId, publishedAt])
   @@map("social_posts")
 }
+
+// ai_answers：AI 回答分析結果（T15.5，FR-42；Design §18.4）——`AiSearchCapture`（T14.6 抓取 job 合流落列）經三線
+// LLM pipeline（品牌抽取/情緒，T15.2/T15.3）分析後的 per-answer 衍生資料，供 T15.6 `ai_answers` view 讀取。
+// `brands`=該回答抽出的品牌提及（canonical names，**刻意不去重＝露出次數**，S17）；`positive`/`negative`=該回答對本品牌
+// 的褒/貶累計（**褒貶各自獨立**，S17，不 collapse）。`job_id`=AiSearchRun.id（沿用抓取 job，T15.5 落點決策）；
+// re-run 以 job_id clean-slate 保 idempotent（不重複落列）。`schema_version`=AI_VISIBILITY_SCHEMA_VERSION（分析層版本）。
+model AiAnswer {
+  id            String   @id @default(uuid()) @db.Uuid
+  ownerId       String?  @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  jobId         String   @map("job_id") @db.Uuid // = AiSearchRun.id（沿用抓取 job 落點）
+  channel       String // chatGpt|geminiApp|googleAiMode|googleSearch|aiOverview|aiMode|bingCopilot
+  query         String
+  answerText    String   @map("answer_text") // 攤平中立化 blocks 文字（ai_answers view 顯示）
+  brands        Json     @default("[]") // 品牌提及 canonical names（**不去重＝露出次數**，S17）
+  positive      Int      @default(0) // 本品牌褒（各自獨立累計，S17）
+  negative      Int      @default(0) // 本品牌貶
+  schemaVersion String   @map("schema_version") // AI_VISIBILITY_SCHEMA_VERSION（分析層）
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([jobId, channel])
+  @@map("ai_answers")
+}
+
+// ai_cited_references：AI 回答引用媒體分類結果（T15.5，FR-42/AC-42.3；Design §18.4）——per reference（domain→9-enum，
+// T15.3 media classifier）。供 T15.6 `ai_cited_media`（依 media_type 聚合佔比）+ `ai_cited_pages`（逐頁列表）兩 view 共用
+// 同一來源表（DRY）。`domain`=deriveDomain(link)（複用 SERP 線）；`media_type`∈ecommerce/retail/review/news/content/
+// blog/social/gov/other（非法/缺→other，不污染，AC-42.5）。job_id clean-slate re-run idempotent。
+model AiCitedReference {
+  id            String   @id @default(uuid()) @db.Uuid
+  ownerId       String?  @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  jobId         String   @map("job_id") @db.Uuid // = AiSearchRun.id
+  channel       String
+  query         String
+  link          String
+  domain        String // deriveDomain(link)（複用 SERP 線）
+  title         String?
+  mediaType     String   @map("media_type") // 9-enum（AC-42.3）
+  schemaVersion String   @map("schema_version") // AI_VISIBILITY_SCHEMA_VERSION（分析層）
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([jobId, channel])
+  @@map("ai_cited_references")
+}
+
+// ai_visibility_metrics：AI 可見度指標落庫（T15.5，FR-43；Design §18.4）——`buildAiVisibility`（T15.4 純函式）產出的
+// per (channel × dimension × group × brand) `AiVisibilityCell` 攤平落列，供 T15.6 `brand|intent|journey_ai_visibility`
+// （依 dimension 過濾）+ `*_summary`（聚合 KPI）view 讀取。`share_of_voice`=品牌提及÷全品牌提及總數（**分母 0→null**，
+// AC-43.2；分子 0 分母>0→真實 0）；`exposure`=範疇關鍵字 avgMonthlySearches 加總（**任一 null 不補 0、全缺→null**，
+// AC-43.1）。ratio/exposure 用 double（Float）避溢位、承 number|null 語意。job_id clean-slate re-run idempotent。
+model AiVisibilityMetric {
+  id            String   @id @default(uuid()) @db.Uuid
+  ownerId       String?  @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  jobId         String   @map("job_id") @db.Uuid // = AiSearchRun.id
+  channel       String
+  dimension     String // keyword | intent | journey（AC-43.3）
+  groupKey      String   @map("group_key") // 分組值：keyword 文字 / 意圖主題 / 購買歷程主題（"group" 為 SQL 保留字→改名）
+  brand         String
+  mentions      Int // 露出次數（**不去重**，S17）
+  shareOfVoice  Float?   @map("share_of_voice") // 分母 0→null（AC-43.2）；分子 0 分母>0→0
+  citations     Int // references 命中 BrandProfile.sites/domain 次數
+  exposure      Float? // avgMonthlySearches 加總（null 不補 0、全缺→null）
+  schemaVersion String   @map("schema_version") // AI_VISIBILITY_SCHEMA_VERSION（分析層）
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([jobId, dimension, channel])
+  @@map("ai_visibility_metrics")
+}
