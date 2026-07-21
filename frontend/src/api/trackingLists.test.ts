@@ -145,6 +145,16 @@ describe('TC-29 · addTrackingMembers (POST /:listId/members)', () => {
     expect(await addTrackingMembers(LIST_ID, [kw('a')])).toEqual({ ok: false, status: 404 });
   });
 
+  it('carries the ErrorResponse body on a 409 (member cap) so callers can split the two causes', async () => {
+    const error = {
+      statusCode: 409,
+      code: 'CONFLICT',
+      message: 'Tracking list member limit reached (max 500)',
+    };
+    server.use(http.post(MEMBERS_ROUTE, () => HttpResponse.json(error, { status: 409 })));
+    expect(await addTrackingMembers(LIST_ID, [kw('a')])).toEqual({ ok: false, status: 409, error });
+  });
+
   it('degrades to ok:false when the 200 body is not a valid result', async () => {
     server.use(http.post(MEMBERS_ROUTE, () => HttpResponse.json({ added: 'x' }, { status: 200 })));
     expect(await addTrackingMembers(LIST_ID, [kw('a')])).toEqual({ ok: false, status: 200 });

@@ -44,3 +44,14 @@ export function trackingListErrorMessage(status: number, message?: string): stri
       return GENERIC;
   }
 }
+
+/**
+ * Narrow an `ErrorResponse.message` (`string | string[] | undefined`) to the single string
+ * {@link trackingListErrorMessage} consults to split the two 409 causes. Only a plain string
+ * can carry the `… limit reached …` cap signal; a validation `string[]` or an absent message
+ * maps to `undefined` (→ the default 409 = name collision). Colocated with the classifier so
+ * every tracking-list error surface (CRUD view + bulk bar) extracts the message ONE way.
+ */
+export function errorResponseMessage(error?: { message?: string | string[] }): string | undefined {
+  return typeof error?.message === 'string' ? error.message : undefined;
+}
