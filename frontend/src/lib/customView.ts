@@ -18,6 +18,26 @@ export function customViewName(cid: string): string {
   return `custom:${cid}`;
 }
 
+/**
+ * Display name for a tab seeded from a `custom:{cid}` deep-link / reopen (AC-1.2, #647).
+ * A shared / reopened `?view=custom:{cid}` URL carries only the cid, and the backend
+ * exposes no GET-classification-metadata endpoint (the `POST /query` custom-view body
+ * has no name field either), so the classification's real name is unknown until it is
+ * created in-session — a reopened deep-link labels its seeded tab generically. The 分類表
+ * content (the AC-1.2 "restore the same screen") still restores from the query.
+ */
+export const DEEP_LINK_TAB_NAME = '自訂分類';
+
+/**
+ * Build the single tab to seed an active view from a `custom:{cid}` deep-link (URL cid →
+ * active tab, #647). The ONE seed point the container reuses so a reopened deep-link
+ * shows the classification's 分類表, not the empty create-state.
+ */
+export function deepLinkTab(cid: string): CustomTab {
+  // RED shell (TDD) — implemented in the green step.
+  throw new Error(`not implemented: ${cid}`);
+}
+
 /** The analysis-scoped assignments SSE sub-path for `useJobTracking` (`buildStreamUrl`). */
 export function customAssignStreamPath(cid: string): string {
   return `custom-classifications/${cid}/assignments/stream`;

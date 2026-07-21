@@ -38,6 +38,14 @@ const DANGER_BTN =
 
 export interface CustomClassifyViewProps {
   readonly analysisId: string;
+  /**
+   * A `custom:{cid}` deep-link / reopen (AC-1.2, #647): the URL cid to restore. When
+   * present the view seeds — and activates — that classification's tab on mount, so a
+   * shared / reopened `?view=custom:{cid}` shows its 分類表 (off `POST /query
+   * {view:'custom:{cid}'}`), never the empty create-state. Absent (the normal T5.2 flow:
+   * create → job → dynamic tab) the view opens on the empty create-state as before.
+   */
+  readonly initialCid?: string;
   readonly eventSourceFactory?: EventSourceFactory;
 }
 
