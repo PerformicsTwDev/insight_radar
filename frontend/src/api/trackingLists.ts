@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { api } from './client';
+import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
 import { toMemberItems, type SelectionItem } from '../lib/selection';
 import type { components } from './schema';
 
@@ -116,4 +117,57 @@ export async function addTrackingMembers(
     return { ok: false, status: response.status };
   }
   return { ok: false, status: response.status };
+}
+
+// ── TC-40 red stubs — real bodies land in the green commit ────────────────────────────
+
+/** One tracking-list member (backend `TrackingListMemberView`; dates ISO over the wire). */
+const TrackingListMemberSchema = z.object({
+  normalizedText: z.string(),
+  text: z.string(),
+  addedAt: z.string(),
+  lastCheckedAt: z.string().nullable(),
+});
+export type TrackingListMember = z.infer<typeof TrackingListMemberSchema>;
+
+/** List detail (backend `TrackingListDetail`): metadata + member basics. */
+const TrackingListDetailSchema = TrackingListViewSchema.extend({
+  members: z.array(TrackingListMemberSchema),
+});
+export type TrackingListDetail = z.infer<typeof TrackingListDetailSchema>;
+
+export type GetTrackingListDetailResult =
+  | { readonly ok: true; readonly detail: TrackingListDetail }
+  | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
+
+export type RenameTrackingListResult =
+  | { readonly ok: true; readonly list: TrackingListView }
+  | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
+
+export type MutateTrackingListResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
+
+export async function getTrackingListDetail(
+  _listId: string,
+): Promise<GetTrackingListDetailResult> {
+  return { ok: false, status: 0 };
+}
+
+export async function renameTrackingList(
+  _listId: string,
+  _name: string,
+): Promise<RenameTrackingListResult> {
+  return { ok: false, status: 0 };
+}
+
+export async function deleteTrackingList(_listId: string): Promise<MutateTrackingListResult> {
+  return { ok: false, status: 0 };
+}
+
+export async function removeTrackingMember(
+  _listId: string,
+  _normalizedText: string,
+): Promise<MutateTrackingListResult> {
+  return { ok: false, status: 0 };
 }
