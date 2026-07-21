@@ -82,13 +82,14 @@ function build(opts: BuildOpts = {}) {
 
   // T15.5 分析 stage stub：抓取 processor 只關心其回傳的 `needsReview`（→ partial 收斂）；分析編排/持久化
   // 由 ai-analysis.service.spec / ai-analysis-job.int-spec 獨立把關（不在此重測）。
-  const analyzeAndPersist = jest.fn(() =>
-    Promise.resolve({
-      answersCount: 0,
-      citedCount: 0,
-      metricsCount: 0,
-      needsReview: opts.analysisNeedsReview ?? 0,
-    }),
+  const analyzeAndPersist = jest.fn(
+    (_input: { jobId: string; brandProfileId: string | null; captures: AiSearchCanonical[] }) =>
+      Promise.resolve({
+        answersCount: 0,
+        citedCount: 0,
+        metricsCount: 0,
+        needsReview: opts.analysisNeedsReview ?? 0,
+      }),
   );
   const aiAnalysis = { analyzeAndPersist } as unknown as AiAnalysisService;
 
@@ -190,6 +191,42 @@ describe('TC-77: AiSearchProcessor', () => {
       const { j } = makeJob({ channels: ['chatGpt', 'googleSearch'] });
       const result = await processor.process(j);
       expect(result.status).toBe('partial');
+      expect(markStatus).toHaveBeenLastCalledWith('run-1', 'partial', { captureCount: 1 });
+    });
+
+    it('runs the T15.5 analysis stage with the merged captures + brandProfileId (jobId=runId)', async () => {
+      const { processor, analyzeAndPersist } = build({
+        aiOverviews: [
+          {
+            query: 'asus zenbook',
+            aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+            creditsUsed: 1,
+          },
+        ],
+      });
+      const { j } = makeJob({ channels: ['aiOverview'], brandProfileId: 'bp-7' });
+      await processor.process(j);
+      const arg = analyzeAndPersist.mock.calls[0][0];
+      expect(arg.jobId).toBe('run-1');
+      expect(arg.brandProfileId).toBe('bp-7');
+      expect(arg.captures).toHaveLength(1);
+      expect(arg.captures[0].channel).toBe('aiOverview');
+    });
+
+    it('marks partial when analysis degrades (needsReview>0) even though all channels are covered (AC-42.5)', async () => {
+      const { processor, markStatus } = build({
+        aiOverviews: [
+          {
+            query: 'asus zenbook',
+            aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+            creditsUsed: 1,
+          },
+        ],
+        analysisNeedsReview: 3, // some query/line LLM degraded
+      });
+      const { j } = makeJob({ channels: ['aiOverview'] });
+      const result = await processor.process(j);
+      expect(result.status).toBe('partial'); // fetch fully covered, but analysis degraded → partial
       expect(markStatus).toHaveBeenLastCalledWith('run-1', 'partial', { captureCount: 1 });
     });
 
