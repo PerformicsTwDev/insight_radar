@@ -1,0 +1,133 @@
+import type { components } from '../api/schema';
+import { normalizeSeed } from './aiIdeation';
+
+/**
+ * Tracking-list selection + dedupe pure helpers (T5.4, FR-19; Design §13.4 correctness
+ * point C7). **No React / no IO** → core `src/lib/**` (≥90% coverage gate). The dedupe
+ * key is the canonical `normalizedText` — the SAME `normalizeSeed` single point the
+ * backend, cache, AI-ideation, and the bulk selection set share (C7/S4:
+ * `NFKC→trim→collapse→lowercase`) — so a keyword picked in two views under different
+ * case / fullwidth / whitespace is one selection, never a rowIdx (which drifts across
+ * filtering / paging). A topic row **flattens** into its member keywords and unions with
+ * the picked keywords, deduped by `normalizedText`, so a member equal to a picked keyword
+ * counts once (AC-19.1).
+ */
+
+/** `AddMembersDto` member — bound to the generated openapi DTO (drift → compile error). */
+export type MemberItemDto = components['schemas']['MemberItemDto'];
+
+/** A picked keyword row. `geo`/`language` = its source analysis context (list-layer fixation). */
+export interface KeywordSelection {
+  readonly kind: 'keyword';
+  readonly text: string;
+  readonly geo: string;
+  readonly language: string;
+  readonly analysisId?: string;
+}
+
+/**
+ * A picked topic row. Carries its member keyword texts so the bulk bar can show the
+ * deduped 搜尋詞 count client-side; the server re-expands the topic to the latest run's
+ * non-noise keywords on add, so only `analysisId` + `topicName` go over the wire.
+ */
+export interface TopicSelection {
+  readonly kind: 'topic';
+  readonly analysisId: string;
+  readonly topicName: string;
+  readonly geo: string;
+  readonly language: string;
+  readonly members: readonly string[];
+}
+
+export type SelectionItem = KeywordSelection | TopicSelection;
+
+/** NUL — outside any `normalizeSeed` output, so it segments a key without collision. */
+const SEP = '\u0000';
+
+/**
+ * The selection-set identity key (C7). A keyword keys by its `normalizedText`, so
+ * case/width/whitespace variants collapse to one selection; a topic keys by its source
+ * `analysisId` + normalized `topicName`, so it never collides with a keyword of the same
+ * text nor with the same-named topic of another run.
+ */
+export function selectionKey(item: SelectionItem): string {
+  return item.kind === 'keyword'
+    ? `keyword${SEP}${normalizeSeed(item.text)}`
+    : `topic${SEP}${item.analysisId}${SEP}${normalizeSeed(item.topicName)}`;
+}
+
+/**
+ * Toggle an item in/out of the selection by its {@link selectionKey}: a re-pick of an
+ * already-selected item (even under a different case / row) removes it; an unseen item is
+ * appended (order-stable accumulation across views). Pure — returns a new array.
+ */
+export function toggleSelection(
+  items: readonly SelectionItem[],
+  item: SelectionItem,
+): SelectionItem[] {
+  const key = selectionKey(item);
+  const index = items.findIndex((existing) => selectionKey(existing) === key);
+  if (index >= 0) {
+    return items.filter((_, i) => i !== index);
+  }
+  return [...items, item];
+}
+
+/**
+ * Flatten the selection to its unique search terms (AC-19.1): expand each topic to its
+ * member keywords, union with the picked keywords, and dedupe by `normalizedText`,
+ * order-stable. Empty / whitespace-only members are dropped. Returns the normalized keys
+ * (the canonical dedupe representation).
+ */
+export function expandToSearchTerms(items: readonly SelectionItem[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const texts = item.kind === 'keyword' ? [item.text] : item.members;
+    for (const raw of texts) {
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) continue;
+      const key = normalizeSeed(trimmed);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+/** The deduped 搜尋詞 count the bulk bar shows (`|expandToSearchTerms|`). */
+export function dedupedSearchTermCount(items: readonly SelectionItem[]): number {
+  return expandToSearchTerms(items).length;
+}
+
+/**
+ * The shared (geo, language) context of the selection, or `null` when the selection is
+ * empty or spans mixed contexts. A tracking list fixes (geo, language) at its layer
+ * (backend AC-28.5), so a new list can only be seeded from a single-context selection —
+ * a mismatch is the same 400 the backend enforces on add.
+ */
+export function selectionContext(
+  items: readonly SelectionItem[],
+): { geo: string; language: string } | null {
+  const first = items[0];
+  if (!first) return null;
+  for (const item of items) {
+    if (item.geo !== first.geo || item.language !== first.language) return null;
+  }
+  return { geo: first.geo, language: first.language };
+}
+
+/**
+ * Map the selection to the `AddMembersDto.items` payload (contract-shaped): a keyword
+ * carries `text` + `geo` + `language` (the server derives its `normalizedText`), a topic
+ * carries `analysisId` + `topicName` (the server expands it to the latest run's non-noise
+ * keywords). Order-stable.
+ */
+export function toMemberItems(items: readonly SelectionItem[]): MemberItemDto[] {
+  return items.map((item) =>
+    item.kind === 'keyword'
+      ? { kind: 'keyword', text: item.text, geo: item.geo, language: item.language }
+      : { kind: 'topic', analysisId: item.analysisId, topicName: item.topicName },
+  );
+}
