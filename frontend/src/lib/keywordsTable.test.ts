@@ -85,9 +85,27 @@ describe('TC-15 · keywordsTable formatters (null → — 不補 0, C12)', () =>
       expect(resolveIntent('commercial')).toEqual({ zh: '商業型', color: '#52b788' });
     });
 
+    it('resolves all four intent enums to their C2 zh label + token color', () => {
+      expect(resolveIntent('informational')).toEqual({ zh: '資訊型', color: '#5BC0EB' });
+      expect(resolveIntent('commercial')).toEqual({ zh: '商業型', color: '#52b788' });
+      expect(resolveIntent('transactional')).toEqual({ zh: '交易型', color: '#FFD166' });
+      expect(resolveIntent('navigational')).toEqual({ zh: '導航型', color: '#B088EE' });
+    });
+
     it('falls back to the raw label with no color for an unknown intent', () => {
       expect(resolveIntent('mystery')).toEqual({ zh: 'mystery', color: null });
     });
+
+    // #652 (defensive): the label indexes a plain object, whose prototype chain
+    // exposes Object.prototype members. A reserved-name label must NOT resolve to
+    // an inherited member (which is truthy → would render {zh:undefined}='undefined')
+    // — it falls back to the raw label like any other unknown intent.
+    it.each(['constructor', 'toString', 'hasOwnProperty', 'valueOf', 'isPrototypeOf'])(
+      'falls back to the raw label for the reserved name "%s" (no prototype leak)',
+      (label) => {
+        expect(resolveIntent(label)).toEqual({ zh: label, color: null });
+      },
+    );
   });
 
   describe('shouldVirtualize', () => {

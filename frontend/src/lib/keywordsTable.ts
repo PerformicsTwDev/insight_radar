@@ -60,7 +60,13 @@ export function formatCompetition(competition: string, index: number | null): st
 
 /** Intent label → zh + token color (C2 SSOT); unknown → raw label, no color. */
 export function resolveIntent(label: string): IntentDisplay {
-  const meta: IntentMeta | undefined = (intentMap as Record<string, IntentMeta | undefined>)[label];
+  // `Object.hasOwn` guards the plain-object lookup: a reserved-name label
+  // (constructor / toString / hasOwnProperty …) would otherwise resolve to an
+  // inherited Object.prototype member (truthy) and render {zh:undefined} as the
+  // literal 'undefined' instead of falling back to the raw label (defensive).
+  const meta: IntentMeta | undefined = Object.hasOwn(intentMap, label)
+    ? (intentMap as Record<string, IntentMeta>)[label]
+    : undefined;
   return meta ? { zh: meta.zh, color: meta.color } : { zh: label, color: null };
 }
 
