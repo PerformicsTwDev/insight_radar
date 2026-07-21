@@ -3,6 +3,8 @@ import { RootLayout } from './components/RootLayout';
 import { LoginRoute } from './features/auth/LoginRoute';
 import { HistoryView } from './features/history/HistoryView';
 import { HomeRoute } from './features/home/HomeRoute';
+import { TrackingDetailRoute } from './features/tracking/TrackingDetailRoute';
+import { TrackingListsRoute } from './features/tracking/TrackingListsRoute';
 import { deserialize } from './lib/urlState';
 
 /**
@@ -42,7 +44,28 @@ const historyRoute = createRoute({
   component: HistoryView,
 });
 
-export const routeTree = rootRoute.addChildren([indexRoute, loginRoute, historyRoute]);
+// Tracking lists (T5.7, FR-19) — a cross-analysis GLOBAL resource, so it gets its own
+// top-level entry (nav Link in RootLayout). `/tracking` is the management list; a row's
+// 開啟 deep-links to `/tracking/$listId`, the list's volume time-series detail.
+const trackingListsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tracking',
+  component: TrackingListsRoute,
+});
+
+const trackingDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tracking/$listId',
+  component: TrackingDetailRoute,
+});
+
+export const routeTree = rootRoute.addChildren([
+  indexRoute,
+  loginRoute,
+  historyRoute,
+  trackingListsRoute,
+  trackingDetailRoute,
+]);
 
 export const router = createRouter({ routeTree });
 
