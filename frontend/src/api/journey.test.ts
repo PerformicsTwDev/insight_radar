@@ -122,6 +122,22 @@ describe('TC-42 · fetchJourneyStatus (journey-scoped DB status → StatusFetch)
     expect(await fetchJourneyStatus(ID)).toEqual({ kind: 'ok', status: { status: 'partial' } });
   });
 
+  it('forwards a live progress snapshot so the poll fallback keeps the bar (§7; #643)', async () => {
+    server.use(
+      http.get(GET_PATH, () =>
+        HttpResponse.json({
+          ...RUN,
+          status: 'running',
+          progress: { phase: 'classifying', percent: 40 },
+        }),
+      ),
+    );
+    expect(await fetchJourneyStatus(ID)).toEqual({
+      kind: 'ok',
+      status: { status: 'running', progress: { phase: 'classifying', percent: 40 } },
+    });
+  });
+
   it('maps a 404 (no journey run) to not_found', async () => {
     server.use(http.get(GET_PATH, () => new HttpResponse(null, { status: 404 })));
     expect(await fetchJourneyStatus(ID)).toEqual({ kind: 'not_found' });

@@ -119,6 +119,22 @@ describe('TC-42 · fetchCustomClassifyAssignStatus (→ StatusFetch for useJobTr
     });
   });
 
+  it('forwards a live progress snapshot so the poll fallback keeps the bar (§7; #643)', async () => {
+    server.use(
+      http.get(ASSIGN_ROUTE, () =>
+        HttpResponse.json({
+          ...RUN_BODY,
+          status: 'running',
+          progress: { phase: 'assigning', percent: 60 },
+        }),
+      ),
+    );
+    expect(await fetchCustomClassifyAssignStatus(ID, CID)).toEqual({
+      kind: 'ok',
+      status: { status: 'running', progress: { phase: 'assigning', percent: 60 } },
+    });
+  });
+
   it('maps a 404 (no run) to not_found', async () => {
     server.use(http.get(ASSIGN_ROUTE, () => new HttpResponse(null, { status: 404 })));
     expect(await fetchCustomClassifyAssignStatus(ID, CID)).toEqual({ kind: 'not_found' });
