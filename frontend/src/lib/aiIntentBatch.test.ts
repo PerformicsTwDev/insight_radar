@@ -138,6 +138,49 @@ describe('TC-28 · aiBatchReducer — job lifecycle', () => {
   });
 });
 
+describe('TC-28 · aiBatchReducer — a whole-job failure never leaves a cell spinning (#648, C6)', () => {
+  it('job_failed while running sweeps every still-loading cell to a retryable error', () => {
+    // A silently-stalled stream (heartbeat staleness) / transport onerror / `failed`
+    // frame all settle the whole job — no further per-cell frame will ever arrive, so a
+    // masked cell must surface a retry instead of a spinner that loads forever (#648).
+    const running = aiBatchReducer(initialAiBatchState(), { type: 'start', keys: [A, B, C] });
+    const failed = aiBatchReducer(running, { type: 'job_failed' });
+
+    expect(failed.job).toBe('error');
+    for (const key of [A, B, C]) {
+      expect(cellStateOf(failed, key)).toEqual({
+        status: 'error',
+        summary: null,
+        errorKind: 'unavailable', // retryable — the user can re-run the column / that cell
+      });
+    }
+  });
+
+  it('job_failed leaves an already-resolved cell done — only the loading cells are swept', () => {
+    let s = aiBatchReducer(initialAiBatchState(), { type: 'start', keys: [A, B] });
+    s = aiBatchReducer(s, { type: 'cell_resolved', key: A, summary: 'A 摘要' });
+    const failed = aiBatchReducer(s, { type: 'job_failed' });
+
+    // A already delivered → stays done; B was still loading → swept to a retryable error.
+    expect(cellStateOf(failed, A)).toEqual({ status: 'done', summary: 'A 摘要', errorKind: null });
+    expect(cellStateOf(failed, B).status).toBe('error');
+  });
+
+  it('job_failed from idle stays a no-cell whole-job error (POST rejected, never masked a cell)', () => {
+    const failed = aiBatchReducer(initialAiBatchState(), { type: 'job_failed' });
+    expect(failed.job).toBe('error');
+    expect(failed.cells.size).toBe(0);
+  });
+
+  it('a repeat job_failed with nothing left loading is a stable no-op (no re-render churn)', () => {
+    const running = aiBatchReducer(initialAiBatchState(), { type: 'start', keys: [A] });
+    const failed = aiBatchReducer(running, { type: 'job_failed' });
+    // The heartbeat interval can fire job_failed again before its cleanup clears it; the
+    // second pass finds no loading cell and must return the SAME state (no churn / no loop).
+    expect(aiBatchReducer(failed, { type: 'job_failed' })).toBe(failed);
+  });
+});
+
 describe('TC-28 · toAiBatchCellEvent (pure per-cell SSE frame decoder)', () => {
   it('decodes a resolved frame → cell_resolved keyed on normalizedText', () => {
     expect(
