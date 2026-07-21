@@ -1,4 +1,4 @@
-import { Link, Outlet, useSearch } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useSearch } from '@tanstack/react-router';
 import { useUnauthorizedRedirect } from '../features/auth/unauthorizedRedirect';
 import { useViews } from '../features/views/useViews';
 import { AppShell } from './AppShell';
@@ -12,13 +12,27 @@ import { AppShell } from './AppShell';
  */
 export function RootLayout() {
   useUnauthorizedRedirect();
+  const navigate = useNavigate();
   const { registry, degraded } = useViews();
+  const analysisId = useSearch({ strict: false, select: (search) => search.analysisId });
   const activeView = useSearch({ strict: false, select: (search) => search.view });
+  // The dimension menu is interactive only when an analysis is in view: selecting a
+  // dimension navigates to `/` with the chosen `view` (URL is state, Design §5), which
+  // re-resolves the dashboard content (T6.0). Switching view starts a fresh page (the
+  // old page/cursor belong to the previous view's row set); filters carry over.
+  const onSelectView = analysisId
+    ? (view: string) =>
+        void navigate({
+          to: '/',
+          search: (prev) => ({ ...prev, view, page: undefined, cursor: undefined }),
+        })
+    : undefined;
   return (
     <AppShell
       dimensions={registry.navItems}
       activeView={activeView}
       degraded={degraded}
+      onSelectView={onSelectView}
       headerExtra={
         <div className="flex items-center gap-2">
           <Link

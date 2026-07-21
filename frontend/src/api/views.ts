@@ -48,7 +48,11 @@ export const ViewMetadataSchema = z.object({
   allowedFilters: z.array(z.string()),
   allowedSort: z.array(z.string()),
   responseShape: z.enum(['table', 'trend', 'chart', 'summary']),
-  requiresFeature: z.enum(['keyword_metrics', 'serp', 'topics']),
+  // Mirrors backend `FEATURE_KEYS` (`keyword-analysis/features.ts`). `journey` is a
+  // shipped backend feature (the journey / journey_funnel views require it, T12.6) —
+  // it was missing here, so the whole-envelope parse degraded the entire registry to
+  // fallback whenever `GET /views` included a journey view (T6.0 drift fix, #443).
+  requiresFeature: z.enum(['keyword_metrics', 'serp', 'topics', 'journey']),
 });
 export type ViewMetadata = z.infer<typeof ViewMetadataSchema>;
 export type SelectField = z.infer<typeof SelectFieldSchema>;

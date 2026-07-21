@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { AppShell } from './AppShell';
 import type { ViewNavItem } from '../lib/viewRegistry';
 
@@ -67,5 +67,23 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
     render(<AppShell>content</AppShell>);
     // FALLBACK_REGISTRY includes the keywords view.
     expect(screen.getByRole('button', { name: '搜尋詞總表' })).toBeInTheDocument();
+  });
+
+  it('leaves the dimension menu disabled when no onSelectView is provided', () => {
+    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    expect(screen.getByRole('button', { name: '意圖分佈' })).toBeDisabled();
+  });
+
+  it('enables the dimension menu and reports the selected view when onSelectView is provided (T6.0)', () => {
+    const onSelectView = vi.fn();
+    render(
+      <AppShell dimensions={DIMS} onSelectView={onSelectView}>
+        content
+      </AppShell>,
+    );
+    const button = screen.getByRole('button', { name: '意圖分佈' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(onSelectView).toHaveBeenCalledWith('intent_distribution');
   });
 });
