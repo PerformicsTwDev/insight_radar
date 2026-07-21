@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
@@ -49,9 +49,18 @@ describe('TrendView · trend chart data wiring', () => {
     expect(await screen.findByRole('img', { name: '搜尋趨勢折線圖' })).toBeInTheDocument();
   });
 
-  it('shows an error + retry when the trend query fails', async () => {
-    server.use(http.post(QUERY_ROUTE, () => new HttpResponse(null, { status: 500 })));
+  it('shows an error + retry when the trend query fails, and recovers on retry', async () => {
+    let calls = 0;
+    server.use(
+      http.post(QUERY_ROUTE, () => {
+        calls += 1;
+        return calls === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({ view: 'trend', axis: ['2026-01'], total: [10], series: [] });
+      }),
+    );
     renderTrend();
-    expect(await screen.findByRole('button', { name: '重試' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '重試' }));
+    expect(await screen.findByRole('img', { name: '搜尋趨勢折線圖' })).toBeInTheDocument();
   });
 });

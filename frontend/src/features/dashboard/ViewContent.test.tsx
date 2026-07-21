@@ -9,10 +9,20 @@ import {
 } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
 import { deserialize } from '../../lib/urlState';
 import { ViewContent, type ViewContentProps } from './ViewContent';
+
+// jsdom cannot acquire a canvas 2D context; stub Chart.js so the trend view mounts
+// without noise (the presentational chart is covered by TrendChart / TrendView tests).
+vi.mock('chart.js', () => {
+  class Chart {
+    static register(): void {}
+    destroy(): void {}
+  }
+  return { Chart, registerables: [] };
+});
 
 /**
  * TC-11 / TC-37 (FR-1 / AC-1.2) — the registry-driven view→content router. Mounts

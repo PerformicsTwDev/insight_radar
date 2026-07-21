@@ -37,10 +37,7 @@ export type ViewResolution =
  * live registry view-name set (`GET /views`), never a hardcoded list, so a new
  * backend view is `known` automatically (AC-1.2).
  */
-export function resolveView(
-  view: string | undefined,
-  known: ReadonlySet<string>,
-): ViewResolution {
+export function resolveView(view: string | undefined, known: ReadonlySet<string>): ViewResolution {
   if (!view) {
     return { kind: 'default' };
   }

@@ -7,7 +7,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '../../api/msw/server';
@@ -86,7 +86,10 @@ describe('AnalysisDashboard · readiness → content routing', () => {
   it('resolves the active view from the URL for a ready analysis (view=intent_topics)', async () => {
     server.use(
       http.get(STATUS_ROUTE, () =>
-        HttpResponse.json({ status: 'completed', features: { topics: { status: 'not_generated' } } }),
+        HttpResponse.json({
+          status: 'completed',
+          features: { topics: { status: 'not_generated' } },
+        }),
       ),
     );
     renderDashboard('?view=intent_topics');
@@ -113,9 +116,19 @@ describe('AnalysisDashboard · readiness → content routing', () => {
     expect(await screen.findByText('找不到分析')).toBeInTheDocument();
   });
 
-  it('shows a retry error on a transient status failure (non-404)', async () => {
-    server.use(http.get(STATUS_ROUTE, () => new HttpResponse(null, { status: 500 })));
+  it('shows a retry error on a transient status failure, and recovers on retry', async () => {
+    let calls = 0;
+    server.use(
+      http.get(STATUS_ROUTE, () => {
+        calls += 1;
+        return calls === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({ status: 'running' });
+      }),
+    );
     renderDashboard();
-    expect(await screen.findByText(/無法載入分析狀態/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '重試' }));
+    // Retry re-probes the snapshot → now running → the live progress panel.
+    expect(await screen.findByText('分析進行中')).toBeInTheDocument();
   });
 });

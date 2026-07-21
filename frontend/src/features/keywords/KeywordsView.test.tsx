@@ -7,11 +7,10 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '../../api/msw/server';
-import { serializeFiltersToUrl } from '../../lib/filterSpec';
 import { deserialize } from '../../lib/urlState';
 import { KeywordsView } from './KeywordsView';
 
@@ -77,21 +76,28 @@ describe('KeywordsView · keywords table data wiring', () => {
     expect(screen.getByRole('group', { name: '分頁與排序' })).toBeInTheDocument();
   });
 
-  it('carries the URL filters param into the /keywords request query (Design §5)', async () => {
-    let seenUrl = '';
+  it('carries the applied filter into the /keywords request query (Design §5)', async () => {
+    const seenQ: (string | null)[] = [];
     server.use(
       http.get(KEYWORDS_ROUTE, ({ request }) => {
-        seenUrl = request.url;
+        seenQ.push(new URL(request.url).searchParams.get('q'));
         return HttpResponse.json({
           data: [row('running shoes')],
           meta: { total: 1, page: 1, pageSize: 25, cursor: null },
         });
       }),
     );
-    const filters = serializeFiltersToUrl({ q: 'run' });
-    renderKeywords(`?filters=${encodeURIComponent(filters)}`);
+    renderKeywords();
     expect(await screen.findByText('running shoes')).toBeInTheDocument();
-    expect(new URL(seenUrl).searchParams.get('q')).toBe('run');
+
+    // Apply a 搜尋詞 filter through the real FilterBar so the router writes the URL
+    // `filters` param (proven KeywordsFilters path) → KeywordsView re-fetches with it.
+    fireEvent.click(await screen.findByRole('button', { name: /搜尋詞/ }));
+    const pop = within(screen.getByRole('group', { name: '搜尋詞 篩選' }));
+    fireEvent.change(pop.getByLabelText('包含'), { target: { value: 'run' } });
+    fireEvent.click(pop.getByRole('button', { name: '套用' }));
+
+    await waitFor(() => expect(seenQ).toContain('run'));
   });
 
   it('shows an empty state when the snapshot has no matching keywords', async () => {
@@ -104,9 +110,21 @@ describe('KeywordsView · keywords table data wiring', () => {
     expect(await screen.findByText(/沒有符合|沒有搜尋詞|尚無/)).toBeInTheDocument();
   });
 
-  it('shows an error + retry when the keywords request fails', async () => {
-    server.use(http.get(KEYWORDS_ROUTE, () => new HttpResponse(null, { status: 500 })));
+  it('shows an error + retry when the keywords request fails, and recovers on retry', async () => {
+    let calls = 0;
+    server.use(
+      http.get(KEYWORDS_ROUTE, () => {
+        calls += 1;
+        return calls === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({
+              data: [row('running shoes')],
+              meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+            });
+      }),
+    );
     renderKeywords();
-    expect(await screen.findByRole('button', { name: '重試' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '重試' }));
+    expect(await screen.findByText('running shoes')).toBeInTheDocument();
   });
 });
