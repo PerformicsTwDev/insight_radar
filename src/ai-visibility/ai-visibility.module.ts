@@ -3,7 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import type { ConfigType } from '@nestjs/config';
 import { azureConfig } from '../config/azure.config';
 import { IntentModule } from '../intent/intent.module';
+import { PrismaModule } from '../prisma';
+import { AI_ANALYSIS_CONFIG, AiAnalysisService } from './ai-analysis.service';
+import { AiAnalysisRepository } from './ai-analysis.repository';
 import { BRAND_EXTRACTION_CONFIG, BrandExtractionService } from './brand-extraction.service';
+import { aiVisibilitySchemaVersion } from './prompt-versions';
 import { SENTIMENT_CONFIG, SentimentService } from './sentiment.service';
 import { MEDIA_CLASSIFIER_CONFIG, MediaClassifierService } from './media-classifier.service';
 
@@ -21,7 +25,7 @@ const llmBatchConfig = (azure: ConfigType<typeof azureConfig>) => ({
  * 既有 `LLM_BATCH_SIZE`/`LLM_CONCURRENCY`（每線 env + Joi 併入 T15.7 config namespace）。
  */
 @Module({
-  imports: [IntentModule, ConfigModule.forFeature(azureConfig)],
+  imports: [IntentModule, PrismaModule, ConfigModule.forFeature(azureConfig)],
   providers: [
     BrandExtractionService,
     { provide: BRAND_EXTRACTION_CONFIG, useFactory: llmBatchConfig, inject: [azureConfig.KEY] },
@@ -29,7 +33,14 @@ const llmBatchConfig = (azure: ConfigType<typeof azureConfig>) => ({
     { provide: SENTIMENT_CONFIG, useFactory: llmBatchConfig, inject: [azureConfig.KEY] },
     MediaClassifierService,
     { provide: MEDIA_CLASSIFIER_CONFIG, useFactory: llmBatchConfig, inject: [azureConfig.KEY] },
+    // T15.5 AI 分析 job 編排（captures → 三線 pipeline → buildAiVisibility → 持久化 + partial 收斂）。
+    AiAnalysisService,
+    AiAnalysisRepository,
+    {
+      provide: AI_ANALYSIS_CONFIG,
+      useFactory: () => ({ schemaVersion: aiVisibilitySchemaVersion() }),
+    },
   ],
-  exports: [BrandExtractionService, SentimentService, MediaClassifierService],
+  exports: [BrandExtractionService, SentimentService, MediaClassifierService, AiAnalysisService],
 })
 export class AiVisibilityModule {}

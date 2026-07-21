@@ -4,6 +4,7 @@ import {
   type IntentLabeler,
   type ParseChatResult,
 } from '../intent/intent-labeler.port';
+import type { AnalysisLineOutcome } from './ai-analysis.types';
 import {
   MAX_COMPLETION_TOKENS,
   type LlmBatchConfig,
@@ -46,10 +47,21 @@ export class MediaClassifierService extends ResilientLlmBatchService {
 
   /** 韌性分類 references 的媒體類別，回最終 `BlockMedia[]`（每 reference 恰一列、依輸入順序）。 */
   async classifyMedia(refs: MediaReference[]): Promise<BlockMedia[]> {
-    const { collected } = await this.runBatches<MediaResultItem, MediaReference>(refs, (chunk) =>
-      this.callBatch(chunk),
+    return (await this.classifyMediaOutcome(refs)).results;
+  }
+
+  /**
+   * 同 {@link classifyMedia}，但**保留** `needsReview`（降級 fallback 的輸入 reference）——供 T15.5 job-level
+   * partial 收斂（AC-42.5/INV-6）。`classifyMedia` 委派此方法後 drop `needsReview`（維持既有公開契約）。
+   */
+  async classifyMediaOutcome(
+    refs: MediaReference[],
+  ): Promise<AnalysisLineOutcome<BlockMedia, MediaReference>> {
+    const { collected, needsReview } = await this.runBatches<MediaResultItem, MediaReference>(
+      refs,
+      (chunk) => this.callBatch(chunk),
     );
-    return postProcessMedia(refs, { references: collected });
+    return { results: postProcessMedia(refs, { references: collected }), needsReview };
   }
 
   /**

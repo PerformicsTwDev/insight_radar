@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, type ConfigType } from '@nestjs/config';
+import { AiVisibilityModule } from '../ai-visibility/ai-visibility.module';
 import { queueConfig } from '../config/queue.config';
 import { AiSearchJobEventsModule } from '../queue/ai-search-job-events.module';
 import { AI_SEARCH_QUEUE } from '../queue/queue.constants';
@@ -25,6 +26,8 @@ import { AI_SEARCH_SCHEMA_VERSION } from './ai-search-run.types';
     BullModule.registerQueue({ name: AI_SEARCH_QUEUE }),
     AiSearchJobEventsModule,
     SerpModule,
+    // T15.5：分析 stage 需 `AiAnalysisService`（三線 pipeline + buildAiVisibility + 持久化）。
+    AiVisibilityModule,
     ConfigModule.forFeature(queueConfig),
   ],
   controllers: [AiSearchController],

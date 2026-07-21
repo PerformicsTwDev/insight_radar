@@ -21,8 +21,8 @@ export const AI_SEARCH_SCHEMA_VERSION = 'ai-search-v1';
 export const TERMINAL_AI_SEARCH_STATUSES: ReadonlySet<AiSearchRunStatus> =
   new Set<AiSearchRunStatus>(['completed', 'partial', 'failed', 'canceled']);
 
-/** AI Search job 進度階段（SSE / GET 回報）。 */
-export type AiSearchPhase = 'pulling' | 'collecting' | 'persisting' | 'done';
+/** AI Search job 進度階段（SSE / GET 回報）。`analyzing`＝T15.5 分析 stage（三線 pipeline + 指標落庫）。 */
+export type AiSearchPhase = 'pulling' | 'collecting' | 'persisting' | 'analyzing' | 'done';
 
 /** GET /ai-search-analyses/:id 回應（run 狀態，供輪詢）。captures 明細另經 M15 讀取層 view-router。 */
 export interface AiSearchStatusResponse {

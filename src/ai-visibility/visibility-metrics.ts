@@ -106,7 +106,7 @@ export function countMentions(mentions: readonly string[], brand: string): numbe
 }
 
 /** 正規化 domain：接受裸 domain 或 URL；小寫、去前綴 `www.`；不可解析 → `''`（不拋）。 */
-function normalizeDomain(value: string): string {
+export function normalizeDomain(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (trimmed.length === 0) {
     return '';
