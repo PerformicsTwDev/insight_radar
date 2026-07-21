@@ -47,6 +47,28 @@ export interface JobTracking {
 }
 
 /**
+ * The default analysis-scoped stream sub-path — the MAIN analysis SSE (`:id/stream`).
+ * Sub-jobs reuse this machine on their own sub-path (`topics/stream`, `journey/stream`,
+ * a per-cid custom-assign path), so the main analysis is the `stream` default.
+ */
+export const DEFAULT_STREAM_PATH = 'stream';
+
+/**
+ * TanStack Query key the normalised job state is mirrored under so multiple
+ * subscribers share one job (§7 subscriber dedup). **Scoped by `streamPath`** so the
+ * main analysis and each sub-job (topics / journey / custom — same `analysisId`,
+ * different `streamPath`) get their OWN entry and never collide: a sub-job settling
+ * (e.g. `not_found` on a gone sub-resource) must not leak into the main analysis's
+ * state that the dashboard reads. Same-`streamPath` subscribers still share one job.
+ */
+export function jobStateQueryKey(
+  analysisId: string,
+  streamPath: string = DEFAULT_STREAM_PATH,
+): readonly [string, string, string] {
+  return ['job', analysisId, streamPath];
+}
+
+/**
  * Pure SSE stream URL builder (`apiBaseUrl` empty → same-origin). `streamPath` is
  * the analysis-scoped sub-path and defaults to the main-analysis stream (`stream`);
  * the topics view reuses this machine by passing `topics/stream` (T3.3), so all
@@ -56,7 +78,7 @@ export function buildStreamUrl(
   analysisId: string,
   apiBaseUrl: string,
   origin: string,
-  streamPath = 'stream',
+  streamPath = DEFAULT_STREAM_PATH,
 ): string {
   const base = apiBaseUrl || origin;
   return `${base}/api/v1/keyword-analyses/${encodeURIComponent(analysisId)}/${streamPath}`;
@@ -89,7 +111,7 @@ export function useJobTracking(
 ): JobTracking {
   const factory = options?.eventSourceFactory ?? defaultEventSourceFactory;
   // Which analysis-scoped SSE sub-path to open (`stream` main / `topics/stream` T3.3).
-  const streamPath = options?.streamPath ?? 'stream';
+  const streamPath = options?.streamPath ?? DEFAULT_STREAM_PATH;
   // Authoritative DB-status source for C3-confirm + poll fallback. Defaults to the
   // MAIN analysis (`GET :id`); a sub-job (topics, T3.3) MUST pass its own scoped
   // fetcher, else confirm/poll would settle the sub-job from the wrong resource's
@@ -117,9 +139,11 @@ export function useJobTracking(
   }, [analysisId]);
 
   // Mirror the normalised job state into the Query cache (shared across subscribers, §7).
+  // The key is scoped by `streamPath` (see {@link jobStateQueryKey}) so a sub-job never
+  // overwrites the main analysis's state that other subscribers (the dashboard) read.
   useEffect(() => {
-    if (analysisId) queryClient.setQueryData(['job', analysisId], state);
-  }, [analysisId, state, queryClient]);
+    if (analysisId) queryClient.setQueryData(jobStateQueryKey(analysisId, streamPath), state);
+  }, [analysisId, streamPath, state, queryClient]);
 
   // Authoritative SSE transport: active ONLY while `transport === 'sse'` (§7).
   useEffect(() => {
