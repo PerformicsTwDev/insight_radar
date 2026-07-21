@@ -8,6 +8,7 @@ import {
   toAiBatchCellEvent,
   type AiBatchJobStatus,
 } from '../../lib/aiIntentBatch';
+import { isConnectionStale } from '../../lib/jobState';
 import type { AiCellState } from '../../lib/aiCellState';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import {
@@ -108,22 +109,48 @@ export function useAiIntentBatch(
       return;
     }
 
+    // Liveness clock (C6, #648): unlike the main transport, the batch stream has NO
+    // poll fallback, so a buffering proxy / idle-timeout LB that holds the socket open
+    // but silent (never firing `onerror`) would otherwise leave every masked cell
+    // spinning forever. Track the last activity; the interval below fails the whole job
+    // once no named frame has arrived for `sseHeartbeatTimeoutMs`. This mirrors
+    // useJobTracking and reuses its pure `isConnectionStale` predicate (the single-point
+    // staleness decision) — only the terminal action differs (job error vs poll
+    // fallback), so a shared interval hook isn't extracted for two divergent call sites.
+    let lastEventAt = Date.now();
+    const touch = () => {
+      lastEventAt = Date.now();
+    };
+
     source.onerror = () => {
       dispatch({ type: 'job_failed' });
     };
     source.addEventListener('progress', (event: MessageEvent) => {
+      touch();
       const cellEvent = toAiBatchCellEvent(String(event.data));
       if (cellEvent) dispatch(cellEvent);
     });
     source.addEventListener('completed', () => {
+      touch();
       dispatch({ type: 'job_completed' });
     });
     source.addEventListener('failed', () => {
+      touch();
       dispatch({ type: 'job_failed' });
     });
 
+    // A heartbeat *comment* (`: keep-alive`) is dropped by the SSE layer and never
+    // touches `lastEventAt` — liveness is judged by named frames only (same as the main
+    // transport), so a quiet-but-open socket safely settles to a whole-job error.
+    const heartbeat = setInterval(() => {
+      if (isConnectionStale(lastEventAt, Date.now(), config.sseHeartbeatTimeoutMs)) {
+        dispatch({ type: 'job_failed' });
+      }
+    }, config.pollIntervalMs);
+
     return () => {
       source.close();
+      clearInterval(heartbeat);
     };
   }, [state.job, analysisId, factory]);
 
