@@ -171,6 +171,10 @@ const coreThresholds: Record<string, typeof coreThreshold> = {
   // brand-profile core = **純函式**：aliases 聯集正規化比對（`華碩→ASUS`，TC-76 / FR-40 / AC-40.3；供 FR-42
   // 品牌抽取共用）。CRUD service（DI 編排：Prisma + owner-scope helper）走 global 85%——與其他 DI 服務一致。
   './src/brand-profile/brand-match.ts': coreThreshold,
+  // ai-visibility core = **純函式**：AI 可見度指標（mentions 不去重、share of voice 零提及→null、
+  // citations domain 命中、exposure avgMonthlySearches 加總 null≠0；TC-79 / FR-43 / AC-43.1~43.3）。
+  // LLM adapter/後處理（品牌抽取/情緒/媒體 service）走 global 85%——與其他 DI 服務一致。
+  './src/ai-visibility/visibility-metrics.ts': coreThreshold,
 };
 // Jest 對「coverageThreshold glob 無對應檔案」會直接報錯；故只在該 glob 已有 .ts 檔時才啟用，
 // 讓門檻集中定義於此、並在對應 core 目錄一建立就「自動生效」（毋需事後回頭補設定）。
