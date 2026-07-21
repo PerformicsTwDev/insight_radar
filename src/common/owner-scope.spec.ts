@@ -1,6 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from './authenticated-user';
-import { assertOwnedRow, assertOwnerAccess, canAccess, ownerIdOf, ownerWhere } from './owner-scope';
+import {
+  assertOwnedRow,
+  assertOwnerAccess,
+  canAccess,
+  ownerIdOf,
+  ownerWhere,
+  ownerWhereFromOwnerId,
+} from './owner-scope';
 
 /**
  * TC-62（FR-27 / NFR-15）：owner 過濾**唯一單點**的純函式契約——session 只見自己 + 共享（null）列、
@@ -85,6 +92,23 @@ describe('owner-scope ownerWhere (TC-62 / AC-27.5 — list scope)', () => {
 
   it('session actor → OR of own id + null (own + shared), never another owner', () => {
     expect(ownerWhere(SESSION_B)).toEqual({ OR: [{ ownerId: 'user-b' }, { ownerId: null }] });
+  });
+});
+
+describe('owner-scope ownerWhereFromOwnerId (async job/worker scope from persisted ownerId)', () => {
+  it('null ownerId (machine/apiKey-created run) → empty where ({}) — no owner filter (sees all)', () => {
+    expect(ownerWhereFromOwnerId(null)).toEqual({});
+  });
+
+  it('non-null ownerId (session-created run) → OR of own id + null (own + shared), never another owner', () => {
+    expect(ownerWhereFromOwnerId('user-a')).toEqual({
+      OR: [{ ownerId: 'user-a' }, { ownerId: null }],
+    });
+  });
+
+  it('mirrors ownerWhere(actor): same fragment as the live-actor helper for both actor kinds', () => {
+    expect(ownerWhereFromOwnerId(ownerIdOf(SESSION_A))).toEqual(ownerWhere(SESSION_A));
+    expect(ownerWhereFromOwnerId(ownerIdOf(API_KEY))).toEqual(ownerWhere(API_KEY));
   });
 });
 

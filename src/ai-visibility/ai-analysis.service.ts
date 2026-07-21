@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { BrandAliasInput } from '../brand-profile/brand-match';
 import { toBrandProfileView } from '../brand-profile/brand-profile.mapper';
+import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
+import { ownerWhereFromOwnerId } from '../common/owner-scope';
 import { normalizeText } from '../google-ads/normalize';
 import { PrismaService } from '../prisma';
 import { AiAnalysisRepository } from './ai-analysis.repository';
@@ -50,7 +52,7 @@ interface LoadedBrands {
 
 /** 每筆 capture 攤平後的分析語境（合成 block/reference id + 回連 channel/query，供結果對回聚合）。 */
 interface CaptureContext {
-  channel: string;
+  channel: CaptureChannel;
   query: string;
   blockIds: string[];
   texts: string[];
@@ -137,8 +139,10 @@ export class AiAnalysisService {
   }
 
   /**
-   * 載入品牌檔案（owner 分範圍，S8——`ownerId` 不符→視同無品牌，不跨 owner 讀）→ 報告品牌集（本品牌 + 競品）。
-   * 無 brandProfileId / 查無 → 空集（demo/空品牌集不硬崩，AC-40.3；buildAiVisibility 對空品牌回 0 列）。
+   * 載入品牌檔案（owner 分範圍，S8 唯一單點——經 {@link ownerWhereFromOwnerId} 由 run 落庫的 `ownerId` 推導
+   * scope：session 建立 → 自己 + 共享（null）；機器/apiKey 建立 → 不過濾。不可存取的列→視同無品牌，不跨 owner 讀）
+   * → 報告品牌集（本品牌 + 競品）。無 brandProfileId / 查無 → 空集（demo/空品牌集不硬崩，AC-40.3；
+   * buildAiVisibility 對空品牌回 0 列）。
    */
   private async loadBrands(
     brandProfileId: string | null,
@@ -148,7 +152,7 @@ export class AiAnalysisService {
       return { visibilityBrands: [], aliases: [], primary: null };
     }
     const row = await this.prisma.brandProfile.findFirst({
-      where: { id: brandProfileId, ownerId },
+      where: { id: brandProfileId, ...ownerWhereFromOwnerId(ownerId) },
     });
     if (!row) {
       return { visibilityBrands: [], aliases: [], primary: null };
@@ -210,7 +214,7 @@ function assembleAnalysis(
     let scope = scopes.get(key);
     if (!scope) {
       scope = {
-        channel: ctx.channel as AiVisibilityScope['channel'],
+        channel: ctx.channel,
         dimension: 'keyword',
         group: ctx.query,
         mentions: [],

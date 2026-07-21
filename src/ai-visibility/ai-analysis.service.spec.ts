@@ -188,6 +188,24 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     expect(m.analyzeSentimentOutcome).not.toHaveBeenCalled();
   });
 
+  // B1（code-review）：品牌載入須經 owner-scope 唯一單點語意（S8），不得 ad-hoc `where ownerId` 精確相等。
+  it('owner-scope 單點（B1）：session-run（ownerId 非 null）→ 品牌 where = 自己 OR 共享（null），非精確相等', async () => {
+    const { service, m } = build();
+    await service.analyzeAndPersist({ ...base, ownerId: 'user-1', captures: [cap()] });
+    const arg = argOf<{ where: Record<string, unknown> }>(m.findFirst, 0, 0);
+    // session actor 應見「自己（user-1）+ 共享（null）」——精確相等會漏掉共享列（AC-27.3）。
+    expect(arg.where).toEqual({ id: 'bp-1', OR: [{ ownerId: 'user-1' }, { ownerId: null }] });
+  });
+
+  it('owner-scope 單點（B1）：apiKey-run（ownerId=null，機器 actor）→ 品牌 where 不套 owner 過濾（見全部）', async () => {
+    const { service, m } = build();
+    await service.analyzeAndPersist({ ...base, ownerId: null, captures: [cap()] });
+    const arg = argOf<{ where: Record<string, unknown> }>(m.findFirst, 0, 0);
+    // 機器 actor 不過濾（AC-27.5）——ad-hoc `ownerId: null` 會誤把「session 擁有的品牌」擋掉。
+    expect(arg.where).toEqual({ id: 'bp-1' });
+    expect('ownerId' in arg.where).toBe(false);
+  });
+
   it('某線降級 → job-level needsReview 收斂（三線相加）', async () => {
     const { service } = build({
       extractBrandsOutcome: jest.fn((blocks: BrandTextBlock[]) => ({
