@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6 # 須在 setup-node 前；pnpm 版本取自 package.json 的 "packageManager" 欄位
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.x
           cache: pnpm # 以 pnpm-lock.yaml hash 為 cache key
@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
