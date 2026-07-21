@@ -211,13 +211,48 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     expect(result.needsReview).toBe(2);
   });
 
-  it('block 攤平：物件取文字欄、數值 String()、null → 空字串（皆送 LLM 對回）', async () => {
+  it('block 攤平：物件文字欄（跳過非字串欄）、無文字欄→JSON、數值/布林/bigint String()、null→空', async () => {
     const { service, m } = build();
     await service.analyzeAndPersist({
       ...base,
-      captures: [cap({ blocks: [{ text: 'ASUS obj' }, 42, null] })],
+      captures: [
+        cap({
+          blocks: [
+            { text: 'ASUS obj' },
+            { text: 123, content: 'from content' }, // text 非字串 → 續找 content
+            { html: 'x' }, // 無已知文字欄 → JSON.stringify
+            42,
+            true,
+            10n,
+            null,
+          ],
+        }),
+      ],
     });
     const sent = argOf<BrandTextBlock[]>(m.extractBrandsOutcome, 0, 0);
-    expect(sent.map((b) => b.text)).toEqual(['ASUS obj', '42', '']);
+    expect(sent.map((b) => b.text)).toEqual([
+      'ASUS obj',
+      'from content',
+      '{"html":"x"}',
+      '42',
+      'true',
+      '10',
+      '',
+    ]);
+  });
+
+  it('缺 brand/media 結果 → 補預設（brands []、mediaType other 不污染）', async () => {
+    const { service, m } = build({
+      extractBrandsOutcome: jest.fn((blocks: BrandTextBlock[]) => ({
+        results: blocks.map((b) => ({ id: b.id, brands: [] })), // 有列但空品牌
+        needsReview: [],
+      })),
+      classifyMediaOutcome: jest.fn(() => ({ results: [], needsReview: [] })), // 無 media 結果 → get() undefined
+    });
+    await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    const answers = argOf<AiAnswerRow[]>(m.persistAnswers, 0, 3);
+    expect(answers[0].brands).toEqual([]);
+    const cited = argOf<AiCitedReferenceRow[]>(m.persistCitedReferences, 0, 3);
+    expect(cited[0].mediaType).toBe('other'); // 缺分類 → other fallback
   });
 });

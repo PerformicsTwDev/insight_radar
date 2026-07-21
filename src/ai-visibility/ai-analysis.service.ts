@@ -253,7 +253,7 @@ function flattenCaptures(captures: readonly AiSearchCanonical[]): {
     const refs = capture.references.map((ref, r) => {
       const id = `${c}::r${r}`;
       mediaRefs.push({ id, link: ref.link });
-      return { id, link: ref.link, title: ref.title ?? null };
+      return { id, link: ref.link, title: ref.title };
     });
     contexts.push({ channel: capture.channel, query: capture.query, blockIds, texts, refs });
   });
