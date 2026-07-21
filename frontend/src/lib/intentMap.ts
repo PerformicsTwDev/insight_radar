@@ -14,5 +14,6 @@ export const intentMap: Readonly<Record<IntentKey, IntentMeta>> = {
   informational: { color: '#5BC0EB', zh: '資訊型' },
   commercial: { color: '#52b788', zh: '商業型' },
   transactional: { color: '#FFD166', zh: '交易型' },
-  navigational: { color: '#9B5DE5', zh: '導航型' },
+  // 導航型（T6.2 對比修正）：原 #9B5DE5 於 bg-card 僅 3.4:1（< WCAG AA），提亮至 #B088EE = 5.1:1。
+  navigational: { color: '#B088EE', zh: '導航型' },
 };

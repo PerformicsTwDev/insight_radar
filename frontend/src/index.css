@@ -20,11 +20,17 @@
   /* 警示 */
   --color-warn: #e8a735;
 
+  /* 破壞性動作實心表面（T6.2）：白字達 WCAG AA（5.4:1）。`trend-negative` 太亮（白字 2.9:1），
+   * 保留給錯誤指示文字/邊框；實心紅按鈕改用 `danger`。 */
+  --color-danger: #c0392b;
+  --color-danger-hover: #a93226;
+
   /* 意圖語意色（I/C/T/N；C2——與 intentMap.ts 同源） */
   --color-intent-informational: #5bc0eb;
   --color-intent-commercial: #52b788;
   --color-intent-transactional: #ffd166;
-  --color-intent-navigational: #9b5de5;
+  /* 導航型（T6.2 對比修正）：原 #9b5de5 於 bg-card 僅 3.4:1（<AA），提亮至 #b088ee = 5.1:1。 */
+  --color-intent-navigational: #b088ee;
 
   /* 趨勢 / 負向 */
   --color-trend-surge: #f4845f;
@@ -48,4 +54,15 @@ body {
   color: white;
   font-family: var(--font-sans);
   line-height: 1.5;
+}
+
+/*
+ * Single source of the visible keyboard focus ring (NFR-7 / TC-24). A brand-colour
+ * outline shown only for keyboard focus (`:focus-visible`, not mouse `:focus`), so
+ * every interactive control is discoverable via the keyboard on the dark theme.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 2px;
 }

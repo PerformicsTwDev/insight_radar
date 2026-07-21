@@ -1,8 +1,29 @@
 // Extends Vitest's `expect` with @testing-library/jest-dom matchers
 // (toBeInTheDocument, etc.) and registers automatic DOM cleanup.
 import '@testing-library/jest-dom/vitest';
-import { afterAll, afterEach, beforeAll, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, vi } from 'vitest';
+import type AxeCore from 'axe-core';
 import { server } from '../api/msw/server';
+
+// a11y gate (NFR-7 / TC-24): register the `toHaveNoViolations` matcher for the axe
+// results returned by the shared WCAG-scoped runner in `./axe`
+// (`import { axe } from '../test/axe'`). vitest-axe ships its own matcher, but its
+// type declaration mis-exports it as type-only (breaks `verbatimModuleSyntax`), so
+// we define the equivalent check here with a legible failure message.
+expect.extend({
+  toHaveNoViolations(received: AxeCore.AxeResults) {
+    const violations = received?.violations ?? [];
+    const pass = violations.length === 0;
+    return {
+      pass,
+      message: () =>
+        pass
+          ? 'expected accessibility violations, but found none'
+          : `expected no accessibility violations, but found ${violations.length}:\n` +
+            violations.map((v) => `  • [${v.id}] ${v.help} — ${v.nodes.length} node(s)`).join('\n'),
+    };
+  },
+});
 
 // jsdom 未實作 window.scrollTo——TanStack Router 導航後的 scroll restoration 會在測試 stderr 噴
 // "Not implemented" 噪音（不影響斷言）。stub 掉保持測試輸出乾淨。

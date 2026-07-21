@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useId, useRef, useState, type ReactElement } from 'react';
 import {
   applyChip,
   clearField,
@@ -61,6 +61,13 @@ function FilterChip({
   const def = FILTER_FIELDS[field];
   const current = specToChips(spec).find((c) => c.field === field);
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Esc dismisses the popover and returns focus to its chip trigger (NFR-7 / TC-24).
+  function closeToTrigger(): void {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
 
   const [include, setInclude] = useState('');
   const [minText, setMinText] = useState('');
@@ -116,6 +123,7 @@ function FilterChip({
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={toggle}
         aria-haspopup="true"
@@ -131,7 +139,17 @@ function FilterChip({
       </button>
 
       {open ? (
-        <div role="group" aria-label={`${def.label} 篩選`} className={POPOVER}>
+        <div
+          role="group"
+          aria-label={`${def.label} 篩選`}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              closeToTrigger();
+            }
+          }}
+          className={POPOVER}
+        >
           <ChipBody
             def={def}
             include={include}
@@ -186,6 +204,7 @@ interface ChipBodyProps {
 
 function ChipBody(props: ChipBodyProps): ReactElement {
   const { def } = props;
+  const errorId = useId();
   if (def.type === 'inex') {
     // Include-only at M2: the backend `q` has no NOT capability, so an exclude
     // input would be a decorative no-op (deferred to M2+, backend #416, FR-6).
@@ -200,12 +219,17 @@ function ChipBody(props: ChipBodyProps): ReactElement {
     );
   }
   if (def.type === 'range') {
+    // When min>max both inputs are flagged aria-invalid and point at the alert, so
+    // AT announces the field-level error (NFR-7 / TC-24).
+    const invalid = !props.rangeValid;
     return (
       <div className="flex flex-col gap-2">
         <div className="grid grid-cols-2 gap-2">
           <input
             type="number"
             aria-label="最低"
+            aria-invalid={invalid}
+            aria-describedby={invalid ? errorId : undefined}
             value={props.minText}
             onChange={(e) => props.onMin(e.target.value)}
             placeholder="最低"
@@ -214,17 +238,19 @@ function ChipBody(props: ChipBodyProps): ReactElement {
           <input
             type="number"
             aria-label="最高"
+            aria-invalid={invalid}
+            aria-describedby={invalid ? errorId : undefined}
             value={props.maxText}
             onChange={(e) => props.onMax(e.target.value)}
             placeholder="最高"
             className={INPUT}
           />
         </div>
-        {props.rangeValid ? null : (
-          <p role="alert" className="text-xs text-trend-negative">
+        {invalid ? (
+          <p id={errorId} role="alert" className="text-xs text-trend-negative">
             最低不得大於最高
           </p>
-        )}
+        ) : null}
       </div>
     );
   }

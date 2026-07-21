@@ -1,6 +1,7 @@
 import { useCallback, useState, type ReactElement } from 'react';
 import { generateCustomLabels } from '../../api/customClassifications';
 import { ChipBox } from '../../components/ChipBox';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import { appendDedupedSeeds } from '../../lib/aiIdeation';
 
@@ -63,6 +64,10 @@ export function CustomClassifyModal({
   const guardGenerate = useInFlightGuard();
   const guardStart = useInFlightGuard();
 
+  // Accessible-modal keyboard contract (NFR-7 / TC-24): Esc closes, focus is trapped
+  // inside and restored to the opener on close.
+  const dialogRef = useFocusTrap<HTMLDivElement>(onClose);
+
   const handleGenerate = useCallback(
     () =>
       guardGenerate(async () => {
@@ -111,9 +116,11 @@ export function CustomClassifyModal({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="custom-modal-title"
+      tabIndex={-1}
       className="fixed inset-0 z-[100] flex items-center justify-center"
     >
       <div

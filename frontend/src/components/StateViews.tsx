@@ -15,7 +15,9 @@ import { mapErrorResponse, type ErrorResponseLike } from '../lib/errorState';
  */
 
 const LOADING_CLASS = 'text-sm text-white/60';
-const EMPTY_CLASS = 'text-sm text-white/40';
+// white/60 (not /40): the shared empty-state copy is real content and must clear
+// WCAG AA — white/40 was only ~3.6:1 on bg-card, white/60 is ~6:1 (NFR-7 / TC-24).
+const EMPTY_CLASS = 'text-sm text-white/60';
 const ERROR_CLASS = 'text-sm text-trend-negative';
 const RETRY_CLASS =
   'self-start rounded-lg border border-white/20 px-3 py-1 text-xs text-white hover:bg-white/5';

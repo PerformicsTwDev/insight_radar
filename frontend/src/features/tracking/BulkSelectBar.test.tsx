@@ -372,3 +372,34 @@ describe('TC-29 · BulkSelectBar', () => {
     expect(await screen.findByRole('menuitem', { name: /Running shoes/ })).toBeInTheDocument();
   });
 });
+
+/**
+ * TC-24 (NFR-7) — the add dropdown is a keyboard-operable menu: the toggle announces
+ * its expanded state and Esc closes it, returning focus to the toggle.
+ */
+describe('TC-24 · BulkSelectBar a11y', () => {
+  it('exposes the dropdown toggle state via aria-haspopup / aria-expanded', async () => {
+    seed([kw('a')]);
+    withLists('Running shoes'); // opening fires GET /tracking-lists — give it a handler
+    render(<BulkSelectBar />);
+    const toggle = screen.getByRole('button', { name: '加入搜尋詞追蹤清單' });
+    expect(toggle).toHaveAttribute('aria-haspopup', 'menu');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await screen.findByRole('menuitem', { name: /Running shoes/ }); // let the load settle
+  });
+
+  it('closes the dropdown on Escape and refocuses the toggle', async () => {
+    seed([kw('a')]);
+    withLists('Running shoes');
+    render(<BulkSelectBar />);
+    const toggle = screen.getByRole('button', { name: '加入搜尋詞追蹤清單' });
+    fireEvent.click(toggle);
+    await screen.findByRole('menuitem', { name: /Running shoes/ });
+
+    fireEvent.keyDown(screen.getByRole('menu', { name: '追蹤清單' }), { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: '追蹤清單' })).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+  });
+});
