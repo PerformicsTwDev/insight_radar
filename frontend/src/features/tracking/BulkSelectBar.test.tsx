@@ -378,14 +378,16 @@ describe('TC-29 · BulkSelectBar', () => {
  * its expanded state and Esc closes it, returning focus to the toggle.
  */
 describe('TC-24 · BulkSelectBar a11y', () => {
-  it('exposes the dropdown toggle state via aria-haspopup / aria-expanded', () => {
+  it('exposes the dropdown toggle state via aria-haspopup / aria-expanded', async () => {
     seed([kw('a')]);
+    withLists('Running shoes'); // opening fires GET /tracking-lists — give it a handler
     render(<BulkSelectBar />);
     const toggle = screen.getByRole('button', { name: '加入搜尋詞追蹤清單' });
     expect(toggle).toHaveAttribute('aria-haspopup', 'menu');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await screen.findByRole('menuitem', { name: /Running shoes/ }); // let the load settle
   });
 
   it('closes the dropdown on Escape and refocuses the toggle', async () => {

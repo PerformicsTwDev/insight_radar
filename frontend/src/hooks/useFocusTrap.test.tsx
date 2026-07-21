@@ -76,6 +76,18 @@ describe('TC-24 · useFocusTrap', () => {
     expect(onEscape).toHaveBeenCalledOnce();
   });
 
+  it('focuses the container and swallows Tab when it holds no focusables', () => {
+    function Empty() {
+      const ref = useFocusTrap<HTMLDivElement>();
+      return <div ref={ref} role="dialog" aria-label="empty" tabIndex={-1} />;
+    }
+    render(<Empty />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Tab' }); // no focusables → swallowed, no throw
+    expect(dialog).toHaveFocus();
+  });
+
   it('restores focus to the opener when the trap unmounts', () => {
     render(<Toggle />);
     const opener = screen.getByRole('button', { name: 'open' });

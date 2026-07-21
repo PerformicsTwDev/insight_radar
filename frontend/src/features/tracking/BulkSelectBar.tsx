@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useRef, useState, type ReactElement } from 'react';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import {
   addTrackingMembers,
@@ -45,6 +45,7 @@ export function BulkSelectBar(): ReactElement | null {
   const guardAdd = useInFlightGuard();
 
   const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const [lists, setLists] = useState<TrackingListSummary[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [newMode, setNewMode] = useState(false);
@@ -122,12 +123,30 @@ export function BulkSelectBar(): ReactElement | null {
       </p>
 
       <div className="relative">
-        <button type="button" onClick={togglePanel} className={PRIMARY_BTN}>
+        <button
+          ref={toggleRef}
+          type="button"
+          onClick={togglePanel}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className={PRIMARY_BTN}
+        >
           加入搜尋詞追蹤清單
         </button>
 
         {open ? (
-          <div role="menu" aria-label="追蹤清單" className={MENU}>
+          <div
+            role="menu"
+            aria-label="追蹤清單"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                closePanel();
+                toggleRef.current?.focus();
+              }
+            }}
+            className={MENU}
+          >
             {error ? (
               <ErrorState message={error} className="mb-2 px-2 text-xs text-trend-negative" />
             ) : null}

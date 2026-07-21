@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AA_NORMAL, compositeOver, contrastRatio, meetsAA, parseHex } from '../lib/contrast';
 import { intentMap } from '../lib/intentMap';
@@ -14,7 +15,9 @@ import { intentMap } from '../lib/intentMap';
  * intentional hierarchy (Design §2) and are out of scope here.
  */
 
-const CSS = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+// vitest runs with cwd at the frontend package root (its config lives there), so the
+// token SSOT resolves the same locally and in CI (working-directory: frontend).
+const CSS = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
 
 /** Extract the `@theme { --color-x: #hex; ... }` tokens as a name→hex map. */
 function themeTokens(): Record<string, string> {
