@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { BulkSelectBar } from './BulkSelectBar';
 import { server } from '../../api/msw/server';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { trackingListErrorMessage } from '../../lib/trackingListError';
 import type { KeywordSelection, SelectionItem, TopicSelection } from '../../lib/selection';
 
 /**
@@ -63,6 +64,16 @@ function withLists(...names: string[]): void {
 
 function openDropdown(): void {
   fireEvent.click(screen.getByRole('button', { name: '加入搜尋詞追蹤清單' }));
+}
+
+// Faithful backend `ErrorResponse` bodies (NestJS `ConflictException`, tracking-list.service):
+// the two 409 causes arrive with the SAME `code:'CONFLICT'`, so only the message splits them.
+const CAP_MEMBER_MSG = 'Tracking list member limit reached (max 500)'; // add-members cap (AC-28.7)
+const CAP_LIST_MSG = 'Tracking list limit reached (max 20)'; //           create list-count cap (AC-28.7)
+const DUP_NAME_MSG = 'Tracking list "dup" already exists'; //             create duplicate name (AC-28.1)
+
+function conflictBody(message: string): Record<string, unknown> {
+  return { statusCode: 409, code: 'CONFLICT', message };
 }
 
 beforeEach(() => {
@@ -186,25 +197,67 @@ describe('TC-29 · BulkSelectBar', () => {
     expect(postCount).toBe(1);
   });
 
-  it('shows an error and keeps the selection when the add fails (400 context mismatch)', async () => {
+  // ── FR-19 / AC-19.1 boundary: bulk-add failures must show CAUSE-differentiated prompts,
+  //    reusing the single-source `trackingListErrorMessage` (same classifier as the T5.5 CRUD
+  //    view). A generic string — or a create-cap mislabeled「名稱可能重複」— is the bug (M5-R1). ──
+
+  // add-to-existing (`POST /:listId/members`): 400 = geo/language context mismatch, 409 = member
+  // cap, 404 = not owner. Each maps to its OWN prompt AND leaves the selection intact on failure.
+  it.each([
+    { label: '400 geo/language context mismatch', status: 400, body: null as string | null },
+    { label: '409 member cap', status: 409, body: CAP_MEMBER_MSG },
+    { label: '404 not owner', status: 404, body: null as string | null },
+  ])(
+    'add-to-existing $label shows its own prompt and keeps the selection',
+    async ({ status, body }) => {
+      seed([kw('a')]);
+      withLists('Running shoes');
+      server.use(
+        http.post(MEMBERS_ROUTE, () =>
+          body === null
+            ? new HttpResponse(null, { status })
+            : HttpResponse.json(conflictBody(body), { status }),
+        ),
+      );
+      render(<BulkSelectBar />);
+
+      openDropdown();
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Running shoes' }));
+
+      const alert = await screen.findByRole('alert');
+      // Exact single-source prompt (delegates to trackingListErrorMessage), NOT a generic string.
+      expect(alert).toHaveTextContent(trackingListErrorMessage(status, body ?? undefined));
+      expect(alert).not.toHaveTextContent('加入追蹤清單失敗');
+      // Selection preserved on failure (nothing cleared).
+      expect(useSelectionStore.getState().items).toEqual([kw('a')]);
+    },
+  );
+
+  // A member-cap 409 must read「上限」— never the name-collision prompt (add has no name concept).
+  it('add-to-existing 409 cap reads the cap prompt, never a name-collision prompt', async () => {
     seed([kw('a')]);
     withLists('Running shoes');
-    server.use(http.post(MEMBERS_ROUTE, () => new HttpResponse(null, { status: 400 })));
+    server.use(
+      http.post(MEMBERS_ROUTE, () =>
+        HttpResponse.json(conflictBody(CAP_MEMBER_MSG), { status: 409 }),
+      ),
+    );
     render(<BulkSelectBar />);
 
     openDropdown();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Running shoes' }));
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(useSelectionStore.getState().items).toEqual([kw('a')]);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('上限');
+    expect(alert).not.toHaveTextContent('名稱');
   });
 
-  it('surfaces an error and adds nothing when creating the new list fails (409 duplicate)', async () => {
+  it('surfaces the name-collision prompt (not a cap prompt) when create fails 409 duplicate', async () => {
     seed([kw('a')]);
     withLists();
     let members = 0;
     server.use(
-      http.post(LIST_ROUTE, () => new HttpResponse(null, { status: 409 })),
+      http.post(LIST_ROUTE, () => HttpResponse.json(conflictBody(DUP_NAME_MSG), { status: 409 })),
       http.post(MEMBERS_ROUTE, () => {
         members += 1;
         return HttpResponse.json({ memberCount: 1, added: 1 }, { status: 200 });
@@ -217,12 +270,43 @@ describe('TC-29 · BulkSelectBar', () => {
     fireEvent.change(screen.getByLabelText('新清單名稱'), { target: { value: 'dup' } });
     fireEvent.click(screen.getByRole('button', { name: '建立並加入' }));
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(trackingListErrorMessage(409, DUP_NAME_MSG)); // NAME_TAKEN
+    expect(alert).not.toHaveTextContent('上限');
+    expect(members).toBe(0); // create failed → no member POST fired
+    expect(useSelectionStore.getState().items).toEqual([kw('a')]);
+  });
+
+  // The mis-diagnosis this M5-R1 fixes: a create COUNT-CAP 409 must NOT read「名稱可能重複」
+  // (renaming can never resolve a list-count cap) — it must read the cap prompt.
+  it('surfaces the cap prompt — NOT「名稱可能重複」— when create fails 409 count-cap', async () => {
+    seed([kw('a')]);
+    withLists();
+    let members = 0;
+    server.use(
+      http.post(LIST_ROUTE, () => HttpResponse.json(conflictBody(CAP_LIST_MSG), { status: 409 })),
+      http.post(MEMBERS_ROUTE, () => {
+        members += 1;
+        return HttpResponse.json({ memberCount: 1, added: 1 }, { status: 200 });
+      }),
+    );
+    render(<BulkSelectBar />);
+
+    openDropdown();
+    fireEvent.click(await screen.findByRole('button', { name: '建立新清單' }));
+    fireEvent.change(screen.getByLabelText('新清單名稱'), { target: { value: 'New list' } });
+    fireEvent.click(screen.getByRole('button', { name: '建立並加入' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(trackingListErrorMessage(409, CAP_LIST_MSG)); // CAP_REACHED
+    expect(alert).toHaveTextContent('上限');
+    expect(alert).not.toHaveTextContent('名稱可能重複');
+    expect(alert).not.toHaveTextContent('已存在');
     expect(members).toBe(0);
     expect(useSelectionStore.getState().items).toEqual([kw('a')]);
   });
 
-  it('surfaces an error and keeps the selection when the created list rejects the add (409 cap)', async () => {
+  it('keeps the selection and shows the member-cap prompt when the created list rejects the add (409 cap)', async () => {
     seed([kw('a')]);
     withLists();
     server.use(
@@ -232,7 +316,9 @@ describe('TC-29 · BulkSelectBar', () => {
           { status: 201 },
         ),
       ),
-      http.post(MEMBERS_ROUTE, () => new HttpResponse(null, { status: 409 })),
+      http.post(MEMBERS_ROUTE, () =>
+        HttpResponse.json(conflictBody(CAP_MEMBER_MSG), { status: 409 }),
+      ),
     );
     render(<BulkSelectBar />);
 
@@ -241,7 +327,8 @@ describe('TC-29 · BulkSelectBar', () => {
     fireEvent.change(screen.getByLabelText('新清單名稱'), { target: { value: 'New list' } });
     fireEvent.click(screen.getByRole('button', { name: '建立並加入' }));
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(trackingListErrorMessage(409, CAP_MEMBER_MSG)); // CAP_REACHED
     // List got created, but the member add failed → the selection is NOT cleared.
     expect(useSelectionStore.getState().items).toEqual([kw('a')]);
   });
