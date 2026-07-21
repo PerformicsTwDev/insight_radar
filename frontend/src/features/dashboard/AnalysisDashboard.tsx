@@ -4,8 +4,9 @@ import type { ReactElement } from 'react';
 import { getKeywordAnalysisStatus } from '../../api/keywordAnalyses';
 import { ErrorState, LoadingState } from '../../components/StateViews';
 import { config } from '../../config/env';
-import type { DbStatus, JobState } from '../../lib/jobState';
+import type { JobState, JobStatus } from '../../lib/jobState';
 import { JobTrackingPanel } from '../job/JobTrackingPanel';
+import { jobStateQueryKey } from '../job/useJobTracking';
 import { AnalysisNotFound } from './ViewStates';
 import { ViewContent } from './ViewContent';
 
@@ -20,33 +21,36 @@ import { ViewContent } from './ViewContent';
  * **Design §7 (single authoritative transport / subscriber dedup).** The one
  * {@link JobTrackingPanel}'s `useJobTracking` owns the live transport for this job
  * (SSE-first / poll-fallback) and mirrors its normalised state into the shared
- * `['job', analysisId]` cache. This container is a **passive subscriber** to that
- * shared state — it never opens a second, un-deduped `GET :id` poller. Its own
- * `GET :id` snapshot is fetched to learn readiness on first load (so a **reopened**
- * ready analysis, AC-1.1, shows content immediately without waiting for a stream)
- * and to pull the view's `features`; it does **not** poll continuously while the run
- * is live (the live transport owns progress), so a transient `unavailable` blip
- * while a job is tracked live can never blank a healthy view or tear the stream down.
+ * per-stream `['job', analysisId, 'stream']` cache. This container is a **passive
+ * subscriber** to the MAIN analysis's entry only — it never opens a second,
+ * un-deduped `GET :id` poller, and a sub-job (topics / journey / custom, which reuse
+ * the machine on their own `streamPath`) can never leak its state into this readout.
+ * Its own `GET :id` snapshot is fetched to learn readiness on first load (so a
+ * **reopened** ready analysis, AC-1.1, shows content immediately without waiting for a
+ * stream) and to pull the view's `features`; it does **not** poll continuously while
+ * the run is live (the live transport owns progress), so a transient `unavailable`
+ * blip while a job is tracked live can never blank a healthy view or tear it down.
  */
 
-const VIEWABLE_DB_STATUSES: ReadonlySet<DbStatus> = new Set<DbStatus>(['completed', 'partial']);
+const VIEWABLE_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>(['completed', 'partial']);
 
-function isViewable(status: DbStatus): boolean {
-  return VIEWABLE_DB_STATUSES.has(status);
+function isViewable(status: JobStatus): boolean {
+  return VIEWABLE_STATUSES.has(status);
 }
 
 export function AnalysisDashboard({ analysisId }: { analysisId: string }): ReactElement {
   const view = useSearch({ strict: false, select: (s) => s.view });
 
   // Passive read of the SHARED live job-state (§7 subscriber dedup): the single
-  // `useJobTracking` instance inside JobTrackingPanel mirrors normalised state here.
-  // `skipToken` → this observer only reflects that cache; it never fetches, so no
-  // second transport is opened. `undefined` until the panel mounts and publishes.
+  // `useJobTracking` instance inside JobTrackingPanel mirrors normalised state here,
+  // under the MAIN-analysis stream key (`jobStateQueryKey` defaults to `'stream'`) so a
+  // sub-job on another `streamPath` never collides. `skipToken` → this observer only
+  // reflects that cache; it never fetches, so no second transport is opened.
   const liveJob = useQuery<JobState>({
-    queryKey: ['job', analysisId],
+    queryKey: jobStateQueryKey(analysisId),
     queryFn: skipToken,
   }).data;
-  const liveViewable = liveJob != null && isViewable(liveJob.status as DbStatus);
+  const liveViewable = liveJob != null && isViewable(liveJob.status);
 
   // Authoritative snapshot for readiness + `features`. It is NOT a parallel poller
   // during the run (§7 — the live transport owns progress). It only re-polls in the
