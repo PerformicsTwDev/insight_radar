@@ -11,6 +11,7 @@ import {
   type TrackingListSummary,
 } from '../../api/trackingLists';
 import { trackingListErrorMessage } from '../../lib/trackingListError';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 /**
  * Global tracking-list management view (T5.5, FR-19; backend FR-28 · AC-28.1/28.2/28.3/28.6).
@@ -30,8 +31,6 @@ const PRIMARY_BTN =
   'rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-bg-body enabled:hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40';
 const SEC_BTN =
   'rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:bg-white/5';
-const DANGER_BTN =
-  'rounded-lg bg-trend-negative/90 px-4 py-2 text-sm font-semibold text-white hover:bg-trend-negative';
 const LINK_BTN = 'text-sm font-medium text-white hover:text-brand';
 const GHOST_BTN = 'rounded-lg px-2 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white';
 const TEXT_INPUT =
@@ -419,48 +418,6 @@ function MemberPanel({
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/** Confirm gate between a destructive trigger and its DELETE (mirrors T5.2's dialog). */
-function ConfirmDialog({
-  title,
-  body,
-  confirmLabel,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  body: string;
-  confirmLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}): ReactElement {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      className="fixed inset-0 z-[100] flex items-center justify-center"
-    >
-      <div
-        onClick={onCancel}
-        aria-hidden="true"
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-      />
-      <div className="relative w-[92%] max-w-sm rounded-2xl bg-bg-card p-6 shadow-2xl ring-1 ring-white/10">
-        <h3 className="text-base font-bold text-white">{title}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-white/70">{body}</p>
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button type="button" onClick={onCancel} className={SEC_BTN}>
-            取消
-          </button>
-          <button type="button" onClick={onConfirm} className={DANGER_BTN}>
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

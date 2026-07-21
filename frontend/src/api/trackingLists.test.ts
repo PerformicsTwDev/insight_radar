@@ -5,7 +5,9 @@ import {
   createTrackingList,
   deleteTrackingList,
   getTrackingListDetail,
+  getTrackingListSeries,
   listTrackingLists,
+  refreshTrackingList,
   removeTrackingMember,
   renameTrackingList,
 } from './trackingLists';
@@ -277,5 +279,105 @@ describe('TC-40 · removeTrackingMember (DELETE /:listId/members/:normalizedText
   it('maps a 404 (member / list not found) to ok:false with the status', async () => {
     server.use(http.delete(MEMBER_ROUTE, () => new HttpResponse(null, { status: 404 })));
     expect(await removeTrackingMember(LIST_ID, 'gone')).toEqual({ ok: false, status: 404 });
+  });
+});
+
+const SERIES_ROUTE = '/api/v1/tracking-lists/:listId/series';
+const REFRESH_ROUTE = '/api/v1/tracking-lists/:listId/refresh';
+
+/** A valid backend `VolumeSeriesResult` wire body (dates ISO, cpc single-valued). */
+const seriesBody = {
+  list: { listId: LIST_ID, name: 'Running shoes', geo: 'TW', language: 'zh-TW' },
+  axis: ['2026-01-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'],
+  total: [100, 140],
+  members: [
+    {
+      normalizedText: 'running shoes',
+      text: 'Running Shoes',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      lastCheckedAt: '2026-03-01T00:00:00.000Z',
+      latest: {
+        fetchedAt: '2026-03-01T00:00:00.000Z',
+        avgMonthlySearches: 140,
+        competition: 'HIGH',
+        cpc: 1.25,
+      },
+      series: [
+        {
+          fetchedAt: '2026-01-01T00:00:00.000Z',
+          avgMonthlySearches: 100,
+          competition: 'HIGH',
+          cpc: 1.1,
+        },
+        {
+          fetchedAt: '2026-03-01T00:00:00.000Z',
+          avgMonthlySearches: 140,
+          competition: 'HIGH',
+          cpc: 1.25,
+        },
+      ],
+    },
+  ],
+  summary: { memberCount: 1, latestFetchedAt: '2026-03-01T00:00:00.000Z' },
+};
+
+describe('TC-30 · getTrackingListSeries (GET /:listId/series?from&to)', () => {
+  it('returns the parsed series on 200 and forwards from/to as query params', async () => {
+    let seenUrl: URL | undefined;
+    server.use(
+      http.get(SERIES_ROUTE, ({ request }) => {
+        seenUrl = new URL(request.url);
+        return HttpResponse.json(seriesBody, { status: 200 });
+      }),
+    );
+    const res = await getTrackingListSeries(LIST_ID, {
+      from: '2025-07-01T00:00:00.000Z',
+      to: '2026-07-01T00:00:00.000Z',
+    });
+    expect(res).toEqual({ ok: true, series: seriesBody });
+    expect(seenUrl?.searchParams.get('from')).toBe('2025-07-01T00:00:00.000Z');
+    expect(seenUrl?.searchParams.get('to')).toBe('2026-07-01T00:00:00.000Z');
+  });
+
+  it('omits the query params entirely when no range is given', async () => {
+    let seenUrl: URL | undefined;
+    server.use(
+      http.get(SERIES_ROUTE, ({ request }) => {
+        seenUrl = new URL(request.url);
+        return HttpResponse.json(seriesBody, { status: 200 });
+      }),
+    );
+    expect(await getTrackingListSeries(LIST_ID)).toEqual({ ok: true, series: seriesBody });
+    expect(seenUrl?.searchParams.has('from')).toBe(false);
+    expect(seenUrl?.searchParams.has('to')).toBe(false);
+  });
+
+  it('maps a 404 (unknown / not owner) to ok:false with the status', async () => {
+    server.use(http.get(SERIES_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    expect(await getTrackingListSeries(LIST_ID)).toEqual({ ok: false, status: 404 });
+  });
+
+  it('degrades to ok:false when the 200 body is not a valid series', async () => {
+    server.use(http.get(SERIES_ROUTE, () => HttpResponse.json({ axis: 'nope' }, { status: 200 })));
+    expect(await getTrackingListSeries(LIST_ID)).toEqual({ ok: false, status: 200 });
+  });
+});
+
+describe('TC-30 · refreshTrackingList (POST /:listId/refresh)', () => {
+  it('resolves ok on a 202 queued', async () => {
+    let method: string | undefined;
+    server.use(
+      http.post(REFRESH_ROUTE, ({ request }) => {
+        method = request.method;
+        return HttpResponse.json({ status: 'queued', listId: LIST_ID }, { status: 202 });
+      }),
+    );
+    expect(await refreshTrackingList(LIST_ID)).toEqual({ ok: true });
+    expect(method).toBe('POST');
+  });
+
+  it('maps a 404 (unknown / not owner) to ok:false with the status', async () => {
+    server.use(http.post(REFRESH_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    expect(await refreshTrackingList(LIST_ID)).toEqual({ ok: false, status: 404 });
   });
 });
