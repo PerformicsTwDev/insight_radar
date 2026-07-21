@@ -42,7 +42,7 @@ const historyRoute = createRoute({
   component: HistoryView,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, loginRoute, historyRoute]);
+export const routeTree = rootRoute.addChildren([indexRoute, loginRoute, historyRoute]);
 
 export const router = createRouter({ routeTree });
 
