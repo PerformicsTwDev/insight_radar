@@ -84,3 +84,19 @@ export function ownerWhere(actor: AuthenticatedUser): OwnerScopeWhere {
 export function ownerIdOf(actor: AuthenticatedUser): string | null {
   return actor.kind === 'session' ? actor.id : null;
 }
+
+/**
+ * **非同步 job / worker 情境**的 owner scope `where` 片段——由**已持久化的 `ownerId`**（run/job 落庫時
+ * `ownerIdOf(建立者 actor)` 的結果）推導，因 worker 無 live `AuthenticatedUser`（無 request context）。
+ * 與 {@link ownerWhere} 同語意、共用單點（S8——避免各處散落 ad-hoc `where ownerId`）：
+ * - `ownerId === null`（機器/apiKey 建立的 run）→ `{}`（不過濾、見全部，AC-27.5）。
+ * - `ownerId === <userId>`（session 建立的 run）→ `{ OR: [{ownerId}, {ownerId: null}] }`（自己 + 共享，AC-27.3）。
+ *
+ * 註：`ownerId` 已由 `ownerIdOf` 收斂（session→非 null id、apiKey→null 互斥），故 null 可逆推「機器 actor」。
+ */
+export function ownerWhereFromOwnerId(ownerId: string | null): OwnerScopeWhere {
+  if (ownerId === null) {
+    return {}; // 機器 actor 建立 → 不套 owner 過濾。
+  }
+  return { OR: [{ ownerId }, { ownerId: null }] }; // session 建立 → 自己 + 共享。
+}

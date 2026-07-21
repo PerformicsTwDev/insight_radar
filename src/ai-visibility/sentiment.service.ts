@@ -5,6 +5,7 @@ import {
   type IntentLabeler,
   type ParseChatResult,
 } from '../intent/intent-labeler.port';
+import type { AnalysisLineOutcome } from './ai-analysis.types';
 import {
   MAX_COMPLETION_TOKENS,
   type LlmBatchConfig,
@@ -50,11 +51,22 @@ export class SentimentService extends ResilientLlmBatchService {
     brand: BrandAliasInput,
     blocks: SentimentTextBlock[],
   ): Promise<BlockSentiment[]> {
-    const { collected } = await this.runBatches<SentimentResultItem, SentimentTextBlock>(
-      blocks,
-      (chunk) => this.callBatch(brand, chunk),
-    );
-    return postProcessSentiment(blocks, { results: collected });
+    return (await this.analyzeSentimentOutcome(brand, blocks)).results;
+  }
+
+  /**
+   * 同 {@link analyzeSentiment}，但**保留** `needsReview`（降級 fallback 的輸入 block）——供 T15.5 job-level
+   * partial 收斂（AC-42.5/INV-6）。`analyzeSentiment` 委派此方法後 drop `needsReview`（維持既有公開契約）。
+   */
+  async analyzeSentimentOutcome(
+    brand: BrandAliasInput,
+    blocks: SentimentTextBlock[],
+  ): Promise<AnalysisLineOutcome<BlockSentiment, SentimentTextBlock>> {
+    const { collected, needsReview } = await this.runBatches<
+      SentimentResultItem,
+      SentimentTextBlock
+    >(blocks, (chunk) => this.callBatch(brand, chunk));
+    return { results: postProcessSentiment(blocks, { results: collected }), needsReview };
   }
 
   /** 單批 LLM 呼叫（固定 strict `brand_sentiment` schema、temperature=0、max tokens；目標品牌注入 system）。 */

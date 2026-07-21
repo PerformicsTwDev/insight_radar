@@ -8,6 +8,7 @@ import type {
   SerpApiAiOverviewResult,
   SerpApiBingCopilotResult,
 } from '../serp/serpapi-ai.types';
+import type { AiAnalysisService } from '../ai-visibility/ai-analysis.service';
 import { AiSearchProcessor } from './ai-search.processor';
 import type {
   AiSearchCaptureRepository,
@@ -48,6 +49,8 @@ interface BuildOpts {
   persistError?: Error;
   /** non-Error rejection to exercise the `String(error)` scrub fallback (via mockRejectedValue, lint-safe). */
   deleteError?: unknown;
+  /** T15.5 分析 stage 降級數（needsReview>0 → run partial）；預設 0（無降級）。 */
+  analysisNeedsReview?: number;
 }
 function build(opts: BuildOpts = {}) {
   const fetchAiOverviews = jest.fn(() => Promise.resolve(opts.aiOverviews ?? []));
@@ -77,7 +80,20 @@ function build(opts: BuildOpts = {}) {
     persistCanonical,
   } as unknown as AiSearchCaptureRepository;
 
-  const processor = new AiSearchProcessor(serpAi, runRepo, captureRepo, {
+  // T15.5 分析 stage stub：抓取 processor 只關心其回傳的 `needsReview`（→ partial 收斂）；分析編排/持久化
+  // 由 ai-analysis.service.spec / ai-analysis-job.int-spec 獨立把關（不在此重測）。
+  const analyzeAndPersist = jest.fn(
+    (_input: { jobId: string; brandProfileId: string | null; captures: AiSearchCanonical[] }) =>
+      Promise.resolve({
+        answersCount: 0,
+        citedCount: 0,
+        metricsCount: 0,
+        needsReview: opts.analysisNeedsReview ?? 0,
+      }),
+  );
+  const aiAnalysis = { analyzeAndPersist } as unknown as AiAnalysisService;
+
+  const processor = new AiSearchProcessor(serpAi, runRepo, captureRepo, aiAnalysis, {
     queueConcurrency: 3,
     captureLookbackDays: 30,
     captureScanLimit: 500,
@@ -92,6 +108,7 @@ function build(opts: BuildOpts = {}) {
     deleteByJobId,
     readRawExtensionCaptures,
     persistCanonical,
+    analyzeAndPersist,
   };
 }
 
@@ -174,6 +191,42 @@ describe('TC-77: AiSearchProcessor', () => {
       const { j } = makeJob({ channels: ['chatGpt', 'googleSearch'] });
       const result = await processor.process(j);
       expect(result.status).toBe('partial');
+      expect(markStatus).toHaveBeenLastCalledWith('run-1', 'partial', { captureCount: 1 });
+    });
+
+    it('runs the T15.5 analysis stage with the merged captures + brandProfileId (jobId=runId)', async () => {
+      const { processor, analyzeAndPersist } = build({
+        aiOverviews: [
+          {
+            query: 'asus zenbook',
+            aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+            creditsUsed: 1,
+          },
+        ],
+      });
+      const { j } = makeJob({ channels: ['aiOverview'], brandProfileId: 'bp-7' });
+      await processor.process(j);
+      const arg = analyzeAndPersist.mock.calls[0][0];
+      expect(arg.jobId).toBe('run-1');
+      expect(arg.brandProfileId).toBe('bp-7');
+      expect(arg.captures).toHaveLength(1);
+      expect(arg.captures[0].channel).toBe('aiOverview');
+    });
+
+    it('marks partial when analysis degrades (needsReview>0) even though all channels are covered (AC-42.5)', async () => {
+      const { processor, markStatus } = build({
+        aiOverviews: [
+          {
+            query: 'asus zenbook',
+            aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+            creditsUsed: 1,
+          },
+        ],
+        analysisNeedsReview: 3, // some query/line LLM degraded
+      });
+      const { j } = makeJob({ channels: ['aiOverview'] });
+      const result = await processor.process(j);
+      expect(result.status).toBe('partial'); // fetch fully covered, but analysis degraded → partial
       expect(markStatus).toHaveBeenLastCalledWith('run-1', 'partial', { captureCount: 1 });
     });
 

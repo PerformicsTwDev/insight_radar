@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import type { Job, Worker } from 'bullmq';
+import { AiAnalysisService } from '../ai-visibility/ai-analysis.service';
 import { mapAiCapture } from '../captures/mapping/ai-mapper';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
@@ -49,6 +50,7 @@ export class AiSearchProcessor
     @Inject(SERP_AI_PROVIDER) private readonly serpAi: SerpAiProvider,
     private readonly runRepo: AiSearchRunRepository,
     private readonly captureRepo: AiSearchCaptureRepository,
+    private readonly aiAnalysis: AiAnalysisService,
     @Inject(AI_SEARCH_PROCESSOR_CONFIG) private readonly config: AiSearchProcessorConfig,
   ) {
     super();
@@ -73,7 +75,7 @@ export class AiSearchProcessor
   }
 
   async process(job: Job<AiSearchJobPayload>): Promise<AiSearchJobResult> {
-    const { runId, ownerId, keywords, channels } = job.data;
+    const { runId, ownerId, keywords, channels, brandProfileId } = job.data;
     try {
       await this.runRepo.markStatus(runId, 'running');
       await this.reportProgress(job, runId, 'pulling', 20);
@@ -94,9 +96,22 @@ export class AiSearchProcessor
       await this.reportProgress(job, runId, 'persisting', 85);
       const captureCount = await this.captureRepo.persistCanonical(runId, ownerId, merged);
 
-      // partial（INV-6）：任一請求渠道零 capture → partial（該格 null，不整批失敗）；全覆蓋 → completed。
+      // 分析 stage（T15.5，沿用抓取 job 落點）：合流 captures → 三線 LLM pipeline（品牌/情緒/媒體）→
+      // buildAiVisibility → 持久化分析結果 + 指標（clean-slate by jobId，idempotent re-run）。mapper/postProcess
+      // 皆補預設不 throw，故正常路徑恆完成；某 query/某線 LLM 降級收斂為 `needsReview`（→ partial，AC-42.5）。
+      await this.reportProgress(job, runId, 'analyzing', 92);
+      const analysis = await this.aiAnalysis.analyzeAndPersist({
+        jobId: runId,
+        ownerId,
+        brandProfileId,
+        captures: merged,
+      });
+
+      // partial（INV-6）：任一請求渠道零 capture（抓取缺）**或** 某線/某 query LLM 降級（analysis needsReview>0）
+      // → partial（該格 null，不整批失敗）；全覆蓋且分析無降級 → completed。
       const covered = new Set(merged.map((capture) => capture.channel));
-      const status = channels.some((channel) => !covered.has(channel)) ? 'partial' : 'completed';
+      const fetchPartial = channels.some((channel) => !covered.has(channel));
+      const status = fetchPartial || analysis.needsReview > 0 ? 'partial' : 'completed';
       await this.runRepo.markStatus(runId, status, { captureCount });
       // INV-3: the run is now durably terminal (completed/partial). The trailing 'done' tick is
       // cosmetic (SSE/GET) — write it best-effort so a transient DB/SSE error can never throw into

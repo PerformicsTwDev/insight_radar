@@ -21,3 +21,12 @@ export function sentimentPromptVersion(): string {
 export function mediaClassifyPromptVersion(): string {
   return process.env.MEDIA_CLASSIFY_PROMPT_VERSION ?? 'v1';
 }
+
+/**
+ * AI 可見度分析/指標 schema 版本（`AI_VISIBILITY_SCHEMA_VERSION`，預設 `v1`；Design §14）——落 `ai_answers` /
+ * `ai_cited_references` / `ai_visibility_metrics` 每列標記，bump 即整批失效（分析層版本，與抓取層
+ * `AI_SEARCH_SCHEMA_VERSION` 分工）。Joi 驗證（限 `v\d+`）+ `.env.example` 屬 T15.7；本檔僅建立取值點。
+ */
+export function aiVisibilitySchemaVersion(): string {
+  return process.env.AI_VISIBILITY_SCHEMA_VERSION ?? 'v1';
+}

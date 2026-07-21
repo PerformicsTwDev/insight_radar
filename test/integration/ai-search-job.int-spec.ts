@@ -7,6 +7,7 @@ import type { PrismaService } from 'src/prisma';
 import { AiSearchCaptureRepository } from 'src/ai-search/ai-search-capture.repository';
 import { AiSearchProcessor } from 'src/ai-search/ai-search.processor';
 import { AiSearchRunRepository } from 'src/ai-search/ai-search-run.repository';
+import type { AiAnalysisService } from 'src/ai-visibility/ai-analysis.service';
 import type { AiSearchJobPayload } from 'src/queue/ai-search-job.types';
 import type { SerpAiProvider } from 'src/serp/serpapi-ai.types';
 import { createPrismaTestApp } from '../utils/create-prisma-test-app';
@@ -30,6 +31,12 @@ function fakeSerpAi(aioByQuery: Record<string, AiSearchCanonical | null> = {}): 
       Promise.resolve(keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }))),
   };
 }
+
+/** T15.5 分析 stage stub：本 spec 只驗抓取合流（T14.6）；分析編排由 ai-analysis-job.int-spec 獨立把關。 */
+const stubAnalysis = {
+  analyzeAndPersist: () =>
+    Promise.resolve({ answersCount: 0, citedCount: 0, metricsCount: 0, needsReview: 0 }),
+} as unknown as AiAnalysisService;
 
 function serpCanonical(query: string): AiSearchCanonical {
   return {
@@ -105,6 +112,7 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
       fakeSerpAi({ 'asus zenbook': serpCanonical('asus zenbook') }),
       runRepo,
       captureRepo,
+      stubAnalysis,
       { queueConcurrency: 3, captureLookbackDays: 30, captureScanLimit: 500 },
     );
 
@@ -131,7 +139,7 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
       params: { schemaVersion: 'ai-search-v1' },
     });
     await seedExtensionCapture('chatGpt', 'asus zenbook'); // googleSearch has none
-    const processor = new AiSearchProcessor(fakeSerpAi(), runRepo, captureRepo, {
+    const processor = new AiSearchProcessor(fakeSerpAi(), runRepo, captureRepo, stubAnalysis, {
       queueConcurrency: 3,
       captureLookbackDays: 30,
       captureScanLimit: 500,
@@ -156,7 +164,7 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
       params: { schemaVersion: 'ai-search-v1' },
     });
     await seedExtensionCapture('chatGpt', 'asus zenbook');
-    const processor = new AiSearchProcessor(fakeSerpAi(), runRepo, captureRepo, {
+    const processor = new AiSearchProcessor(fakeSerpAi(), runRepo, captureRepo, stubAnalysis, {
       queueConcurrency: 3,
       captureLookbackDays: 30,
       captureScanLimit: 500,
