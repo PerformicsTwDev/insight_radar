@@ -32,6 +32,7 @@ import type { EventSourceFactory } from '../job/useJobTracking';
  */
 
 const ROW_HEIGHT = 44;
+const SELECT_WIDTH = 44;
 const COL_WIDTH = {
   text: 220,
   intent: 200,
@@ -43,6 +44,19 @@ const COL_WIDTH = {
 };
 
 /**
+ * Per-row selection wiring (T6.4, FR-19) — supplied by the route-mounted container
+ * (KeywordsView) when an analysis (geo, language) context is known, so a picked row
+ * carries its source context into the tracking-list bulk bar. Omitted for a
+ * standalone / degraded render → no selection column (the pre-T6.4 table shape).
+ */
+export interface KeywordsTableSelection {
+  /** Whether this row is currently in the selection set (keyed by normalizedText, C7). */
+  readonly isSelected: (row: KeywordRow) => boolean;
+  /** Toggle this row in/out of the selection set. */
+  readonly onToggle: (row: KeywordRow) => void;
+}
+
+/**
  * Column model. The ✦ on-demand column binds to `analysisId`: when provided, each
  * cell is an interactive {@link AiIntentCell} (single-cell `POST :id/ai-intent-summary`,
  * T4.1/FR-18) keyed on the row's `normalizedText`; when absent (no analysis context —
@@ -50,8 +64,32 @@ const COL_WIDTH = {
  * factory so the ✦ cell can close over `analysisId` without a global table-meta
  * augmentation.
  */
-function buildColumns(analysisId?: string): ColumnDef<KeywordRow>[] {
+function buildColumns(
+  analysisId?: string,
+  selection?: KeywordsTableSelection,
+): ColumnDef<KeywordRow>[] {
+  const selectColumn: ColumnDef<KeywordRow>[] = selection
+    ? [
+        {
+          id: 'select',
+          // Header stays a non-interactive spacer — a 全選 control is out of the FR-19
+          // "pick rows" scope; screen readers get the per-row checkbox's own label.
+          header: () => <span className="sr-only">選取</span>,
+          size: SELECT_WIDTH,
+          cell: ({ row }) => (
+            <input
+              type="checkbox"
+              aria-label={`選取 ${row.original.text}`}
+              checked={selection.isSelected(row.original)}
+              onChange={() => selection.onToggle(row.original)}
+              className="accent-brand"
+            />
+          ),
+        },
+      ]
+    : [];
   return [
+    ...selectColumn,
     {
       id: 'text',
       header: '搜尋詞',
@@ -126,24 +164,42 @@ const HEADER_BASE =
   'flex shrink-0 items-center overflow-hidden px-3 py-2 text-xs font-medium text-white/60';
 const CELL_BASE = 'flex shrink-0 items-center overflow-hidden px-3 py-2 text-sm text-white/80';
 
-/** The first column (搜尋詞) is frozen: sticky-left with an opaque bg so it stays put. */
-function frozen(index: number, base: string, bg: string): string {
-  return index === 0 ? `${base} sticky left-0 z-10 ${bg}` : base;
+/**
+ * The lead columns are frozen (sticky-left with an opaque bg so they stay put on
+ * horizontal scroll): the 搜尋詞 column always, plus the selection column ahead of it
+ * when present. `frozenCount` = how many lead columns freeze (2 with selection, else 1).
+ * The base `left-0` pins the first frozen column; a following frozen column overrides it
+ * with an inline left offset ({@link frozenLeft}) so both stay put without a purge-unsafe
+ * dynamic Tailwind class.
+ */
+function frozenClass(index: number, frozenCount: number, base: string, bg: string): string {
+  return index < frozenCount ? `${base} sticky left-0 z-10 ${bg}` : base;
+}
+
+/** Inline left offset (px) for a frozen column past the first — the 搜尋詞 column when a
+ * selection column precedes it; `undefined` (no override) for the pinned first column. */
+function frozenLeft(index: number, frozenCount: number): number | undefined {
+  return frozenCount === 2 && index === 1 ? SELECT_WIDTH : undefined;
 }
 
 export function KeywordsTable({
   rows,
   analysisId,
+  selection,
   eventSourceFactory,
 }: {
   rows: KeywordRow[];
   /** Analysis context enabling the interactive ✦ on-demand cells (T4.1, FR-18); omit for a masked ✦. */
   analysisId?: string;
+  /** Per-row selection wiring (T6.4, FR-19); omit → no selection column (pre-T6.4 shape). */
+  selection?: KeywordsTableSelection;
   /** Injected SSE factory for the ✦ column-header batch (T4.2); prod uses the default. */
   eventSourceFactory?: EventSourceFactory;
 }): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const columns = useMemo(() => buildColumns(analysisId), [analysisId]);
+  const columns = useMemo(() => buildColumns(analysisId, selection), [analysisId, selection]);
+  // Freeze the selection column (when present) plus 搜尋詞 (Design §6 C1 sticky lead).
+  const frozenCount = selection ? 2 : 1;
 
   // The ✦ column-header batch coordinator (T4.2, FR-18): masks its target cells (the
   // rows that carry a normalizedText key) and fills them progressively over SSE. The
@@ -172,8 +228,8 @@ export function KeywordsTable({
         <div
           role="cell"
           key={cell.id}
-          className={frozen(index, CELL_BASE, 'bg-bg-card')}
-          style={{ width: cell.column.getSize() }}
+          className={frozenClass(index, frozenCount, CELL_BASE, 'bg-bg-card')}
+          style={{ width: cell.column.getSize(), left: frozenLeft(index, frozenCount) }}
         >
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </div>
@@ -201,8 +257,8 @@ export function KeywordsTable({
                 <div
                   role="columnheader"
                   key={header.id}
-                  className={frozen(index, HEADER_BASE, 'bg-bg-raised')}
-                  style={{ width: header.getSize() }}
+                  className={frozenClass(index, frozenCount, HEADER_BASE, 'bg-bg-raised')}
+                  style={{ width: header.getSize(), left: frozenLeft(index, frozenCount) }}
                 >
                   {flexRender(header.column.columnDef.header, header.getContext())}
                 </div>

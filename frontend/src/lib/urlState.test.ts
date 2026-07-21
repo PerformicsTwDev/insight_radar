@@ -18,7 +18,14 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
         pageSize: 25,
         cursor: 'eyJpZCI6MTIzfQ',
         filters: 'volume:gte:100',
+        geo: 'TW',
+        language: 'zh-TW',
       };
+      expect(deserialize(serialize(s))).toEqual(s);
+    });
+
+    it('preserves the analysis (geo, language) context (FR-19 selection seed)', () => {
+      const s: AppSearch = { analysisId: UUID, view: 'keywords', geo: 'US', language: 'en' };
       expect(deserialize(serialize(s))).toEqual(s);
     });
 
@@ -94,6 +101,14 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
       const result = deserialize({ analysisId: 'not-a-uuid', view: 'trend' });
       expect(result.analysisId).toBeUndefined();
       expect(result.view).toBe('trend');
+    });
+
+    it('drops an empty geo / language (absent context ≠ empty-string filter)', () => {
+      expect(deserialize({ geo: '', language: '' })).toEqual({});
+      expect(deserialize({ geo: 'TW', language: 'zh-TW' })).toEqual({
+        geo: 'TW',
+        language: 'zh-TW',
+      });
     });
 
     it('drops a non-numeric / non-positive page', () => {

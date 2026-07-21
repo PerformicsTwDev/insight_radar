@@ -9,9 +9,10 @@ import {
 } from '@tanstack/react-router';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
 import { deserialize } from '../../lib/urlState';
+import { useSelectionStore } from '../../stores/selectionStore';
 import { KeywordsView } from './KeywordsView';
 
 /**
@@ -126,5 +127,68 @@ describe('KeywordsView · keywords table data wiring', () => {
     renderKeywords();
     fireEvent.click(await screen.findByRole('button', { name: '重試' }));
     expect(await screen.findByText('running shoes')).toBeInTheDocument();
+  });
+});
+
+describe('KeywordsView · TSV copy (FR-13) + per-row selection (FR-19) mount', () => {
+  const writeText = vi.fn<(text: string) => Promise<void>>();
+
+  beforeEach(() => {
+    useSelectionStore.setState({ items: [] });
+    writeText.mockReset();
+    writeText.mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+  afterEach(() => {
+    useSelectionStore.setState({ items: [] });
+    vi.restoreAllMocks();
+  });
+
+  function stubRows() {
+    server.use(
+      http.get(KEYWORDS_ROUTE, () =>
+        HttpResponse.json({
+          data: [row('running shoes'), row('trail shoes')],
+          meta: { total: 2, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
+  }
+
+  it('copies the visible rows as TSV via 複製表格', async () => {
+    stubRows();
+    renderKeywords();
+    fireEvent.click(await screen.findByRole('button', { name: '複製表格' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const tsv = writeText.mock.calls[0][0];
+    expect(tsv).toContain('搜尋詞');
+    expect(tsv).toContain('running shoes');
+  });
+
+  it('does NOT mount selection checkboxes without a (geo, language) URL context', async () => {
+    stubRows();
+    renderKeywords();
+    expect(await screen.findByText('running shoes')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('checking a row with a URL context populates the selection store + shows the bulk bar', async () => {
+    stubRows();
+    renderKeywords('?geo=TW&language=zh-TW');
+    fireEvent.click(await screen.findByRole('checkbox', { name: '選取 running shoes' }));
+
+    // The floating bulk bar appears off the store (deduped 搜尋詞 count).
+    expect(await screen.findByRole('region', { name: '批次選取' })).toBeInTheDocument();
+    expect(screen.getByText(/已選 1 項/)).toBeInTheDocument();
+    // The picked keyword carries its list-layer-fixed (geo, language) context.
+    expect(useSelectionStore.getState().items).toEqual([
+      {
+        kind: 'keyword',
+        text: 'running shoes',
+        geo: 'TW',
+        language: 'zh-TW',
+        analysisId: ANALYSIS_ID,
+      },
+    ]);
   });
 });

@@ -1,4 +1,5 @@
 import { expect, test, type Route } from '@playwright/test';
+import { stubViews } from './support/stubs';
 
 /**
  * TC-47 (e2e, FR-19) — the tracking list is a cross-analysis GLOBAL resource with
@@ -8,11 +9,10 @@ import { expect, test, type Route } from '@playwright/test';
  * (name/geo/language) → row 開啟 → TrackingDetailView time-series (a brand-new
  * list draws the AC-30.3 "尚無時序資料" empty state — never a fabricated 0 line).
  *
- * SCOPE SPLIT (honest, TC-47 spans T5.7 + T6.4): the "勾選 (results-page per-row
- * checkbox) → bulk 建清單" entry point is DEFERRED to T6.4 — it needs view-content
- * routing to mount the results table + selectionStore/BulkSelectBar into a route
- * (#443), which T5.7 does not do. That segment is a single `test.fixme` below (NOT
- * a blanket skip of this file's reachable coverage).
+ * SCOPE SPLIT (TC-47 spans T5.7 + T6.4): the "勾選 (results-page per-row checkbox) →
+ * bulk 建清單" entry point is covered end-to-end by `tracking-select.spec.ts` (T6.4,
+ * now that view-content routing mounts the results table + selectionStore/BulkSelectBar
+ * into the dashboard route). This file covers the top-level 追蹤清單 entry point.
  */
 
 const LIST_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
@@ -33,7 +33,7 @@ test('top-level 追蹤清單 → create → open detail time-series (reachable T
   page,
 }) => {
   // The shell reads GET /views on mount — stub it so it doesn't fall back noisily.
-  await page.route(/\/api\/v1\/views/, (route) => route.fulfill({ json: { views: [] } }));
+  await stubViews(page, []);
 
   // GET (list) vs POST (create) share the same URL — split on method. GET starts empty;
   // the view appends the created list locally (optimistic), so no growing GET needed.
@@ -76,14 +76,4 @@ test('top-level 追蹤清單 → create → open detail time-series (reachable T
   await page.getByRole('button', { name: `開啟 ${LIST_NAME}` }).click();
   await expect(page).toHaveURL(new RegExp(`/tracking/${LIST_ID}$`));
   await expect(page.getByText('尚無時序資料')).toBeVisible();
-});
-
-// ── DEFERRED to T6.4 (#443) — NOT reachable in T5.7 ──────────────────────────
-// The results-page per-row checkbox → BulkSelectBar → bulk "加入追蹤清單" flow
-// needs the results table + selectionStore/BulkSelectBar mounted into a route
-// (view-content routing, #443). T5.7 mounts no results table, so this entry point
-// is unreachable here. Marked test.fixme (declared, not run) so the deferral is
-// explicit in the suite rather than silently absent.
-test.fixme('select results rows → bulk-create a tracking list (deferred to T6.4 / #443)', async () => {
-  // Implement in T6.4 once the results table + BulkSelectBar are route-mounted.
 });

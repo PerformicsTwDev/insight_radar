@@ -80,7 +80,13 @@ describe('TC-21 · HistoryView (分析歷史清單 + reopen)', () => {
     fireEvent.click(reopen);
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/'));
-    expect(router.state.location.search).toMatchObject({ analysisId: ANALYSIS_ID });
+    // The analysisId restores the dashboard (FR-1); the row's (geo, language) context
+    // rides along (Design §5) so the reopened 搜尋詞總表 can seed tracking selections (FR-19).
+    expect(router.state.location.search).toMatchObject({
+      analysisId: ANALYSIS_ID,
+      geo: 'TW',
+      language: 'zh-TW',
+    });
   });
 
   it('shows an empty state when there are no past analyses', async () => {

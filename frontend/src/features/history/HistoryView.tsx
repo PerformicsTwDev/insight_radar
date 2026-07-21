@@ -59,10 +59,15 @@ export function HistoryView(): ReactElement {
       listKeywordAnalyses({ page, pageSize, status: status === 'all' ? undefined : status }),
   });
 
-  function reopen(analysisId: string): void {
+  function reopen(row: AnalysisListRow): void {
     // Fresh dashboard for the chosen analysis (URL restore, FR-1) — stale
-    // filters/pagination from the history context are dropped.
-    void navigate({ to: '/', search: { analysisId } });
+    // filters/pagination from the history context are dropped. The row's (geo,
+    // language) context rides along (Design §5) so the reopened 搜尋詞總表 can seed
+    // list-layer-fixed tracking selections (FR-19), same as the create path.
+    void navigate({
+      to: '/',
+      search: { analysisId: row.analysisId, geo: row.params.geo, language: row.params.language },
+    });
   }
 
   function changeStatus(next: StatusFilter): void {
@@ -113,7 +118,7 @@ function HistoryBody({
   onReopen,
 }: {
   readonly query: HistoryQuery;
-  readonly onReopen: (analysisId: string) => void;
+  readonly onReopen: (row: AnalysisListRow) => void;
 }): ReactElement {
   const result = query.data;
   if (!result) {
@@ -166,7 +171,7 @@ function HistoryBody({
               <td className="px-3 py-2 text-right">
                 <button
                   type="button"
-                  onClick={() => onReopen(row.analysisId)}
+                  onClick={() => onReopen(row)}
                   className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-black"
                 >
                   開啟
