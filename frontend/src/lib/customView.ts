@@ -34,8 +34,7 @@ export const DEEP_LINK_TAB_NAME = '自訂分類';
  * shows the classification's 分類表, not the empty create-state.
  */
 export function deepLinkTab(cid: string): CustomTab {
-  // RED shell (TDD) — implemented in the green step.
-  throw new Error(`not implemented: ${cid}`);
+  return { cid, name: DEEP_LINK_TAB_NAME };
 }
 
 /** The analysis-scoped assignments SSE sub-path for `useJobTracking` (`buildStreamUrl`). */

@@ -35,8 +35,10 @@ export function ViewContent({ analysisId, view, features }: ViewContentProps): R
     case 'not_found':
       return <ViewNotFound view={resolution.view} />;
     case 'custom':
-      // The dynamic tab view owns its own cid tabs; a `custom:{cid}` URL lands here.
-      return <CustomClassifyView analysisId={analysisId} />;
+      // The dynamic tab view owns its own cid tabs; a `custom:{cid}` URL lands here. Thread
+      // the resolved cid so a shared / reopened deep-link seeds that classification's tab and
+      // restores its 分類表 — not the empty create-state (FR-1 / AC-1.2, #647).
+      return <CustomClassifyView analysisId={analysisId} initialCid={resolution.cid} />;
     case 'default':
       return <KeywordsView analysisId={analysisId} />;
     case 'known':
