@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { api } from './client';
-import { ANALYSIS_STATUSES, type StatusFetch } from './keywordAnalyses';
+import { ANALYSIS_STATUSES, parseJobProgress, type StatusFetch } from './keywordAnalyses';
 
 /**
  * Typed egress for the 自訂分類 **stage-two** assignment job (T5.2, FR-16; backend
@@ -103,6 +103,8 @@ export async function fetchCustomClassifyRun(
  * the shared {@link StatusFetch}, so the classify job's C3-confirm + poll fallback never
  * settle off the (already-terminal) MAIN analysis. 404 (no run) → not-found terminal;
  * any other non-2xx, or an unrecognised status string, → `unavailable` (keep polling).
+ * The run's live `progress` is FORWARDED (not dropped) so a poll fallback keeps the
+ * bar instead of blanking it to 0%/'準備中' (§7; #643).
  */
 export async function fetchCustomClassifyAssignStatus(
   id: string,
@@ -113,7 +115,9 @@ export async function fetchCustomClassifyAssignStatus(
     return res.status === 404 ? { kind: 'not_found' } : { kind: 'unavailable' };
   }
   const status = ANALYSIS_STATUSES.find((s) => s === res.run.status);
-  return status ? { kind: 'ok', status: { status } } : { kind: 'unavailable' };
+  return status
+    ? { kind: 'ok', status: { status, progress: parseJobProgress(res.run.progress) } }
+    : { kind: 'unavailable' };
 }
 
 /**

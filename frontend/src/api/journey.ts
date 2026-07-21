@@ -3,6 +3,7 @@ import { api } from './client';
 import {
   ANALYSIS_STATUSES,
   ErrorResponseSchema,
+  parseJobProgress,
   type ErrorResponse,
   type StatusFetch,
 } from './keywordAnalyses';
@@ -95,7 +96,9 @@ export async function fetchJourneyRun(id: string): Promise<FetchJourneyRunResult
  * `GET :id/journey` and maps it to the shared {@link StatusFetch}, so the journey
  * job's C3-confirm + poll fallback never settle off the (already-terminal) MAIN
  * analysis's status. 404 → not-found terminal; any other non-2xx, or an
- * unrecognised status string, → `unavailable` (keep polling).
+ * unrecognised status string, → `unavailable` (keep polling). The run's live
+ * `progress` is FORWARDED (not dropped) so a poll fallback keeps the bar instead of
+ * blanking it to 0%/'準備中' (§7; #643).
  */
 export async function fetchJourneyStatus(id: string): Promise<StatusFetch> {
   const res = await fetchJourneyRun(id);
@@ -106,5 +109,5 @@ export async function fetchJourneyStatus(id: string): Promise<StatusFetch> {
   if (!status) {
     return { kind: 'unavailable' };
   }
-  return { kind: 'ok', status: { status } };
+  return { kind: 'ok', status: { status, progress: parseJobProgress(res.run.progress) } };
 }
