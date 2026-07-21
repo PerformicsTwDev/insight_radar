@@ -263,7 +263,10 @@ describe('TC-40 · removeTrackingMember (DELETE /:listId/members/:normalizedText
       http.delete(MEMBER_ROUTE, ({ params }) => {
         seenListId = params.listId as string;
         seenMember = params.normalizedText as string;
-        return HttpResponse.json({ listId: LIST_ID, normalizedText: 'running shoes' }, { status: 200 });
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
       }),
     );
     expect(await removeTrackingMember(LIST_ID, 'running shoes')).toEqual({ ok: true });

@@ -31,7 +31,14 @@ interface Summary {
 }
 
 function summary(listId: string, name: string, memberCount = 0): Summary {
-  return { listId, name, geo: 'TW', language: 'zh-TW', createdAt: '2026-07-21T00:00:00.000Z', memberCount };
+  return {
+    listId,
+    name,
+    geo: 'TW',
+    language: 'zh-TW',
+    createdAt: '2026-07-21T00:00:00.000Z',
+    memberCount,
+  };
 }
 
 /** Register `GET /tracking-lists` off a mutable array (so create/delete can mutate it). */
@@ -83,7 +90,7 @@ describe('TC-40 · TrackingListsView', () => {
     expect(await screen.findByText('清單載入失敗')).toBeInTheDocument();
   });
 
-  it('disables 建立清單 until name, geo and language are all filled', async () => {
+  it('disables 建立清單 until name, geo and language are all filled', () => {
     render(<TrackingListsView />);
     const create = screen.getByRole('button', { name: '建立清單' });
     expect(create).toBeDisabled();
@@ -154,8 +161,8 @@ describe('TC-40 · TrackingListsView', () => {
     expect(alert).not.toHaveTextContent('名稱已存在');
   });
 
-  it('renames a list via PATCH { name } and shows the new name', async () => {
-    withLists([summary(LIST_ID, 'Running shoes', 2)]);
+  it('renames a list via PATCH { name } and shows the new name (other rows untouched)', async () => {
+    withLists([summary(LIST_ID, 'Running shoes', 2), summary(LIST_ID_2, 'Hiking boots', 5)]);
     let body: unknown;
     server.use(
       http.patch(DETAIL_ROUTE, async ({ request }) => {
@@ -174,7 +181,28 @@ describe('TC-40 · TrackingListsView', () => {
     fireEvent.click(screen.getByRole('button', { name: '儲存名稱' }));
 
     expect(await screen.findByText('Trail shoes')).toBeInTheDocument();
+    expect(screen.getByText('Hiking boots')).toBeInTheDocument(); // the sibling row is unchanged
     expect(body).toEqual({ name: 'Trail shoes' });
+  });
+
+  it('cancels an inline rename without a PATCH', async () => {
+    withLists([summary(LIST_ID, 'Running shoes', 2)]);
+    let patched = 0;
+    server.use(
+      http.patch(DETAIL_ROUTE, () => {
+        patched += 1;
+        return HttpResponse.json({ listId: LIST_ID }, { status: 200 });
+      }),
+    );
+    render(<TrackingListsView />);
+    fireEvent.click(await screen.findByRole('button', { name: '改名 Running shoes' }));
+    fireEvent.change(screen.getByLabelText('重新命名 Running shoes'), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    // The inline editor closes and the original row/name stays — no request fired.
+    expect(screen.queryByLabelText('重新命名 Running shoes')).not.toBeInTheDocument();
+    expect(screen.getByText('Running shoes')).toBeInTheDocument();
+    expect(patched).toBe(0);
   });
 
   it('maps a rename 409 duplicate to a name-collision prompt', async () => {
@@ -189,7 +217,9 @@ describe('TC-40 · TrackingListsView', () => {
     );
     render(<TrackingListsView />);
     fireEvent.click(await screen.findByRole('button', { name: '改名 Running shoes' }));
-    fireEvent.change(screen.getByLabelText('重新命名 Running shoes'), { target: { value: 'Trail' } });
+    fireEvent.change(screen.getByLabelText('重新命名 Running shoes'), {
+      target: { value: 'Trail' },
+    });
     fireEvent.click(screen.getByRole('button', { name: '儲存名稱' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('名稱');
@@ -224,6 +254,26 @@ describe('TC-40 · TrackingListsView', () => {
     expect(deleted).toBe(1);
   });
 
+  it('closes the member panel when the currently-open list is deleted', async () => {
+    withLists([summary(LIST_ID, 'Running shoes', 1)]);
+    withDetail([member('running shoes', 'Running Shoes')]);
+    server.use(
+      http.delete(DETAIL_ROUTE, () => HttpResponse.json({ listId: LIST_ID }, { status: 200 })),
+    );
+    render(<TrackingListsView />);
+    fireEvent.click(await screen.findByRole('button', { name: '檢視 Running shoes 成員' }));
+    expect(await screen.findByText('Running Shoes')).toBeInTheDocument(); // panel open
+
+    fireEvent.click(screen.getByRole('button', { name: '刪除 Running shoes' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '確定刪除' }),
+    );
+
+    // The list row AND its member panel both go away (selected list was the deleted one).
+    await waitFor(() => expect(screen.queryByText('Running shoes')).not.toBeInTheDocument());
+    expect(screen.queryByText('Running Shoes')).not.toBeInTheDocument();
+  });
+
   it('does not DELETE when the delete confirm is cancelled', async () => {
     withLists([summary(LIST_ID, 'Running shoes', 2)]);
     let deleted = 0;
@@ -248,7 +298,9 @@ describe('TC-40 · TrackingListsView', () => {
     server.use(http.delete(DETAIL_ROUTE, () => new HttpResponse(null, { status: 404 })));
     render(<TrackingListsView />);
     fireEvent.click(await screen.findByRole('button', { name: '刪除 Running shoes' }));
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '確定刪除' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '確定刪除' }),
+    );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('找不到');
     expect(screen.getByText('Running shoes')).toBeInTheDocument();
@@ -270,7 +322,9 @@ describe('TC-40 · TrackingListsView', () => {
     );
     render(<TrackingListsView />);
     fireEvent.click(await screen.findByRole('button', { name: '刪除 Running shoes' }));
-    const confirm = within(await screen.findByRole('dialog')).getByRole('button', { name: '確定刪除' });
+    const confirm = within(await screen.findByRole('dialog')).getByRole('button', {
+      name: '確定刪除',
+    });
     fireEvent.click(confirm);
     fireEvent.click(confirm); // re-entry while the first DELETE is outstanding → no-op
     release();
@@ -286,7 +340,10 @@ describe('TC-40 · TrackingListsView', () => {
     server.use(
       http.delete(MEMBER_ROUTE, ({ params }) => {
         seenMember = params.normalizedText as string;
-        return HttpResponse.json({ listId: LIST_ID, normalizedText: 'running shoes' }, { status: 200 });
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
       }),
     );
     render(<TrackingListsView />);
@@ -294,7 +351,9 @@ describe('TC-40 · TrackingListsView', () => {
     expect(await screen.findByText('Running Shoes')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '移除 Running Shoes' }));
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '確定移除' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '確定移除' }),
+    );
 
     await waitFor(() => expect(screen.queryByText('Running Shoes')).not.toBeInTheDocument());
     expect(seenMember).toBe('running shoes');
@@ -313,19 +372,49 @@ describe('TC-40 · TrackingListsView', () => {
       http.delete(MEMBER_ROUTE, async () => {
         deleted += 1;
         await gate;
-        return HttpResponse.json({ listId: LIST_ID, normalizedText: 'running shoes' }, { status: 200 });
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
       }),
     );
     render(<TrackingListsView />);
     fireEvent.click(await screen.findByRole('button', { name: '檢視 Running shoes 成員' }));
     fireEvent.click(await screen.findByRole('button', { name: '移除 Running Shoes' }));
-    const confirm = within(await screen.findByRole('dialog')).getByRole('button', { name: '確定移除' });
+    const confirm = within(await screen.findByRole('dialog')).getByRole('button', {
+      name: '確定移除',
+    });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     release();
 
     await waitFor(() => expect(screen.queryByText('Running Shoes')).not.toBeInTheDocument());
     expect(deleted).toBe(1);
+  });
+
+  it('does not DELETE when the remove-member confirm is cancelled', async () => {
+    withLists([summary(LIST_ID, 'Running shoes', 1)]);
+    withDetail([member('running shoes', 'Running Shoes')]);
+    let deleted = 0;
+    server.use(
+      http.delete(MEMBER_ROUTE, () => {
+        deleted += 1;
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
+      }),
+    );
+    render(<TrackingListsView />);
+    fireEvent.click(await screen.findByRole('button', { name: '檢視 Running shoes 成員' }));
+    fireEvent.click(await screen.findByRole('button', { name: '移除 Running Shoes' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '取消' }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByText('Running Shoes')).toBeInTheDocument();
+    expect(deleted).toBe(0);
   });
 
   it('maps a remove-member 404 to a not-found prompt', async () => {
@@ -335,9 +424,19 @@ describe('TC-40 · TrackingListsView', () => {
     render(<TrackingListsView />);
     fireEvent.click(await screen.findByRole('button', { name: '檢視 Running shoes 成員' }));
     fireEvent.click(await screen.findByRole('button', { name: '移除 Running Shoes' }));
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '確定移除' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: '確定移除' }),
+    );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('找不到');
+  });
+
+  it('shows an empty-members hint when the opened list has no members', async () => {
+    withLists([summary(LIST_ID, 'Empty list', 0)]);
+    withDetail([]);
+    render(<TrackingListsView />);
+    fireEvent.click(await screen.findByRole('button', { name: '檢視 Empty list 成員' }));
+    expect(await screen.findByText('此清單尚無成員。')).toBeInTheDocument();
   });
 
   it('shows an error when a list detail fails to load', async () => {

@@ -25,15 +25,13 @@ describe('TC-40: trackingListErrorMessage', () => {
   });
 
   it('maps a 409 whose message says the member limit was reached to a cap prompt', () => {
-    expect(
-      trackingListErrorMessage(409, 'Tracking list member limit reached (max 500)'),
-    ).toContain('上限');
+    expect(trackingListErrorMessage(409, 'Tracking list member limit reached (max 500)')).toContain(
+      '上限',
+    );
   });
 
   it('maps a 409 duplicate-name message to a name-collision prompt', () => {
-    expect(trackingListErrorMessage(409, 'Tracking list "Trail" already exists')).toContain(
-      '名稱',
-    );
+    expect(trackingListErrorMessage(409, 'Tracking list "Trail" already exists')).toContain('名稱');
   });
 
   it('treats a 409 with no message as a name collision (the default 409 in create/rename)', () => {

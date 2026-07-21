@@ -57,7 +57,7 @@ export type ListTrackingListsResult =
 
 export type CreateTrackingListResult =
   | { readonly ok: true; readonly list: TrackingListView }
-  | { readonly ok: false; readonly status: number };
+  | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
 
 export type AddTrackingMembersResult =
   | { readonly ok: true; readonly result: AddMembersResult }
@@ -86,13 +86,16 @@ export async function listTrackingLists(): Promise<ListTrackingListsResult> {
 export async function createTrackingList(
   body: CreateTrackingListBody,
 ): Promise<CreateTrackingListResult> {
-  const { data, response } = await api.POST('/api/v1/tracking-lists', { body });
+  const { data, error, response } = await api.POST('/api/v1/tracking-lists', { body });
   if (response.ok) {
     const parsed = TrackingListViewSchema.safeParse(data);
     if (parsed.success) return { ok: true, list: parsed.data };
     return { ok: false, status: response.status };
   }
-  return { ok: false, status: response.status };
+  // Carry the `ErrorResponse` body so callers can split the two 409 causes (duplicate name
+  // vs list-count cap) — both arrive with `code:'CONFLICT'`, so only the message separates
+  // them (see `trackingListErrorMessage`). No body → `error` undefined (still `ok:false`).
+  return { ok: false, status: response.status, error: parseError(error) };
 }
 
 /**
@@ -119,7 +122,13 @@ export async function addTrackingMembers(
   return { ok: false, status: response.status };
 }
 
-// ── TC-40 red stubs — real bodies land in the green commit ────────────────────────────
+// ── List CRUD + member removal (T5.5, FR-19; backend FR-28 · AC-28.1/28.2/28.3/28.6) ──
+//
+// Same openapi gap as the T5.4 egress: `getDetail` / `rename` / `remove` / `removeMember`
+// declare no response body (`content: never`, #392 class), so 2xx bodies are zod-validated
+// here (honest parse, not a cast). Never throw — a 400 (context mismatch), 409 (duplicate
+// name / cap), or 404 (unknown / not owner) degrades to `ok:false` carrying the status AND
+// the parsed `ErrorResponse` (so callers can split the two 409 causes via the message).
 
 /** One tracking-list member (backend `TrackingListMemberView`; dates ISO over the wire). */
 const TrackingListMemberSchema = z.object({
@@ -148,26 +157,77 @@ export type MutateTrackingListResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
 
-export async function getTrackingListDetail(
-  _listId: string,
-): Promise<GetTrackingListDetailResult> {
-  return { ok: false, status: 0 };
+/** Parse a non-2xx body against `ErrorResponse` (undefined when absent / malformed). */
+function parseError(error: unknown): ErrorResponse | undefined {
+  const parsed = ErrorResponseSchema.safeParse(error);
+  return parsed.success ? parsed.data : undefined;
 }
 
+/**
+ * Load a list's metadata + members (the CRUD detail panel; AC-28.3). On 200 the
+ * openapi-untyped body is zod-validated to `TrackingListDetail`; a 404 (unknown / not
+ * owner) or an invalid body degrades to `ok:false`.
+ */
+export async function getTrackingListDetail(listId: string): Promise<GetTrackingListDetailResult> {
+  const { data, error, response } = await api.GET('/api/v1/tracking-lists/{listId}', {
+    params: { path: { listId } },
+  });
+  if (response.ok) {
+    const parsed = TrackingListDetailSchema.safeParse(data);
+    if (parsed.success) return { ok: true, detail: parsed.data };
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status, error: parseError(error) };
+}
+
+/**
+ * Rename a list (AC-28.2). The request body is bound to the generated `RenameTrackingListDto`
+ * (`{ name }`, drift → compile error); on 200 the openapi-untyped body is zod-validated to
+ * `TrackingListView`. A 409 (duplicate name), 404 (not owner), or invalid body degrades to
+ * `ok:false` (409 carries the `ErrorResponse` for the name-vs-cap split).
+ */
 export async function renameTrackingList(
-  _listId: string,
-  _name: string,
+  listId: string,
+  name: string,
 ): Promise<RenameTrackingListResult> {
-  return { ok: false, status: 0 };
+  const { data, error, response } = await api.PATCH('/api/v1/tracking-lists/{listId}', {
+    params: { path: { listId } },
+    body: { name },
+  });
+  if (response.ok) {
+    const parsed = TrackingListViewSchema.safeParse(data);
+    if (parsed.success) return { ok: true, list: parsed.data };
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status, error: parseError(error) };
 }
 
-export async function deleteTrackingList(_listId: string): Promise<MutateTrackingListResult> {
-  return { ok: false, status: 0 };
+/**
+ * Delete a list (AC-28.2; members cascade via FK). Success is confirmatory only (the caller
+ * already knows the id), so this returns `{ ok:true }`; a 404 (not owner) degrades to
+ * `ok:false` with the status.
+ */
+export async function deleteTrackingList(listId: string): Promise<MutateTrackingListResult> {
+  const { error, response } = await api.DELETE('/api/v1/tracking-lists/{listId}', {
+    params: { path: { listId } },
+  });
+  if (response.ok) return { ok: true };
+  return { ok: false, status: response.status, error: parseError(error) };
 }
 
+/**
+ * Remove one member by `normalizedText` (AC-28.6; the server re-normalizes S4 before
+ * matching). openapi-fetch percent-encodes the path segment. A 404 (member / list not found
+ * or not owner) degrades to `ok:false` with the status.
+ */
 export async function removeTrackingMember(
-  _listId: string,
-  _normalizedText: string,
+  listId: string,
+  normalizedText: string,
 ): Promise<MutateTrackingListResult> {
-  return { ok: false, status: 0 };
+  const { error, response } = await api.DELETE(
+    '/api/v1/tracking-lists/{listId}/members/{normalizedText}',
+    { params: { path: { listId, normalizedText } } },
+  );
+  if (response.ok) return { ok: true };
+  return { ok: false, status: response.status, error: parseError(error) };
 }
