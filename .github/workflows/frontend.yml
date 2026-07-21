@@ -113,3 +113,32 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage/
           retention-days: 7
+
+  # —— 第 3 段：Playwright e2e + visual regression（pinned Docker image；closes #635）——
+  # e2e（TC-43~48）與 visual（TC-49~54）共用 playwright.config.ts + 同一 pinned image；跨 OS/arch
+  # 字型/次像素 AA 決定論靠釘版 image（見 .claude/rules/visual-regression.md §1）。visual 缺基準即紅
+  # （rule §2；基準只由 visual-baseline.yml 於**同** image 以 --update-snapshots 生成後 commit，CI 不自動補）
+  # ——故基準落地前此 job **預期紅**（正常）。image tag 必等 @playwright/test 版本（現 1.61.1 → v1.61.1-noble）。
+  e2e:
+    name: frontend · e2e + visual (playwright)
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    steps:
+      - uses: actions/checkout@v7
+      - name: Enable pnpm via corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+      - run: pnpm install --frozen-lockfile
+      # e2e project（TC-43~48）：production preview build + page.route stubs（無真後端，webServer 於 config）。
+      - run: pnpm e2e
+      # visual project（TC-49~54）：對 committed 基準逐像素比對（缺基準即紅，rule §2）。
+      - run: pnpm e2e:visual
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

@@ -1,0 +1,64 @@
+name: visual-baseline
+
+# 手動觸發（workflow_dispatch）：在 pinned Playwright image 生成 visual regression 基準圖，
+# 再 commit + push 回觸發的 branch。基準圖只能在此**單一官方 amd64 linux image** 生成
+# （跨 OS/arch 字型與次像素 AA 是最大 flake 源，見 .claude/rules/visual-regression.md §1）——
+# 本機 macOS/arm64 無 Docker daemon 不生。CI 驗證（frontend.yml 的 visual job）用**同一** image
+# 跑 `pnpm e2e:visual`（缺基準即紅，rule §2；CI 不自動補基準——只有此 workflow 以 --update-snapshots 生成）。
+#
+# image tag 必等 `@playwright/test` 版本（現 1.61.1 → v1.61.1-noble）；升版時兩處（此檔 + frontend.yml
+# 的 visual job + playwright.config.ts 註解 + e2e/visual/README.md）同步。
+on:
+  workflow_dispatch:
+
+# push-back 需寫入權限；預設 GITHUB_TOKEN 於此提權後可 push 回同 repo 的觸發 branch。
+permissions:
+  contents: write
+
+concurrency:
+  group: visual-baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  generate:
+    name: generate visual baselines (pinned image)
+    runs-on: ubuntu-latest
+    # 與 frontend.yml 的 visual verify job **同一** pinned image（生成＝驗證同環境，rule §1）。
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 觸發的 branch＝push-back 目標；persist-credentials（預設 true）讓後續 git push 用 GITHUB_TOKEN。
+          ref: ${{ github.ref_name }}
+      # container 內 root 擁有的 workspace 對 git 是 "dubious ownership" → 明示信任。
+      - name: Trust workspace for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Enable pnpm via corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+      - run: pnpm install --frozen-lockfile
+      # playwright test --project=visual --update-snapshots：在 pinned image 生成/更新基準 PNG。
+      # webServer 於 config 內先 `pnpm build && pnpm preview`（production preview，較 dev 決定論）。
+      - name: Generate visual baselines
+        run: pnpm e2e:update
+      - name: Commit & push baselines
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 只 stage 基準圖目錄（e2e/visual/*-snapshots/）；test-results / playwright-report 已 gitignore。
+          git add e2e/visual
+          if git diff --cached --quiet; then
+            echo "::notice::visual-baseline: no baseline changes to commit"
+            exit 0
+          fi
+          git commit -m "test(frontend): generate visual regression baselines (T6.3)"
+          # 註：GITHUB_TOKEN 的 push 不會再觸發 workflow（防迴圈）——生成後 frontend.yml 的 visual job
+          # 不會自動重跑，需在 PR 上重跑該 check（gh run rerun / 空 commit）。詳見 e2e/visual/README.md。
+          git push origin "HEAD:${GITHUB_REF_NAME}"
