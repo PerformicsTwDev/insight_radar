@@ -1,37 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma';
-
-/** 一列 AI 回答分析結果（ai_answers）。`brands`=露出次數不去重（S17）；`positive`/`negative`=本品牌褒/貶累計。 */
-export interface AiAnswerRow {
-  channel: string;
-  query: string;
-  answerText: string;
-  brands: string[];
-  positive: number;
-  negative: number;
-}
-
-/** 一列引用媒體分類（ai_cited_references）；`mediaType`=9-enum（AC-42.3）。 */
-export interface AiCitedReferenceRow {
-  channel: string;
-  query: string;
-  link: string;
-  domain: string;
-  title: string | null;
-  mediaType: string;
-}
-
-/** 一列可見度指標（ai_visibility_metrics）；`AiVisibilityCell`（T15.4）攤平（`group`→`groupKey`）。 */
-export interface AiVisibilityMetricRow {
-  channel: string;
-  dimension: string;
-  groupKey: string;
-  brand: string;
-  mentions: number;
-  shareOfVoice: number | null;
-  citations: number;
-  exposure: number | null;
-}
+import type {
+  AiAnalysisStore,
+  AiAnswerRow,
+  AiCitedReferenceRow,
+  AiVisibilityMetricRow,
+} from './ai-analysis.types';
 
 /**
  * AI 分析結果持久層（T15.5，FR-42/FR-43；Design §18.4）。把三線 pipeline 衍生資料落 `ai_answers` /
@@ -41,7 +15,7 @@ export interface AiVisibilityMetricRow {
  * 重複落列（比照 `AiSearchCaptureRepository.deleteByJobId`）。owner/schemaVersion 由 caller 帶入（每列同值）。
  */
 @Injectable()
-export class AiAnalysisRepository {
+export class AiAnalysisRepository implements AiAnalysisStore {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 清掉本 job 三表既有分析列（reset/retry clean slate；idempotent re-run）。 */

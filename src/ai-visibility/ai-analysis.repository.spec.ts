@@ -1,10 +1,6 @@
 import type { PrismaService } from '../prisma';
-import {
-  type AiAnswerRow,
-  type AiCitedReferenceRow,
-  AiAnalysisRepository,
-  type AiVisibilityMetricRow,
-} from './ai-analysis.repository';
+import { AiAnalysisRepository } from './ai-analysis.repository';
+import type { AiAnswerRow, AiCitedReferenceRow, AiVisibilityMetricRow } from './ai-analysis.types';
 
 /**
  * TC-78 部分 (T15.5)：AiAnalysisRepository 空集守衛 + 落列映射（prisma mock；真 DB round-trip 由

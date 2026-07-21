@@ -4,13 +4,17 @@ import { toBrandProfileView } from '../brand-profile/brand-profile.mapper';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import { normalizeText } from '../google-ads/normalize';
 import { PrismaService } from '../prisma';
-import {
-  type AiAnswerRow,
-  type AiCitedReferenceRow,
-  AiAnalysisRepository,
-  type AiVisibilityMetricRow,
-} from './ai-analysis.repository';
-import type { AiAnalysisResult } from './ai-analysis.types';
+import { AiAnalysisRepository } from './ai-analysis.repository';
+import type {
+  AiAnalysisResult,
+  AiAnalysisStore,
+  AiAnswerRow,
+  AiCitedReferenceRow,
+  AiVisibilityMetricRow,
+  BrandExtractor,
+  CitedMediaClassifier,
+  SentimentAnalyzer,
+} from './ai-analysis.types';
 import { BrandExtractionService } from './brand-extraction.service';
 import { MediaClassifierService } from './media-classifier.service';
 import { SentimentService } from './sentiment.service';
@@ -79,11 +83,13 @@ interface AnalysisIndex {
  */
 @Injectable()
 export class AiAnalysisService {
+  // narrow 介面型別 + `@Inject(具體類 token)`：DI 照舊解析具體服務，但建構子參數非 class-typed → 無
+  // emitDecoratorMetadata `typeof X==='function'?X:Object` phantom branch（同時 depend on abstraction）。
   constructor(
-    private readonly brands: BrandExtractionService,
-    private readonly sentiment: SentimentService,
-    private readonly media: MediaClassifierService,
-    private readonly repo: AiAnalysisRepository,
+    @Inject(BrandExtractionService) private readonly brands: BrandExtractor,
+    @Inject(SentimentService) private readonly sentiment: SentimentAnalyzer,
+    @Inject(MediaClassifierService) private readonly media: CitedMediaClassifier,
+    @Inject(AiAnalysisRepository) private readonly repo: AiAnalysisStore,
     private readonly prisma: PrismaService,
     @Inject(AI_ANALYSIS_CONFIG) private readonly config: AiAnalysisConfig,
   ) {}

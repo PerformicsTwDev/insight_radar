@@ -1,18 +1,10 @@
 import type { BrandAliasInput } from '../brand-profile/brand-match';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import type { PrismaService } from '../prisma';
-import type {
-  AiAnalysisRepository,
-  AiAnswerRow,
-  AiCitedReferenceRow,
-  AiVisibilityMetricRow,
-} from './ai-analysis.repository';
 import { AiAnalysisService } from './ai-analysis.service';
-import type { BrandExtractionService } from './brand-extraction.service';
+import type { AiAnswerRow, AiCitedReferenceRow, AiVisibilityMetricRow } from './ai-analysis.types';
 import type { BrandTextBlock } from './brand-extraction.postprocess';
-import type { MediaClassifierService } from './media-classifier.service';
 import type { MediaReference } from './media-classifier.postprocess';
-import type { SentimentService } from './sentiment.service';
 import type { SentimentTextBlock } from './sentiment.postprocess';
 
 /**
@@ -72,15 +64,15 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
     ...over,
   };
   const service = new AiAnalysisService(
-    { extractBrandsOutcome: m.extractBrandsOutcome } as unknown as BrandExtractionService,
-    { analyzeSentimentOutcome: m.analyzeSentimentOutcome } as unknown as SentimentService,
-    { classifyMediaOutcome: m.classifyMediaOutcome } as unknown as MediaClassifierService,
+    { extractBrandsOutcome: m.extractBrandsOutcome },
+    { analyzeSentimentOutcome: m.analyzeSentimentOutcome },
+    { classifyMediaOutcome: m.classifyMediaOutcome },
     {
       deleteByJobId: m.deleteByJobId,
       persistAnswers: m.persistAnswers,
       persistCitedReferences: m.persistCitedReferences,
       persistMetrics: m.persistMetrics,
-    } as unknown as AiAnalysisRepository,
+    },
     { brandProfile: { findFirst: m.findFirst } } as unknown as PrismaService,
     { schemaVersion: 'v9' },
   );
@@ -241,17 +233,15 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     ]);
   });
 
-  it('缺 brand/media 結果 → 補預設（brands []、mediaType other 不污染）', async () => {
+  it('缺 brand/media 結果（某 block/ref id 不在結果集）→ 補預設（brands []、mediaType other 不污染）', async () => {
     const { service, m } = build({
-      extractBrandsOutcome: jest.fn((blocks: BrandTextBlock[]) => ({
-        results: blocks.map((b) => ({ id: b.id, brands: [] })), // 有列但空品牌
-        needsReview: [],
-      })),
+      // 回空 results → 某 block id 不在 brandById → `?? []` fallback（非只是空品牌陣列）。
+      extractBrandsOutcome: jest.fn(() => ({ results: [], needsReview: [] })),
       classifyMediaOutcome: jest.fn(() => ({ results: [], needsReview: [] })), // 無 media 結果 → get() undefined
     });
     await service.analyzeAndPersist({ ...base, captures: [cap()] });
     const answers = argOf<AiAnswerRow[]>(m.persistAnswers, 0, 3);
-    expect(answers[0].brands).toEqual([]);
+    expect(answers[0].brands).toEqual([]); // brandById.get(id) undefined → []
     const cited = argOf<AiCitedReferenceRow[]>(m.persistCitedReferences, 0, 3);
     expect(cited[0].mediaType).toBe('other'); // 缺分類 → other fallback
   });
