@@ -300,7 +300,16 @@ export async function getTrackingListSeries(
   listId: string,
   range: SeriesRangeQuery = {},
 ): Promise<GetTrackingListSeriesResult> {
-  throw new Error(`not implemented: getTrackingListSeries(${listId}, ${JSON.stringify(range)})`);
+  const { data, response } = await api.GET('/api/v1/tracking-lists/{listId}/series', {
+    // openapi-fetch drops `undefined` query entries, so an omitted bound sends no param.
+    params: { path: { listId }, query: { from: range.from, to: range.to } },
+  });
+  if (response.ok) {
+    const parsed = VolumeSeriesResponseSchema.safeParse(data);
+    if (parsed.success) return { ok: true, series: parsed.data };
+    return { ok: false, status: response.status };
+  }
+  return { ok: false, status: response.status };
 }
 
 /**
@@ -309,5 +318,9 @@ export async function getTrackingListSeries(
  * (unknown / not owner) degrades to `ok:false` with the status.
  */
 export async function refreshTrackingList(listId: string): Promise<MutateTrackingListResult> {
-  throw new Error(`not implemented: refreshTrackingList(${listId})`);
+  const { error, response } = await api.POST('/api/v1/tracking-lists/{listId}/refresh', {
+    params: { path: { listId } },
+  });
+  if (response.ok) return { ok: true };
+  return { ok: false, status: response.status, error: parseError(error) };
 }

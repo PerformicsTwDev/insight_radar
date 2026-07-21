@@ -22,10 +22,7 @@ const PALETTE = ['#5bc0eb', '#f4845f', '#ffd166'];
 
 const AXIS = ['2026-01-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'];
 
-const member = (
-  key: string,
-  points: [string, number | null][],
-): VolumeMemberInput => ({
+const member = (key: string, points: [string, number | null][]): VolumeMemberInput => ({
   key,
   label: key,
   series: points.map(([fetchedAt, avgMonthlySearches]) => ({ fetchedAt, avgMonthlySearches })),

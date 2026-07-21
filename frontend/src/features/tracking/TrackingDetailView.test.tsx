@@ -206,7 +206,10 @@ describe('TC-30 · member table (latest volume / sparkline / addedAt / remove)',
     server.use(
       http.delete(MEMBER_ROUTE, ({ params }) => {
         seenMember = params.normalizedText as string;
-        return HttpResponse.json({ listId: LIST_ID, normalizedText: 'running shoes' }, { status: 200 });
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
       }),
     );
     render(<TrackingDetailView listId={LIST_ID} />);
@@ -232,7 +235,10 @@ describe('TC-30 · member table (latest volume / sparkline / addedAt / remove)',
       http.delete(MEMBER_ROUTE, async () => {
         deleted += 1;
         await gate;
-        return HttpResponse.json({ listId: LIST_ID, normalizedText: 'running shoes' }, { status: 200 });
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
       }),
     );
     render(<TrackingDetailView listId={LIST_ID} />);

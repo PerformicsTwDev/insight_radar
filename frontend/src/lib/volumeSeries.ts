@@ -81,7 +81,8 @@ export type SeriesRange = '6m' | '12m' | 'all';
  * A malformed value falls back to the raw string (never throws).
  */
 export function formatFetchedAt(iso: string): string {
-  throw new Error('not implemented');
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toISOString().slice(0, 10);
 }
 
 /**
@@ -94,7 +95,13 @@ export function alignSeriesToAxis(
   series: readonly VolumeSeriesPoint[],
   axis: readonly string[],
 ): (number | null)[] {
-  throw new Error('not implemented');
+  const byKey = new Map<string, number | null>();
+  for (const point of series) {
+    byKey.set(point.fetchedAt, point.avgMonthlySearches);
+  }
+  // Map over the AXIS (not the series): a point off the axis falls away; an axis point
+  // the member lacks → null (a break, never 0 — AC-30.2). A real 0 is preserved.
+  return axis.map((key) => byKey.get(key) ?? null);
 }
 
 /**
@@ -103,7 +110,37 @@ export function alignSeriesToAxis(
  * `{ isEmpty: true }` (no datasets, no fabricated 0 line — AC-30.3).
  */
 export function assembleVolumeChart(params: AssembleVolumeParams): VolumeChartData {
-  throw new Error('not implemented');
+  const { axis, total, members = [], palette, aggregate } = params;
+
+  // 空/首次未跑（AC-30.3）：無觀測點 → 可辨識空態，不畫任何線（絕不補假 0 線）。
+  if (axis.length === 0) {
+    return { isEmpty: true };
+  }
+
+  const aggregateDataset: VolumeDataset = {
+    label: aggregate.label,
+    data: [...total], // §9.2：backend 已對全缺點補 0，加總線恆連續 — 前端原樣傳遞、不再 null 化。
+    borderColor: aggregate.color,
+    backgroundColor: aggregate.fillColor,
+    fill: true,
+  };
+
+  const memberDatasets: VolumeDataset[] = members.map((member, index) => {
+    const color = pickColor(index, palette);
+    return {
+      label: member.label,
+      data: alignSeriesToAxis(member.series, axis), // C11：對齊 fetchedAt 軸、缺點 null 斷點。
+      borderColor: color,
+      backgroundColor: color,
+      fill: false,
+    };
+  });
+
+  return {
+    isEmpty: false,
+    labels: axis.map(formatFetchedAt),
+    datasets: [aggregateDataset, ...memberDatasets],
+  };
 }
 
 /**
@@ -111,5 +148,11 @@ export function assembleVolumeChart(params: AssembleVolumeParams): VolumeChartDa
  * `6m`/`12m` → `now` minus that many months; `all` → `undefined` (no lower bound).
  */
 export function rangeToFrom(range: SeriesRange, now: Date): string | undefined {
-  throw new Error('not implemented');
+  if (range === 'all') {
+    return undefined;
+  }
+  const months = range === '6m' ? 6 : 12;
+  const from = new Date(now);
+  from.setUTCMonth(from.getUTCMonth() - months);
+  return from.toISOString();
 }
