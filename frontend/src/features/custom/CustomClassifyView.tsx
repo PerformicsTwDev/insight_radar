@@ -5,6 +5,7 @@ import {
 } from '../../api/customClassifyAssign';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import { nextActiveCid, removeTab, upsertTab, type CustomTab } from '../../lib/customView';
+import { EmptyState, ErrorState } from '../../components/StateViews';
 import { CustomClassifyJob } from './CustomClassifyJob';
 import { CustomClassifyModal } from './CustomClassifyModal';
 import { CustomClassifyTable } from './CustomClassifyTable';
@@ -145,11 +146,7 @@ export function CustomClassifyView({
         </button>
       </nav>
 
-      {error ? (
-        <p role="alert" className="text-sm text-trend-negative">
-          {error}
-        </p>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
 
       {pending ? (
         <CustomClassifyJob
@@ -163,9 +160,10 @@ export function CustomClassifyView({
       ) : activeCid ? (
         <CustomClassifyTable key={activeCid} analysisId={analysisId} cid={activeCid} />
       ) : (
-        <p className="rounded-lg border border-white/10 bg-bg-card p-8 text-center text-sm text-white/50">
-          尚未建立自訂分類，點「+ 新增自訂分類」開始。
-        </p>
+        <EmptyState
+          className="rounded-lg border border-white/10 bg-bg-card p-8 text-center text-sm text-white/50"
+          message="尚未建立自訂分類，點「+ 新增自訂分類」開始。"
+        />
       )}
 
       {modalOpen ? (

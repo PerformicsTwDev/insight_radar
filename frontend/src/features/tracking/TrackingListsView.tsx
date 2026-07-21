@@ -11,6 +11,7 @@ import {
 } from '../../api/trackingLists';
 import { errorResponseMessage, trackingListErrorMessage } from '../../lib/trackingListError';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 import { useTrackingLists } from './useTrackingLists';
 
 /**
@@ -51,7 +52,7 @@ const FIELD_LABEL = 'mb-1 block text-xs font-medium text-white/60';
 export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): ReactElement {
   // Lists come from the shared read hook (also used by the future results-page sidebar,
   // #443); `setLists` lets create/rename/delete mutate the array optimistically (no refetch).
-  const { lists, setLists, loading: listsLoading, failed: loadFailed } = useTrackingLists();
+  const { lists, setLists, loading: listsLoading, failed: loadFailed, reload } = useTrackingLists();
   const [error, setError] = useState<string | null>(null);
 
   // Create form (list layer fixes geo/language, AC-28.5) — all three required (AC-28.1).
@@ -161,11 +162,7 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
 
   return (
     <section aria-label="追蹤清單管理" className={SECTION}>
-      {error ? (
-        <p role="alert" className="text-sm text-trend-negative">
-          {error}
-        </p>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <CreateListForm
         name={name}
@@ -180,10 +177,16 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
 
       <div className={CARD}>
         <h2 className="mb-3 text-sm font-semibold text-white/80">追蹤清單</h2>
-        {listsLoading ? <p className="text-sm text-white/40">載入中…</p> : null}
-        {loadFailed ? <p className="text-sm text-trend-negative">清單載入失敗</p> : null}
+        {listsLoading ? <LoadingState className="text-sm text-white/40" /> : null}
+        {loadFailed ? (
+          <ErrorState
+            message="清單載入失敗"
+            onRetry={() => void reload()}
+            className="text-sm text-trend-negative"
+          />
+        ) : null}
         {!listsLoading && !loadFailed && lists.length === 0 ? (
-          <p className="text-sm text-white/40">尚無追蹤清單，先在上方建立一個。</p>
+          <EmptyState message="尚無追蹤清單，先在上方建立一個。" />
         ) : null}
 
         <ul className="flex flex-col divide-y divide-white/5">
@@ -262,6 +265,7 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
                   members={members}
                   loading={membersLoading}
                   failed={detailFailed}
+                  onRetry={() => void selectList(list)}
                   onRemove={(member) => setRemovingMember({ listId: list.listId, member })}
                 />
               ) : null}
@@ -386,19 +390,27 @@ function MemberPanel({
   members,
   loading,
   failed,
+  onRetry,
   onRemove,
 }: {
   members: readonly TrackingListMember[];
   loading: boolean;
   failed: boolean;
+  onRetry: () => void;
   onRemove: (member: TrackingListMember) => void;
 }): ReactElement {
   return (
     <div className="mt-1 rounded-lg bg-bg-input/40 p-3 ring-1 ring-white/5">
-      {failed ? <p className="text-sm text-trend-negative">成員載入失敗</p> : null}
-      {loading ? <p className="text-sm text-white/40">載入成員中…</p> : null}
+      {failed ? (
+        <ErrorState
+          message="成員載入失敗"
+          onRetry={onRetry}
+          className="text-sm text-trend-negative"
+        />
+      ) : null}
+      {loading ? <LoadingState label="載入成員中…" className="text-sm text-white/40" /> : null}
       {!loading && !failed && members.length === 0 ? (
-        <p className="text-sm text-white/40">此清單尚無成員。</p>
+        <EmptyState message="此清單尚無成員。" />
       ) : null}
       <ul className="flex flex-col gap-1">
         {members.map((member) => (

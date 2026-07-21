@@ -14,8 +14,6 @@ import { mapErrorResponse, type ErrorResponseLike } from '../lib/errorState';
  * NFR-5); a call-site may instead pass an explicit curated `message`. Tokens only.
  */
 
-// STUB (T6.1 red): typed not-implemented shells — real rendering lands green.
-
 const LOADING_CLASS = 'text-sm text-white/60';
 const EMPTY_CLASS = 'text-sm text-white/40';
 const ERROR_CLASS = 'text-sm text-trend-negative';
@@ -29,8 +27,15 @@ export interface LoadingStateProps {
   readonly className?: string;
 }
 
-export function LoadingState(_props: LoadingStateProps): ReactElement {
-  return <p role="status" />;
+export function LoadingState({
+  label = '載入中…',
+  className = LOADING_CLASS,
+}: LoadingStateProps): ReactElement {
+  return (
+    <p role="status" className={className}>
+      {label}
+    </p>
+  );
 }
 
 export interface EmptyStateProps {
@@ -41,8 +46,12 @@ export interface EmptyStateProps {
   readonly className?: string;
 }
 
-export function EmptyState(_props: EmptyStateProps): ReactElement {
-  return <p />;
+export function EmptyState({
+  message,
+  children,
+  className = EMPTY_CLASS,
+}: EmptyStateProps): ReactElement {
+  return <p className={className}>{children ?? message}</p>;
 }
 
 export interface ErrorStateProps {
@@ -58,13 +67,35 @@ export interface ErrorStateProps {
   readonly className?: string;
 }
 
-export function ErrorState(_props: ErrorStateProps): ReactElement {
-  return <p role="alert" />;
-}
+export function ErrorState({
+  message,
+  error,
+  onRetry,
+  retryLabel = '重試',
+  className = ERROR_CLASS,
+}: ErrorStateProps): ReactElement {
+  // Precedence: an explicit curated message, else a SAFE message derived from the
+  // raw error (a 5xx never leaks — mapErrorResponse returns a generic string), else
+  // a generic fallback (`mapErrorResponse(0)` → 'unknown').
+  const resolved = message ?? mapErrorResponse(error?.statusCode ?? 0, error).message;
 
-// Referenced only to keep the shared constants alive through the red stub.
-void LOADING_CLASS;
-void EMPTY_CLASS;
-void ERROR_CLASS;
-void RETRY_CLASS;
-void mapErrorResponse;
+  // No retry → the plain inline alert (DOM-identical to the prior scattered
+  // `<p role="alert" className=…>` mutation-error banners; behaviour conserved).
+  if (!onRetry) {
+    return (
+      <p role="alert" className={className}>
+        {resolved}
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p role="alert" className={className}>
+        {resolved}
+      </p>
+      <button type="button" onClick={onRetry} className={RETRY_CLASS}>
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
