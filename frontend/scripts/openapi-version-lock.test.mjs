@@ -16,12 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  compareVersionLock,
-  extractVersion,
-  runCheck,
-  runWrite,
-} from './openapi-version-lock.mjs';
+import { compareVersionLock, extractVersion, runCheck, runWrite } from './openapi-version-lock.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REAL_OPENAPI = resolve(HERE, '../../openapi.json');

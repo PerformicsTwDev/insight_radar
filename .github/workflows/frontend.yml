@@ -37,11 +37,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint # eslint --max-warnings=0（禁用清單 + 硬化規則）
       - run: pnpm format:check # prettier --check
-      # TC-38 drift：對 ../openapi.json 重跑 codegen 與 committed schema.d.ts 無 diff。
+      # TC-38 drift（強化，T6.5）：兩道互補的契約漂移閘。
+      #   1) openapi:check —— 對 ../openapi.json 重跑 codegen 與 committed schema.d.ts 無 diff（shape 漂移 → 紅）。
+      #   2) openapi:lock-check —— committed src/api/openapi.version.json 鎖定的後端 info.version
+      #      與 ../openapi.json 一致（version 漂移 → 紅）。openapi-typescript 會剝除 info.version，
+      #      shape 相同但版本 bump 的契約變更靠此鎖擋下。
       # 註（刻意）：本 workflow 的 paths 不含 root openapi.json——後端契約 PR 只跑 ci.yml、不跑此 drift check，
-      # 故後端契約變更後 frontend schema.d.ts 可能短暫 stale（下個前端 PR 的 openapi:check 會紅→regen 自癒）。
+      # 故後端契約變更後 frontend 產物可能短暫 stale（下個前端 PR 的 openapi:check / openapi:lock-check 會紅
+      # → `pnpm openapi:gen` 一次 regen schema.d.ts + openapi.version.json 自癒）。
       # 這與 frontend spec 的「契約先行：OpenAPI diff 先合、frontend 隨後 adapt」工作流一致（非缺陷）。
       - run: pnpm openapi:check
+      - run: pnpm openapi:lock-check
       - run: pnpm typecheck # tsc -b
       - run: pnpm build # tsc -b && vite build
 

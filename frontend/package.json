@@ -21,9 +21,10 @@
     "e2e": "playwright test --project=e2e",
     "e2e:visual": "playwright test --project=visual",
     "e2e:update": "playwright test --project=visual --update-snapshots",
-    "openapi:gen": "openapi-typescript ../openapi.json -o src/api/schema.d.ts",
+    "openapi:gen": "openapi-typescript ../openapi.json -o src/api/schema.d.ts && node scripts/openapi-version-lock.mjs --write",
     "openapi:check": "openapi-typescript ../openapi.json | diff -u src/api/schema.d.ts - || (echo '::error::openapi drift — run pnpm -C frontend openapi:gen and commit' && exit 1)",
-    "verify": "pnpm lint && pnpm format:check && pnpm openapi:check && pnpm typecheck && pnpm build && pnpm test:cov"
+    "openapi:lock-check": "node scripts/openapi-version-lock.mjs --check",
+    "verify": "pnpm lint && pnpm format:check && pnpm openapi:check && pnpm openapi:lock-check && pnpm typecheck && pnpm build && pnpm test:cov"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
