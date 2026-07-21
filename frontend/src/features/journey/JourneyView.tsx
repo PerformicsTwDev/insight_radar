@@ -29,7 +29,7 @@ function JourneyReadyContent({
   rows: readonly Record<string, unknown>[] | undefined;
   initialMode: JourneyChartView;
 }): ReactElement {
-  const [view, setView] = useState<JourneyChartView>('table');
+  const [view, setView] = useState<JourneyChartView>(initialMode);
   return (
     <div className="flex flex-col gap-3">
       <SegmentedControl
