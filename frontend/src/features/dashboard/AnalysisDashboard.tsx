@@ -30,6 +30,12 @@ import { ViewContent } from './ViewContent';
  * stream) and to pull the view's `features`; it does **not** poll continuously while
  * the run is live (the live transport owns progress), so a transient `unavailable`
  * blip while a job is tracked live can never blank a healthy view or tear it down.
+ * Symmetrically, once the snapshot is a **viewable** terminal (a completed / partial
+ * analysis being viewed), a transient blip on a later refetch (default
+ * `refetchOnReconnect`) must not blank the healthy view either: the snapshot query
+ * throw-retains its last-known-good value on a transient `unavailable`, so only a
+ * definitive `not_found` (real 404) or a viewable→other genuine transition changes it
+ * (§7, #645).
  */
 
 const VIEWABLE_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>(['completed', 'partial']);
@@ -59,7 +65,21 @@ export function AnalysisDashboard({ analysisId }: { analysisId: string }): React
   // it stops the instant the snapshot catches up.
   const statusQuery = useQuery({
     queryKey: ['analysis-status', analysisId],
-    queryFn: () => getKeywordAnalysisStatus(analysisId),
+    // A transient `unavailable` (5xx / timeout / schema-invalid body) THROWS so TanStack
+    // Query RETAINS the last-known-good snapshot instead of overwriting it (§7, #645).
+    // Viewing a COMPLETED analysis, a refetch (default `refetchOnReconnect`) that briefly
+    // 5xx's must never replace a healthy `ok` snapshot with a blip and blank the view.
+    // A definitive `not_found` (real 404) is NOT transient → it RESOLVES (never retained
+    // away), so a genuinely gone id still settles into AnalysisNotFound (FR-3). The throw
+    // is local to this observer's retain-on-error contract; `getKeywordAnalysisStatus`
+    // itself still never throws (mirrors the journey run-status retain, #654).
+    queryFn: async () => {
+      const res = await getKeywordAnalysisStatus(analysisId);
+      if (res.kind === 'unavailable') {
+        throw new Error('analysis status transiently unavailable');
+      }
+      return res;
+    },
     refetchInterval: (query) => {
       const snap = query.state.data;
       const snapViewable = snap?.kind === 'ok' && isViewable(snap.status.status);
@@ -83,10 +103,13 @@ export function AnalysisDashboard({ analysisId }: { analysisId: string }): React
     return <ViewContent analysisId={analysisId} view={view} features={snapshot.status.features} />;
   }
 
-  // First-load transient failure with NO job being tracked yet → a retry (nothing
-  // else to show). Once a job IS tracked live (below), a transient `unavailable` is
-  // non-fatal and must not surface here.
-  if (snapshot?.kind === 'unavailable' && liveJob == null) {
+  // First-load transient failure — the snapshot never resolved (throw-retained to
+  // `undefined`, so there is no last-known-good to show) AND no job is tracked yet → a
+  // retry (nothing else to show). A retained *viewable* / *not_found* snapshot is handled
+  // above; a retained non-viewable one (queued / running / failed / canceled) or a live
+  // job falls through to the panel — so a mid-run or completed-view blip never surfaces
+  // here (§7, #645).
+  if (snapshot === undefined && liveJob == null) {
     return (
       <ErrorState
         message="無法載入分析狀態，請稍後再試。"
@@ -95,10 +118,10 @@ export function AnalysisDashboard({ analysisId }: { analysisId: string }): React
     );
   }
 
-  // Otherwise the run is not yet viewable (queued / running / failed / canceled), OR
-  // the snapshot is transiently unavailable while a job is tracked live. Either way
-  // hand off to the live job-tracking panel — the ONE authoritative transport (§7).
-  // A transient snapshot blip here is non-blanking + non-halting: the panel stays
+  // Otherwise the run is not yet viewable (a retained `ok` queued / running / failed /
+  // canceled snapshot), OR a first blip is throw-retained while a job is tracked live.
+  // Either way hand off to the live job-tracking panel — the ONE authoritative transport
+  // (§7). A transient snapshot blip here is non-blanking + non-halting: the panel stays
   // mounted, its healthy SSE survives, and readiness self-heals from the shared
   // job-state (progress) / the snapshot catch-up (features) with no manual retry.
   return <JobTrackingPanel analysisId={analysisId} />;
