@@ -23,6 +23,7 @@ export const VIEW_LABELS: Readonly<Record<string, string>> = {
   serp_questions: 'SERP 問題',
   intent_topics: '意圖主題',
   journey: '購買歷程',
+  journey_funnel: '購買歷程漏斗',
 };
 
 /** A selectable column derived from a view's `allowedSelect` (key + type). */
@@ -162,6 +163,24 @@ export const FALLBACK_VIEWS: readonly ViewMetadata[] = [
     grain: 'topic',
     responseShape: 'table',
     requiresFeature: 'topics',
+    allowedSelect: [],
+    allowedFilters: [],
+    allowedSort: [],
+  },
+  {
+    name: 'journey',
+    grain: 'keyword',
+    responseShape: 'table',
+    requiresFeature: 'journey',
+    allowedSelect: [],
+    allowedFilters: [],
+    allowedSort: [],
+  },
+  {
+    name: 'journey_funnel',
+    grain: 'journeyStage',
+    responseShape: 'chart',
+    requiresFeature: 'journey',
     allowedSelect: [],
     allowedFilters: [],
     allowedSort: [],

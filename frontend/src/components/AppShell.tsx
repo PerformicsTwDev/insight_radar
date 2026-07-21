@@ -19,6 +19,13 @@ export interface AppShellProps {
   /** True when `dimensions` is the built-in fallback (`GET /views` failed) → show a notice (FR-1). */
   readonly degraded?: boolean;
   /**
+   * Select a dimension → switch the active `view` (T6.0, FR-1). When provided the
+   * left menu is interactive (a router-aware container maps it to a URL `view`
+   * navigation); when omitted (no analysis in view, or a standalone shell render)
+   * the menu stays disabled — clicking a dimension with nothing to show is a no-op.
+   */
+  readonly onSelectView?: (view: string) => void;
+  /**
    * Optional right-aligned header slot (e.g. the 分析歷史 entry, T3.5). A container
    * fills it with router-aware nodes; the presentational shell just renders it, so
    * standalone shell renders stay router-free.
@@ -38,6 +45,7 @@ export function AppShell({
   dimensions = FALLBACK_REGISTRY.navItems,
   activeView,
   degraded = false,
+  onSelectView,
   headerExtra,
 }: AppShellProps) {
   return (
@@ -75,16 +83,20 @@ export function AppShell({
           <ul className="flex flex-col gap-1">
             {dimensions.map((dim) => {
               const isActive = dim.name === activeView;
+              const interactive = onSelectView !== undefined;
               return (
                 <li key={dim.name}>
                   <button
                     type="button"
-                    disabled
+                    disabled={!interactive}
                     aria-current={isActive ? 'page' : undefined}
+                    onClick={interactive ? () => onSelectView(dim.name) : undefined}
                     className={
                       isActive
                         ? 'w-full rounded-lg bg-white/10 px-3 py-2 text-left text-sm text-white'
-                        : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
+                        : interactive
+                          ? 'w-full rounded-lg px-3 py-2 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white'
+                          : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
                     }
                   >
                     {dim.label}

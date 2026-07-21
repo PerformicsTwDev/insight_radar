@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { createKeywordAnalysis, type CreateKeywordAnalysisBody } from '../../api/keywordAnalyses';
 import { appendDedupedSeeds } from '../../lib/aiIdeation';
 import { checkValidity, mapFieldErrors, parseSeeds } from '../../lib/createAnalysisForm';
-import { JobTrackingPanel } from '../job/JobTrackingPanel';
+import { AnalysisDashboard } from '../dashboard/AnalysisDashboard';
 import { AiIdeationCard } from './AiIdeationCard';
 
 /**
@@ -73,7 +73,10 @@ export function HomeRoute() {
   }
 
   if (analysisId) {
-    return <JobTrackingPanel analysisId={analysisId} />;
+    // URL carries an analysis → the dashboard resolves the active `view` to content
+    // (running → job progress; ready → per-view content, T6.0/FR-1). The create form
+    // itself only shows when no analysis is in the URL.
+    return <AnalysisDashboard analysisId={analysisId} />;
   }
 
   return (

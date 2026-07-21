@@ -99,6 +99,26 @@ export const handlers = [
           responseShape: 'table',
           requiresFeature: 'topics',
         },
+        // journey / journey_funnel mirror the backend BUILTIN_VIEWS (T12.6) so the
+        // dashboard nav + view-content routing (T6.0) surface them registry-driven.
+        {
+          name: 'journey',
+          grain: 'keyword',
+          allowedSelect: [],
+          allowedFilters: [],
+          allowedSort: [],
+          responseShape: 'table',
+          requiresFeature: 'journey',
+        },
+        {
+          name: 'journey_funnel',
+          grain: 'journeyStage',
+          allowedSelect: [],
+          allowedFilters: [],
+          allowedSort: [],
+          responseShape: 'chart',
+          requiresFeature: 'journey',
+        },
       ],
     }),
   ),

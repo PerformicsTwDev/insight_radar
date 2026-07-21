@@ -112,6 +112,10 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
         received = await request.json();
         return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
       }),
+      // The create flow now navigates into the AnalysisDashboard (T6.0), which reads
+      // the authoritative `GET :id` snapshot for readiness — a still-running one keeps
+      // the job-tracking progress panel.
+      http.get('/api/v1/keyword-analyses/:id', () => HttpResponse.json({ status: 'running' })),
     );
     const router = renderHome();
 
@@ -131,8 +135,9 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
       language: 'zh-TW',
       mode: 'expand',
     });
-    // After navigation the home route swaps the form for the T1.3 job-tracking
-    // panel (queued → progress view; SSE is the inert test stub, so it stays put).
+    // After navigation the home route swaps the form for the analysis dashboard;
+    // a still-running snapshot shows the job-tracking progress panel (queued →
+    // progress view; SSE is the inert test stub, so it stays put).
     expect(await screen.findByText('分析進行中')).toBeInTheDocument();
   });
 
@@ -143,6 +148,8 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
         received = await request.json();
         return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
       }),
+      // Post-navigation dashboard readiness probe (see above).
+      http.get('/api/v1/keyword-analyses/:id', () => HttpResponse.json({ status: 'running' })),
     );
     renderHome();
 

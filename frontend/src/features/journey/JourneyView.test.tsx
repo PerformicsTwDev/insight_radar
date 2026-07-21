@@ -240,6 +240,34 @@ describe('TC-25 · JourneyView (gate 四態 → 購買歷程表)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /重試/ })).toBeInTheDocument());
   });
 
+  it('initialMode="chart" → opens on the 漏斗圖 (T6.0 journey_funnel deep-link), toggle still works', async () => {
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json(runBody('completed')),
+      ),
+    );
+    render(
+      <JourneyView
+        analysisId={ID}
+        features={{ journey: { status: 'ready' } }}
+        eventSourceFactory={factory}
+        initialMode="chart"
+      />,
+      { wrapper: wrapper() },
+    );
+
+    // Opens directly on the funnel (not the default 表格).
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: '購買歷程搜尋漏斗' })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('iphone 16 vs 15 pro')).not.toBeInTheDocument();
+
+    // In-page toggle still works: switching back to 表格 shows the 購買歷程表.
+    fireEvent.click(screen.getByRole('tab', { name: '表格' }));
+    await waitFor(() => expect(screen.getByText('iphone 16 vs 15 pro')).toBeInTheDocument());
+  });
+
   it('ready + journey run status=partial → shows the 表 AND a partial notice (authoritative run status)', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses/:id/query', () => HttpResponse.json(JOURNEY_TABLE)),
