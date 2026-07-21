@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchTopics, fetchTopicsStatus, startTopics, type TopicsResponse } from '../../api/topics';
 import { useJobTracking, type EventSourceFactory } from '../job/useJobTracking';
+import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import type { FeatureStatus } from '../../lib/featureGate';
 import type { JobState, JobStatus } from '../../lib/jobState';
 
@@ -103,20 +104,29 @@ export function useTopics(
   // OR partial), and the partial notice is driven off this authoritative value.
   const partial = topics?.status === 'partial';
 
-  const start = useCallback(async () => {
-    setBlocked(false);
-    const res = await startTopics(analysisId);
-    if (res.ok) {
-      setOverride('running');
-    } else if (SNAPSHOT_NOT_READY_STATUSES.has(res.status)) {
-      // FR-8 boundary: the base analysis snapshot isn't ready — not a failed run. Stay
-      // gated (CTA remains) and let the view show a "finish the analysis first" hint.
-      setOverride(null);
-      setBlocked(true);
-    } else {
-      setOverride('failed');
-    }
-  }, [analysisId]);
+  // The start CTA stays clickable until the 202 lands (`override` flips to running only
+  // after the POST resolves), so a fast double-click would enqueue a duplicate topics
+  // clustering/LLM run — guard re-entry while the enqueue POST is outstanding (#603 back-port,
+  // #646). The retry path shares this same guarded `start` (FeatureGate onStart/onRetry).
+  const guardStart = useInFlightGuard();
+  const start = useCallback(
+    () =>
+      guardStart(async () => {
+        setBlocked(false);
+        const res = await startTopics(analysisId);
+        if (res.ok) {
+          setOverride('running');
+        } else if (SNAPSHOT_NOT_READY_STATUSES.has(res.status)) {
+          // FR-8 boundary: the base analysis snapshot isn't ready — not a failed run. Stay
+          // gated (CTA remains) and let the view show a "finish the analysis first" hint.
+          setOverride(null);
+          setBlocked(true);
+        } else {
+          setOverride('failed');
+        }
+      }),
+    [analysisId, guardStart],
+  );
 
   return { status, jobState: job.state, topics, blocked, partial, start };
 }
