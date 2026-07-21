@@ -39,9 +39,9 @@ function seed(items: SelectionItem[]): void {
   useSelectionStore.setState({ items });
 }
 
-function listSummary(name: string) {
+function listSummary(name: string, listId: string) {
   return {
-    listId: LIST_ID,
+    listId,
     name,
     geo: 'TW',
     language: 'zh-TW',
@@ -50,11 +50,15 @@ function listSummary(name: string) {
   };
 }
 
-/** Register `GET /tracking-lists` returning the given summaries (the dropdown source). */
+/**
+ * Register `GET /tracking-lists` returning the given summaries (the dropdown source). The
+ * first list keeps `LIST_ID` (the click targets asserted on), the rest get unique ids.
+ */
 function withLists(...names: string[]): void {
-  server.use(
-    http.get(LIST_ROUTE, () => HttpResponse.json(names.map(listSummary), { status: 200 })),
+  const summaries = names.map((name, idx) =>
+    listSummary(name, idx === 0 ? LIST_ID : `${LIST_ID}-${idx}`),
   );
+  server.use(http.get(LIST_ROUTE, () => HttpResponse.json(summaries, { status: 200 })));
 }
 
 function openDropdown(): void {
@@ -215,6 +219,30 @@ describe('TC-29 · BulkSelectBar', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(members).toBe(0);
+    expect(useSelectionStore.getState().items).toEqual([kw('a')]);
+  });
+
+  it('surfaces an error and keeps the selection when the created list rejects the add (409 cap)', async () => {
+    seed([kw('a')]);
+    withLists();
+    server.use(
+      http.post(LIST_ROUTE, () =>
+        HttpResponse.json(
+          { listId: LIST_ID, name: 'New list', geo: 'TW', language: 'zh-TW', createdAt: 'now' },
+          { status: 201 },
+        ),
+      ),
+      http.post(MEMBERS_ROUTE, () => new HttpResponse(null, { status: 409 })),
+    );
+    render(<BulkSelectBar />);
+
+    openDropdown();
+    fireEvent.click(await screen.findByRole('button', { name: '建立新清單' }));
+    fireEvent.change(screen.getByLabelText('新清單名稱'), { target: { value: 'New list' } });
+    fireEvent.click(screen.getByRole('button', { name: '建立並加入' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    // List got created, but the member add failed → the selection is NOT cleared.
     expect(useSelectionStore.getState().items).toEqual([kw('a')]);
   });
 
