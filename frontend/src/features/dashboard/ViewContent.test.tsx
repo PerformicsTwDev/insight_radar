@@ -125,6 +125,59 @@ describe('ViewContent · registry-driven view resolution (FR-1 / AC-1.2)', () =>
     expect(await screen.findByText('尚未進行購買歷程分析')).toBeInTheDocument();
   });
 
+  it('opens view=journey_funnel directly on the 漏斗圖 (T6.3 golden / AC-1.1)', async () => {
+    server.use(
+      http.post(QUERY_ROUTE, () =>
+        HttpResponse.json({
+          view: 'journey',
+          columns: [
+            { key: 'text', label: '關鍵字', type: 'text' },
+            { key: 'stage', label: '購買歷程階段', type: 'text' },
+          ],
+          rows: [{ text: 'iphone 16 vs 15 pro', stage: 'spec_comparison' }],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'run-1',
+          status: 'completed',
+          progress: null,
+          keywordCount: 1,
+        }),
+      ),
+    );
+    renderView({ view: 'journey_funnel', features: { journey: { status: 'ready' } } });
+    expect(await screen.findByRole('img', { name: '購買歷程搜尋漏斗' })).toBeInTheDocument();
+  });
+
+  it('opens view=journey directly on the 購買歷程表 (default 表格)', async () => {
+    server.use(
+      http.post(QUERY_ROUTE, () =>
+        HttpResponse.json({
+          view: 'journey',
+          columns: [
+            { key: 'text', label: '關鍵字', type: 'text' },
+            { key: 'stage', label: '購買歷程階段', type: 'text' },
+          ],
+          rows: [{ text: 'iphone 16 vs 15 pro', stage: 'spec_comparison' }],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'run-1',
+          status: 'completed',
+          progress: null,
+          keywordCount: 1,
+        }),
+      ),
+    );
+    renderView({ view: 'journey', features: { journey: { status: 'ready' } } });
+    expect(await screen.findByRole('table', { name: '購買歷程表' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: '購買歷程搜尋漏斗' })).not.toBeInTheDocument();
+  });
+
   it('renders the custom-classification view for view=custom:{cid}', async () => {
     renderView({ view: 'custom:c-123' });
     expect(await screen.findByRole('button', { name: '+ 新增自訂分類' })).toBeInTheDocument();

@@ -24,8 +24,10 @@ type JourneyChartView = (typeof JOURNEY_VIEW_OPTIONS)[number]['value'];
  */
 function JourneyReadyContent({
   rows,
+  initialMode,
 }: {
   rows: readonly Record<string, unknown>[] | undefined;
+  initialMode: JourneyChartView;
 }): ReactElement {
   const [view, setView] = useState<JourneyChartView>('table');
   return (
@@ -55,12 +57,19 @@ export interface JourneyViewProps {
   readonly analysisId: string;
   readonly features: unknown;
   readonly eventSourceFactory?: EventSourceFactory;
+  /**
+   * Which 表格|圖表 mode to open on (T6.0). `journey` opens on the 表格; the distinct
+   * `journey_funnel` registry view opens on the 漏斗圖. The user can still toggle
+   * in-page afterwards. Defaults to 表格 so existing callers are unchanged.
+   */
+  readonly initialMode?: JourneyChartView;
 }
 
 export function JourneyView({
   analysisId,
   features,
   eventSourceFactory,
+  initialMode = 'table',
 }: JourneyViewProps): ReactElement {
   const featureStatus = featureStatusOf(features, 'journey');
   const { status, jobState, rows, blocked, partial, start } = useJourney(
@@ -81,7 +90,7 @@ export function JourneyView({
       onRetry={() => void start()}
       progress={<JobProgress state={jobState} />}
     >
-      <JourneyReadyContent rows={rows} />
+      <JourneyReadyContent rows={rows} initialMode={initialMode} />
     </FeatureGate>
   );
 }

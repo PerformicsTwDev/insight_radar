@@ -67,9 +67,16 @@ function KnownView({
       return <IntentTopicsView analysisId={analysisId} features={features} />;
     case 'journey':
     case 'journey_funnel':
-      // The journey view carries its own 表格|漏斗圖 toggle (T4.5); journey_funnel
-      // resolves to the same view (both share the `journey` feature).
-      return <JourneyView analysisId={analysisId} features={features} />;
+      // Both share the `journey` feature + the one JourneyView (its own 表格|漏斗圖
+      // toggle); the distinct `journey_funnel` registry view opens on the 漏斗圖 so a
+      // nav-select / reopen restores the funnel (AC-1.1) and T6.3 screenshots it.
+      return (
+        <JourneyView
+          analysisId={analysisId}
+          features={features}
+          initialMode={view === 'journey_funnel' ? 'chart' : 'table'}
+        />
+      );
     default:
       return <UnavailableView view={view} label={labelForView(view)} />;
   }
