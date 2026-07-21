@@ -17,6 +17,7 @@ import { trackingListErrorMessage } from '../../lib/trackingListError';
 import { formatVolume } from '../../lib/keywordsTable';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 import { SparklineCell } from '../keywords/SparklineCell';
 import { TrackingSeriesChart } from './TrackingSeriesChart';
 
@@ -125,19 +126,21 @@ export function TrackingDetailView({ listId }: TrackingDetailViewProps): ReactEl
         </div>
       </div>
 
-      {error ? (
-        <p role="alert" className="text-sm text-trend-negative">
-          {error}
-        </p>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
       {refreshHint ? (
         <p role="status" className="text-sm text-white/60">
           {refreshHint}
         </p>
       ) : null}
 
-      {loading ? <p className="text-sm text-white/40">載入中…</p> : null}
-      {loadFailed ? <p className="text-sm text-trend-negative">時序載入失敗</p> : null}
+      {loading ? <LoadingState className="text-sm text-white/40" /> : null}
+      {loadFailed ? (
+        <ErrorState
+          message="時序載入失敗"
+          onRetry={() => void load()}
+          className="text-sm text-trend-negative"
+        />
+      ) : null}
 
       {series ? (
         <>
@@ -171,7 +174,7 @@ function MemberTable({
     <div className={CARD}>
       <h2 className="mb-3 text-sm font-semibold text-white/80">追蹤成員</h2>
       {members.length === 0 ? (
-        <p className="text-sm text-white/40">此清單尚無成員。</p>
+        <EmptyState message="此清單尚無成員。" />
       ) : (
         <table className="w-full text-left text-sm">
           <thead>

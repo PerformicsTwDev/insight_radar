@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
+import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 import { generateAiInsight } from '../../api/aiInsight';
 import { featureStatusOf } from '../../lib/featureGate';
 import { serializeFiltersToUrl, type FilterSpec } from '../../lib/filterSpec';
@@ -86,11 +87,9 @@ export function AiInsightSidebar({
       {expanded ? (
         <div id="ai-insight-panel" className="flex-1 overflow-y-auto p-4">
           {!ready ? (
-            <p className="text-sm text-white/60">{PLACEHOLDER}</p>
+            <EmptyState className="text-sm text-white/60" message={PLACEHOLDER} />
           ) : query.isLoading ? (
-            <p role="status" className="text-sm text-white/60">
-              洞察生成中…
-            </p>
+            <LoadingState label="洞察生成中…" />
           ) : result && result.ok ? (
             <div className="flex flex-col gap-3">
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/80">
@@ -99,9 +98,10 @@ export function AiInsightSidebar({
               <CopyTsvButton getTsv={() => result.insight} label="複製洞察" />
             </div>
           ) : (
-            <p role="alert" className="text-sm text-trend-negative">
-              AI 洞察生成失敗，請稍後再試
-            </p>
+            <ErrorState
+              message="AI 洞察生成失敗，請稍後再試"
+              onRetry={() => void query.refetch()}
+            />
           )}
         </div>
       ) : null}

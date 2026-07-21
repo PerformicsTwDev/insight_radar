@@ -165,3 +165,22 @@ describe('TC-21 · HistoryView (error / pagination / null cells)', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe('TC-22 · HistoryView error state → 重試 refetch (state matrix)', () => {
+  it('a load failure shows the error + retry; clicking 重試 refetches and renders the list', async () => {
+    let call = 0;
+    server.use(
+      http.get('/api/v1/keyword-analyses', () => {
+        call += 1;
+        return call === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({ data: [ROW], meta: { total: 1, page: 1, pageSize: 25 } });
+      }),
+    );
+    renderHistory();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/無法載入分析歷史/);
+    fireEvent.click(screen.getByRole('button', { name: '重試' }));
+    expect(await screen.findByText(/running shoes/)).toBeInTheDocument();
+  });
+});

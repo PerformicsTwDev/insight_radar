@@ -10,6 +10,7 @@ import {
 import { config } from '../../config/env';
 import { EM_DASH, formatVolume } from '../../lib/keywordsTable';
 import { totalPages } from '../../lib/pagination';
+import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 
 /**
  * 分析歷史 view (T3.5, FR-10; TC-21 / AC-10.1). Lists past analyses
@@ -116,27 +117,23 @@ function HistoryBody({
 }): ReactElement {
   const result = query.data;
   if (!result) {
-    return (
-      <p role="status" className="p-8 text-center text-sm text-white/50">
-        載入中…
-      </p>
-    );
+    return <LoadingState className="p-8 text-center text-sm text-white/50" />;
   }
   if (!result.ok) {
     return (
-      <p role="alert" className="p-8 text-center text-sm text-trend-negative">
-        無法載入分析歷史，請稍後再試。
-      </p>
+      <ErrorState
+        message="無法載入分析歷史，請稍後再試。"
+        onRetry={() => void query.refetch()}
+        className="p-8 text-center text-sm text-trend-negative"
+      />
     );
   }
   if (result.data.length === 0) {
     return (
-      <p
-        role="status"
+      <EmptyState
+        message="尚無分析紀錄"
         className="rounded-lg border border-white/10 bg-bg-card p-8 text-center text-sm text-white/50"
-      >
-        尚無分析紀錄
-      </p>
+      />
     );
   }
   return (

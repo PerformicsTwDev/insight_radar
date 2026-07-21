@@ -9,6 +9,7 @@ import {
 import { useSelectionStore } from '../../stores/selectionStore';
 import { dedupedSearchTermCount, selectionContext } from '../../lib/selection';
 import { errorResponseMessage, trackingListErrorMessage } from '../../lib/trackingListError';
+import { ErrorState, LoadingState } from '../../components/StateViews';
 
 /**
  * Floating bulk bar (T5.4, FR-19 / AC-19.1). Shows「已選 N 項 · 搜尋詞 M 個（已去重）」off the
@@ -128,16 +129,18 @@ export function BulkSelectBar(): ReactElement | null {
         {open ? (
           <div role="menu" aria-label="追蹤清單" className={MENU}>
             {error ? (
-              <p role="alert" className="mb-2 px-2 text-xs text-trend-negative">
-                {error}
-              </p>
+              <ErrorState message={error} className="mb-2 px-2 text-xs text-trend-negative" />
             ) : null}
 
             {lists === null && !loadFailed ? (
-              <p className="px-3 py-2 text-xs text-white/40">載入中…</p>
+              <LoadingState className="px-3 py-2 text-xs text-white/40" />
             ) : null}
             {loadFailed ? (
-              <p className="px-3 py-2 text-xs text-trend-negative">清單載入失敗</p>
+              <ErrorState
+                message="清單載入失敗"
+                onRetry={() => void loadLists()}
+                className="px-3 py-2 text-xs text-trend-negative"
+              />
             ) : null}
 
             {lists?.map((list) => (
