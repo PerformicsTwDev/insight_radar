@@ -1,6 +1,14 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { addTrackingMembers, createTrackingList, listTrackingLists } from './trackingLists';
+import {
+  addTrackingMembers,
+  createTrackingList,
+  deleteTrackingList,
+  getTrackingListDetail,
+  listTrackingLists,
+  removeTrackingMember,
+  renameTrackingList,
+} from './trackingLists';
 import { server } from './msw/server';
 import type { KeywordSelection, TopicSelection } from '../lib/selection';
 
@@ -138,5 +146,136 @@ describe('TC-29 · addTrackingMembers (POST /:listId/members)', () => {
   it('degrades to ok:false when the 200 body is not a valid result', async () => {
     server.use(http.post(MEMBERS_ROUTE, () => HttpResponse.json({ added: 'x' }, { status: 200 })));
     expect(await addTrackingMembers(LIST_ID, [kw('a')])).toEqual({ ok: false, status: 200 });
+  });
+});
+
+const DETAIL_ROUTE = '/api/v1/tracking-lists/:listId';
+const MEMBER_ROUTE = '/api/v1/tracking-lists/:listId/members/:normalizedText';
+
+describe('TC-40 · getTrackingListDetail (GET /:listId)', () => {
+  it('returns the parsed detail (metadata + members) on 200', async () => {
+    const detail = {
+      listId: LIST_ID,
+      name: 'Running shoes',
+      geo: 'TW',
+      language: 'zh-TW',
+      createdAt: '2026-07-21T00:00:00.000Z',
+      members: [
+        {
+          normalizedText: 'running shoes',
+          text: 'Running Shoes',
+          addedAt: '2026-07-21T00:00:00.000Z',
+          lastCheckedAt: null,
+        },
+      ],
+    };
+    server.use(http.get(DETAIL_ROUTE, () => HttpResponse.json(detail, { status: 200 })));
+    expect(await getTrackingListDetail(LIST_ID)).toEqual({ ok: true, detail });
+  });
+
+  it('maps a 404 (unknown / not owner) to ok:false with the status', async () => {
+    server.use(http.get(DETAIL_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    expect(await getTrackingListDetail(LIST_ID)).toEqual({ ok: false, status: 404 });
+  });
+
+  it('degrades to ok:false when the 200 body is not a valid detail', async () => {
+    server.use(http.get(DETAIL_ROUTE, () => HttpResponse.json({ name: 'x' }, { status: 200 })));
+    expect(await getTrackingListDetail(LIST_ID)).toEqual({ ok: false, status: 200 });
+  });
+});
+
+describe('TC-40 · renameTrackingList (PATCH /:listId)', () => {
+  it('sends { name } and returns the renamed list on 200', async () => {
+    let received: unknown;
+    let method: string | undefined;
+    const renamed = {
+      listId: LIST_ID,
+      name: 'Trail shoes',
+      geo: 'TW',
+      language: 'zh-TW',
+      createdAt: '2026-07-21T00:00:00.000Z',
+    };
+    server.use(
+      http.patch(DETAIL_ROUTE, async ({ request }) => {
+        method = request.method;
+        received = await request.json();
+        return HttpResponse.json(renamed, { status: 200 });
+      }),
+    );
+    const res = await renameTrackingList(LIST_ID, 'Trail shoes');
+    expect(res).toEqual({ ok: true, list: renamed });
+    expect(method).toBe('PATCH');
+    expect(received).toEqual({ name: 'Trail shoes' });
+  });
+
+  it('carries the ErrorResponse body on a 409 duplicate name (for message disambiguation)', async () => {
+    server.use(
+      http.patch(DETAIL_ROUTE, () =>
+        HttpResponse.json(
+          { statusCode: 409, code: 'CONFLICT', message: 'Tracking list "Trail" already exists' },
+          { status: 409 },
+        ),
+      ),
+    );
+    const res = await renameTrackingList(LIST_ID, 'Trail');
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.status).toBe(409);
+      expect(res.error?.message).toBe('Tracking list "Trail" already exists');
+    }
+  });
+
+  it('maps a 404 (not owner) to ok:false with the status', async () => {
+    server.use(http.patch(DETAIL_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    expect(await renameTrackingList(LIST_ID, 'x')).toEqual({ ok: false, status: 404 });
+  });
+
+  it('degrades to ok:false when the 200 body is not a valid list', async () => {
+    server.use(http.patch(DETAIL_ROUTE, () => HttpResponse.json({ name: 'x' }, { status: 200 })));
+    expect(await renameTrackingList(LIST_ID, 'x')).toEqual({ ok: false, status: 200 });
+  });
+});
+
+describe('TC-40 · deleteTrackingList (DELETE /:listId)', () => {
+  it('resolves ok on 200', async () => {
+    let method: string | undefined;
+    server.use(
+      http.delete(DETAIL_ROUTE, ({ request }) => {
+        method = request.method;
+        return HttpResponse.json({ listId: LIST_ID }, { status: 200 });
+      }),
+    );
+    expect(await deleteTrackingList(LIST_ID)).toEqual({ ok: true });
+    expect(method).toBe('DELETE');
+  });
+
+  it('maps a 404 (not owner) to ok:false with the status', async () => {
+    server.use(http.delete(DETAIL_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    expect(await deleteTrackingList(LIST_ID)).toEqual({ ok: false, status: 404 });
+  });
+});
+
+describe('TC-40 · removeTrackingMember (DELETE /:listId/members/:normalizedText)', () => {
+  it('targets /:listId/members/:normalizedText and resolves ok on 200', async () => {
+    let seenListId: string | undefined;
+    let seenMember: string | undefined;
+    server.use(
+      http.delete(MEMBER_ROUTE, ({ params }) => {
+        seenListId = params.listId as string;
+        seenMember = params.normalizedText as string;
+        return HttpResponse.json(
+          { listId: LIST_ID, normalizedText: 'running shoes' },
+          { status: 200 },
+        );
+      }),
+    );
+    expect(await removeTrackingMember(LIST_ID, 'running shoes')).toEqual({ ok: true });
+    expect(seenListId).toBe(LIST_ID);
+    expect(seenMember).toBe('running shoes');
+  });
+
+  it('maps a 404 (member / list not found) to ok:false with the status', async () => {
+    server.use(http.delete(MEMBER_ROUTE, () => new HttpResponse(null, { status: 404 })));
+    expect(await removeTrackingMember(LIST_ID, 'gone')).toEqual({ ok: false, status: 404 });
   });
 });
