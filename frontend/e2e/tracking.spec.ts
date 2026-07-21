@@ -1,4 +1,5 @@
 import { expect, test, type Route } from '@playwright/test';
+import { stubViews } from './support/stubs';
 
 /**
  * TC-47 (e2e, FR-19) — the tracking list is a cross-analysis GLOBAL resource with
@@ -32,7 +33,7 @@ test('top-level 追蹤清單 → create → open detail time-series (reachable T
   page,
 }) => {
   // The shell reads GET /views on mount — stub it so it doesn't fall back noisily.
-  await page.route(/\/api\/v1\/views/, (route) => route.fulfill({ json: { views: [] } }));
+  await stubViews(page, []);
 
   // GET (list) vs POST (create) share the same URL — split on method. GET starts empty;
   // the view appends the created list locally (optimistic), so no growing GET needed.
