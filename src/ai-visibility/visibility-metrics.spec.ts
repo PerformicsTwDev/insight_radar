@@ -22,20 +22,22 @@ import {
 const ASUS: VisibilityBrand = { name: 'ASUS', sites: ['asus.com'] };
 const ACER: VisibilityBrand = { name: 'Acer', sites: ['acer.com'] };
 
-describe('shareOfVoice — AC-43.2 分母/分子語意（零提及→null，不除 0、不 NaN）', () => {
+describe('shareOfVoice — AC-43.1/43.2 聲量語意（分母 0→null；分子 0 分母>0→真實 0）', () => {
   it('正常：品牌提及 ÷ 全品牌提及總數（回比例，view 層才呈現為 %）', () => {
     expect(shareOfVoice(3, 4)).toBe(0.75);
     expect(shareOfVoice(1, 4)).toBe(0.25);
   });
 
-  it('分母 0（零品牌提及）→ null（不除 0、不 NaN、不呈現 0%）', () => {
+  it('分母 0（範疇零品牌提及）→ null（無資料、不除 0、不 NaN、不呈現 0% 假訊號，AC-43.2）', () => {
     const result = shareOfVoice(0, 0);
     expect(result).toBeNull();
     expect(Number.isNaN(result as unknown as number)).toBe(false);
   });
 
-  it('分子 0（該品牌零提及、他牌有提及）→ null（不呈現 0% 假訊號）', () => {
-    expect(shareOfVoice(0, 4)).toBeNull();
+  it('分子 0、分母 > 0（該品牌零提及但他牌有提及）→ 0（真實 0% 聲量，AC-43.1，非 null）', () => {
+    const result = shareOfVoice(0, 4);
+    expect(result).toBe(0);
+    expect(Number.isNaN(result as unknown as number)).toBe(false);
   });
 
   it('分子 > 0 但分母 0（病態輸入）→ null（防禦性，不除 0）', () => {
@@ -185,7 +187,7 @@ describe('buildAiVisibility — per channel × brand × dimension（整合）', 
     expect(acer.shareOfVoice).toBeNull();
   });
 
-  it('該品牌零提及但他牌有提及：分子 0 → SoV=null（不呈現 0%）', () => {
+  it('該品牌零提及但他牌有提及：分子 0、分母>0 → SoV=0（真實 0% 聲量，非 null）', () => {
     const scope: AiVisibilityScope = {
       channel: 'geminiApp',
       dimension: 'keyword',
@@ -200,7 +202,8 @@ describe('buildAiVisibility — per channel × brand × dimension（整合）', 
     const acer = cells.find((c) => c.brand === 'Acer');
 
     expect(asus?.mentions).toBe(0);
-    expect(asus?.shareOfVoice).toBeNull(); // 分子 0 → null
+    expect(asus?.shareOfVoice).toBe(0); // 分子 0、分母 2 > 0 → 真實 0% 聲量（AC-43.1，非 null）
+    expect(Number.isNaN(asus?.shareOfVoice as unknown as number)).toBe(false);
     expect(acer?.shareOfVoice).toBe(1); // 2/2
     expect(asus?.exposure).toBeNull(); // 全 null 不補 0
   });

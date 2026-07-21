@@ -7,8 +7,8 @@ import { deriveDomain } from '../serp/parse-serpapi';
  *
  * 指標（AC-43.1）per scope × brand：
  * - **mentions**＝露出次數（**刻意不去重**，S17；`countMentions`）。
- * - **shareOfVoice**＝品牌提及 ÷ 全品牌提及總數；**零提及（分母 0 或分子 0）→ null**（不除 0、不呈現 0%
- *   假訊號，AC-43.2；`shareOfVoice`）。
+ * - **shareOfVoice**＝品牌提及 ÷ 全品牌提及總數；**分母（範疇全品牌提及總數）為 0 → null**（無資料、不除
+ *   0、不呈現 0% 假訊號，AC-43.2）；**分子 0 但分母 > 0 → 真實 `0`**（AC-43.1 合法 0% 聲量，不遮蔽）；`shareOfVoice`。
  * - **citations**＝引用命中 `BrandProfile.sites`/domain 次數（`countCitations`）。
  * - **exposure**＝範疇關鍵字 `avgMonthlySearches` 加總；**任一 null → 不計入（不補 0）**、全 null/空 → null
  *   （複用 Search 線指標，比照 micros/cpc null≠0；`sumExposure`）。
@@ -54,7 +54,7 @@ export interface AiVisibilityCell {
   brand: string;
   /** 露出次數（不去重）。 */
   mentions: number;
-  /** AI 聲量＝品牌提及 ÷ 全品牌提及總數（比例 0..1）；零提及 → null。 */
+  /** AI 聲量＝品牌提及 ÷ 全品牌提及總數（比例 0..1）；分母（全品牌提及總數）為 0 → null；分子 0 分母>0 → 真實 0。 */
   shareOfVoice: number | null;
   /** 引用命中數（`BrandProfile.sites`/domain 命中次數）。 */
   citations: number;
@@ -64,12 +64,14 @@ export interface AiVisibilityCell {
 
 /**
  * AI 聲量（share of voice）＝品牌提及 ÷ 全品牌提及總數。
- * **零提及（分母 0 或分子 0）→ null**（不除 0、不 NaN、不呈現 0% 假訊號，AC-43.2 / 正確性單點）。
+ * **分母（範疇全品牌提及總數）為 0 → null**（無資料、不除 0、不 NaN、不呈現 0% 假訊號，AC-43.2）。
+ * **分子（該品牌提及）為 0 但分母 > 0 → 回真實 `0`**（該品牌在此範疇 0% 聲量、競品有聲量，是 AC-43.1
+ * `0/total` 的合法且有意義輸出——最需被看見的「競品壓過本品牌」訊號，不可遮蔽成 null）。
  * 回傳**比例**（0..1）；view 層乘 100 呈現為 %（指標與 view 格式解耦）。
  */
 export function shareOfVoice(brandMentions: number, totalMentions: number): number | null {
-  if (brandMentions <= 0 || totalMentions <= 0) {
-    return null;
+  if (totalMentions <= 0) {
+    return null; // 分母 0：無資料，不除 0
   }
   return brandMentions / totalMentions;
 }
