@@ -8,6 +8,7 @@ import {
 } from '../../api/trackingLists';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { dedupedSearchTermCount, selectionContext } from '../../lib/selection';
+import { errorResponseMessage, trackingListErrorMessage } from '../../lib/trackingListError';
 
 /**
  * Floating bulk bar (T5.4, FR-19 / AC-19.1). Shows「已選 N 項 · 搜尋詞 M 個（已去重）」off the
@@ -21,8 +22,9 @@ import { dedupedSearchTermCount, selectionContext } from '../../lib/selection';
  * backend 400). Tokens only.
  */
 
-const ADD_ERROR = '加入追蹤清單失敗，請稍後再試。';
-const CREATE_ERROR = '建立清單失敗（名稱可能重複），請換個名稱。';
+// Add / create failures reuse the shared `trackingListErrorMessage` classifier (single source
+// with the T5.5 CRUD view) so each cause — 400 geo/language mismatch, 409 cap, 409 name dup,
+// 404 not owner — lands its OWN prompt (FR-19 / AC-19.1 boundary; no bespoke mapping here).
 const MIXED_HINT = '選取項目的地區 / 語言不一致，無法建立新清單。';
 
 const BAR =
@@ -88,7 +90,8 @@ export function BulkSelectBar(): ReactElement | null {
         clear();
         closePanel();
       } else {
-        setError(ADD_ERROR);
+        // Selection is NOT cleared on failure — the user can retry after fixing the cause.
+        setError(trackingListErrorMessage(res.status, errorResponseMessage(res.error)));
       }
     });
 
@@ -97,7 +100,9 @@ export function BulkSelectBar(): ReactElement | null {
       setError(null);
       const created = await createTrackingList({ ...ctx, name: newName.trim() });
       if (!created.ok) {
-        setError(CREATE_ERROR);
+        // A 409 splits into name-collision vs list-count cap by the backend message — the shared
+        // classifier resolves it, so a cap is never mislabeled「名稱可能重複」(M5-R1).
+        setError(trackingListErrorMessage(created.status, errorResponseMessage(created.error)));
         return;
       }
       const res = await addTrackingMembers(created.list.listId, items);
@@ -105,7 +110,7 @@ export function BulkSelectBar(): ReactElement | null {
         clear();
         closePanel();
       } else {
-        setError(ADD_ERROR);
+        setError(trackingListErrorMessage(res.status, errorResponseMessage(res.error)));
       }
     });
 

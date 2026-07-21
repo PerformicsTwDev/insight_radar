@@ -9,7 +9,7 @@ import {
   type TrackingListMember,
   type TrackingListSummary,
 } from '../../api/trackingLists';
-import { trackingListErrorMessage } from '../../lib/trackingListError';
+import { errorResponseMessage, trackingListErrorMessage } from '../../lib/trackingListError';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useTrackingLists } from './useTrackingLists';
 
@@ -95,7 +95,7 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
         setGeo('');
         setLanguage('');
       } else {
-        setError(trackingListErrorMessage(res.status, messageOf(res.error)));
+        setError(trackingListErrorMessage(res.status, errorResponseMessage(res.error)));
       }
     });
 
@@ -115,7 +115,7 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
         );
         setRenamingId(null);
       } else {
-        setError(trackingListErrorMessage(res.status, messageOf(res.error)));
+        setError(trackingListErrorMessage(res.status, errorResponseMessage(res.error)));
       }
     });
 
@@ -131,7 +131,7 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
           setMembers([]);
         }
       } else {
-        setError(trackingListErrorMessage(res.status, messageOf(res.error)));
+        setError(trackingListErrorMessage(res.status, errorResponseMessage(res.error)));
       }
     });
 
@@ -155,7 +155,7 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
       if (res.ok) {
         setMembers((prev) => prev.filter((m) => m.normalizedText !== target.member.normalizedText));
       } else {
-        setError(trackingListErrorMessage(res.status, messageOf(res.error)));
+        setError(trackingListErrorMessage(res.status, errorResponseMessage(res.error)));
       }
     });
 
@@ -297,15 +297,6 @@ export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): 
 interface MemberTarget {
   readonly listId: string;
   readonly member: TrackingListMember;
-}
-
-/**
- * Backend `ErrorResponse.message` reduced to a plain string for the 409 name-vs-cap split.
- * Real 409/404 messages are strings; a non-string (absent, or a validation `string[]`) is not
- * consulted by the classifier, so it maps to `undefined` (→ the default 409 = name collision).
- */
-function messageOf(error?: { message?: string | string[] }): string | undefined {
-  return typeof error?.message === 'string' ? error.message : undefined;
 }
 
 /** New-list form — the create button stays disabled until name, geo and language are set. */

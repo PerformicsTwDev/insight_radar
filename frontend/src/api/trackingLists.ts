@@ -61,7 +61,7 @@ export type CreateTrackingListResult =
 
 export type AddTrackingMembersResult =
   | { readonly ok: true; readonly result: AddMembersResult }
-  | { readonly ok: false; readonly status: number };
+  | { readonly ok: false; readonly status: number; readonly error?: ErrorResponse };
 
 /**
  * List the owner's tracking lists (the add dropdown's existing-list source; AC-28.3). On
@@ -104,13 +104,14 @@ export async function createTrackingList(
  * analysisId+topicName; the server dedupes by `normalizedText` and expands topics). On
  * 200 the (openapi-untyped) body is zod-validated to `AddMembersResult`; a 400 (context
  * mismatch), 409 (member cap), 404 (unknown / not owner), or an invalid body degrades to
- * `ok:false` with the status.
+ * `ok:false` carrying the status AND the parsed `ErrorResponse` (so the caller can classify
+ * the 409 member cap via the message — see `trackingListErrorMessage`).
  */
 export async function addTrackingMembers(
   listId: string,
   items: readonly SelectionItem[],
 ): Promise<AddTrackingMembersResult> {
-  const { data, response } = await api.POST('/api/v1/tracking-lists/{listId}/members', {
+  const { data, error, response } = await api.POST('/api/v1/tracking-lists/{listId}/members', {
     params: { path: { listId } },
     body: { items: toMemberItems(items) },
   });
@@ -119,7 +120,10 @@ export async function addTrackingMembers(
     if (parsed.success) return { ok: true, result: parsed.data };
     return { ok: false, status: response.status };
   }
-  return { ok: false, status: response.status };
+  // Carry the `ErrorResponse` body so callers can split the 409 causes: a 409 here is a member
+  // cap (`… member limit reached …`), which the shared `trackingListErrorMessage` classifies as a
+  // cap prompt only when the message is present (else it defaults to the name-collision prompt).
+  return { ok: false, status: response.status, error: parseError(error) };
 }
 
 // ── List CRUD + member removal (T5.5, FR-19; backend FR-28 · AC-28.1/28.2/28.3/28.6) ──
