@@ -146,6 +146,14 @@ export function assembleVolumeChart(params: AssembleVolumeParams): VolumeChartDa
 /**
  * Resolve a range window to its inclusive `from` ISO bound relative to `now` (UTC).
  * `6m`/`12m` → `now` minus that many months; `all` → `undefined` (no lower bound).
+ *
+ * Month subtraction is done WITHOUT day-overflow (#650): a bare
+ * `setUTCMonth(getUTCMonth() - n)` rolls a day the target month lacks forward into
+ * the NEXT month (Aug 31 → Feb 28 → Mar 3), drifting the 6M/12M bound ~3 days and
+ * dropping/including a boundary snapshot. We pin to day-1 first so the month step can
+ * never overflow, then clamp the original day-of-month to the target month's last
+ * valid day (least-surprise: the bound stays inside the intended month, never leaks
+ * into the next one). Time-of-day components are preserved. UTC-only throughout.
  */
 export function rangeToFrom(range: SeriesRange, now: Date): string | undefined {
   if (range === 'all') {
@@ -153,6 +161,12 @@ export function rangeToFrom(range: SeriesRange, now: Date): string | undefined {
   }
   const months = range === '6m' ? 6 : 12;
   const from = new Date(now);
+  from.setUTCDate(1); // pin to day-1 so the month step below can never day-overflow
   from.setUTCMonth(from.getUTCMonth() - months);
+  // Day 0 of the month AFTER the target month = the target month's last day.
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  from.setUTCDate(Math.min(now.getUTCDate(), lastDayOfTargetMonth));
   return from.toISOString();
 }
