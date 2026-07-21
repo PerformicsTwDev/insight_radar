@@ -59,7 +59,18 @@ export function HomeRoute() {
 
     const result = await createKeywordAnalysis(requestBody);
     if (result.ok) {
-      await navigate({ to: '/', search: (prev) => ({ ...prev, analysisId: result.analysisId }) });
+      // Carry the analysis (geo, language) context in the URL alongside `analysisId`
+      // (Design §5) so the ready 搜尋詞總表 can seed list-layer-fixed tracking
+      // selections (FR-19) without a per-row backend field.
+      await navigate({
+        to: '/',
+        search: (prev) => ({
+          ...prev,
+          analysisId: result.analysisId,
+          geo: requestBody.geo,
+          language: requestBody.language,
+        }),
+      });
       return;
     }
 

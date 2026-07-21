@@ -127,7 +127,13 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
 
     await waitFor(() => {
-      expect(router.state.location.search).toEqual({ analysisId: ANALYSIS_ID });
+      // The analysis (geo, language) context rides along in the URL (Design §5) so the
+      // ready 搜尋詞總表 can seed list-layer-fixed tracking selections (FR-19).
+      expect(router.state.location.search).toEqual({
+        analysisId: ANALYSIS_ID,
+        geo: 'TW',
+        language: 'zh-TW',
+      });
     });
     expect(received).toMatchObject({
       seeds: ['running shoes', 'trail shoes'],

@@ -57,7 +57,10 @@ export function keywordRow(text: string, overrides: Record<string, unknown> = {}
 }
 
 /** `{ data, meta }` keywords envelope. */
-export function keywordsBody(rows: ReturnType<typeof keywordRow>[], meta: Partial<{ total: number; page: number; pageSize: number; cursor: string | null }> = {}) {
+export function keywordsBody(
+  rows: ReturnType<typeof keywordRow>[],
+  meta: Partial<{ total: number; page: number; pageSize: number; cursor: string | null }> = {},
+) {
   return {
     data: rows,
     meta: { total: rows.length, page: 1, pageSize: 25, cursor: null, ...meta },
@@ -65,7 +68,10 @@ export function keywordsBody(rows: ReturnType<typeof keywordRow>[], meta: Partia
 }
 
 /** Stub `GET /views` so the shell's dimension menu loads without a noisy fallback. */
-export async function stubViews(page: Page, views: readonly unknown[] = DEFAULT_VIEWS): Promise<void> {
+export async function stubViews(
+  page: Page,
+  views: readonly unknown[] = DEFAULT_VIEWS,
+): Promise<void> {
   await page.route(/\/api\/v1\/views(\?|$)/, (route) => route.fulfill({ json: { views } }));
 }
 
@@ -98,8 +104,7 @@ export async function stubAnalysisStatus(
   page: Page,
   id: string,
   status:
-    | Record<string, unknown>
-    | ((callIndex: number, elapsedMs: number) => Record<string, unknown>),
+    Record<string, unknown> | ((callIndex: number, elapsedMs: number) => Record<string, unknown>),
 ): Promise<void> {
   let calls = 0;
   const startedAt = Date.now();

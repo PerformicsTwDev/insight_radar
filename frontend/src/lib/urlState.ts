@@ -37,6 +37,15 @@ export interface AppSearch {
   readonly sortBy?: SortBy;
   readonly sortDir?: SortDir;
   readonly filters?: string;
+  /**
+   * The analysis's (geo, language) context, carried in the URL alongside `analysisId`
+   * (Design §5「URL 即狀態」). The create form (FR-2) and a history reopen (FR-10) put
+   * them here so the 搜尋詞總表 can seed list-layer-fixed tracking selections (FR-19) —
+   * a keyword picked from the table knows its source (geo, language) without a per-row
+   * backend field. Non-context flows simply omit them (selection then stays inert).
+   */
+  readonly geo?: string;
+  readonly language?: string;
 }
 
 /** 1-based, positive integer pagination fields; anything else → undefined (dropped). */
@@ -62,6 +71,10 @@ const AppSearchSchema = z.object({
   sortBy: z.enum(SORT_FIELDS).optional().catch(undefined),
   sortDir: z.enum(SORT_DIRS).optional().catch(undefined),
   filters: z.string().min(1).optional().catch(undefined),
+  // Analysis (geo, language) context (Design §5) — any non-empty string; empty →
+  // undefined (dropped) so an absent context never becomes an empty-string filter.
+  geo: z.string().min(1).optional().catch(undefined),
+  language: z.string().min(1).optional().catch(undefined),
 });
 
 type MutableAppSearch = { -readonly [K in keyof AppSearch]: AppSearch[K] };
@@ -82,6 +95,8 @@ export function serialize(state: AppSearch): Record<string, string> {
   if (state.sortBy !== undefined) out.sortBy = state.sortBy;
   if (state.sortDir !== undefined) out.sortDir = state.sortDir;
   if (state.filters !== undefined) out.filters = state.filters;
+  if (state.geo !== undefined) out.geo = state.geo;
+  if (state.language !== undefined) out.language = state.language;
   return out;
 }
 
@@ -105,5 +120,7 @@ export function deserialize(raw: unknown): AppSearch {
   if (parsed.sortBy !== undefined) out.sortBy = parsed.sortBy;
   if (parsed.sortDir !== undefined) out.sortDir = parsed.sortDir;
   if (parsed.filters !== undefined) out.filters = parsed.filters;
+  if (parsed.geo !== undefined) out.geo = parsed.geo;
+  if (parsed.language !== undefined) out.language = parsed.language;
   return out;
 }

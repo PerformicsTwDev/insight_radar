@@ -137,6 +137,56 @@ describe('TC-28 · KeywordsTable ✦ column wiring (analysisId → interactive A
   });
 });
 
+describe('TC-47 · KeywordsTable per-row selection column (FR-19, opt-in)', () => {
+  it('renders no selection column when no `selection` is supplied (pre-T6.4 shape)', () => {
+    render(<KeywordsTable rows={rows} />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    // Column order is unchanged (搜尋詞 stays the frozen lead column).
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers[COL.text]).toBe('搜尋詞');
+  });
+
+  it('renders one checkbox per row (labelled by the row text) and reflects isSelected', () => {
+    render(
+      <KeywordsTable
+        rows={rows}
+        selection={{
+          isSelected: (row) => row.text === 'running shoes',
+          onToggle: () => undefined,
+        }}
+      />,
+    );
+    const boxes = screen.getAllByRole('checkbox');
+    expect(boxes).toHaveLength(rows.length);
+    expect(screen.getByRole('checkbox', { name: '選取 running shoes' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '選取 缺值列' })).not.toBeChecked();
+  });
+
+  it('calls onToggle with the row when its checkbox is clicked', () => {
+    const toggled: string[] = [];
+    render(
+      <KeywordsTable
+        rows={rows}
+        selection={{ isSelected: () => false, onToggle: (row) => toggled.push(row.text) }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: '選取 mystery intent' }));
+    expect(toggled).toEqual(['mystery intent']);
+  });
+
+  it('freezes both the selection column and 搜尋詞 (sticky-left) when selection is on', () => {
+    render(
+      <KeywordsTable rows={rows} selection={{ isSelected: () => false, onToggle: () => {} }} />,
+    );
+    // With a selection column the frozen lead pair is [select, 搜尋詞]; 搜尋詞 shifts to index 1.
+    const headers = screen.getAllByRole('columnheader');
+    expect(headers[0].className).toContain('sticky'); // select column pinned at left 0
+    const textHeader = screen.getByRole('columnheader', { name: '搜尋詞' });
+    expect(textHeader.className).toContain('sticky');
+    expect(textHeader).toHaveStyle({ left: '44px' }); // offset past the select column
+  });
+});
+
 describe('TC-15 · KeywordsTable virtualization (windows a large page)', () => {
   // jsdom reports offsetHeight 0 for every element; @tanstack/react-virtual measures
   // the scroll element via offsetHeight, so we give it a viewport to produce a window.
