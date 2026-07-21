@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import {
   createTrackingList,
   deleteTrackingList,
   getTrackingListDetail,
-  listTrackingLists,
   removeTrackingMember,
   renameTrackingList,
   type TrackingListMember,
@@ -12,18 +11,30 @@ import {
 } from '../../api/trackingLists';
 import { trackingListErrorMessage } from '../../lib/trackingListError';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { useTrackingLists } from './useTrackingLists';
 
 /**
- * Global tracking-list management view (T5.5, FR-19; backend FR-28 · AC-28.1/28.2/28.3/28.6).
- * Tracking lists are cross-analysis entities with their own top-level entry, so this owns the
- * CRUD surface: list the owner's lists, create one fixed at `(name, geo, language)`, rename it
- * (PATCH `{name}`), delete it, and — after opening a list's members — remove a member. Every
+ * Global tracking-list management view (T5.5/T5.7, FR-19; backend FR-28 · AC-28.1/28.2/28.3/28.6).
+ * Tracking lists are cross-analysis entities with their own top-level entry (T5.7 routes it at
+ * `/tracking`), so this owns the CRUD surface: list the owner's lists (via the shared
+ * {@link useTrackingLists} read hook), create one fixed at `(name, geo, language)`, rename it
+ * (PATCH `{name}`), delete it, and — after opening a list's members — remove a member. A row's
+ * 開啟 navigates to the list's time-series detail (`/tracking/$listId`) via the injected
+ * {@link TrackingListsViewProps.onOpenList} (router-agnostic so it stays unit-testable). Every
  * failure code lands its OWN readable prompt via {@link trackingListErrorMessage} (the inline
- * error convention T6.1 hoists into a shared toast). The two destructive triggers (delete list
- * / remove member) sit behind a confirm dialog and are re-entrancy-guarded (M4-R1) so a fast
- * double-click fires exactly ONE DELETE. Standalone component — the top-level nav entry / view
- * routing is a later task (#443). Tokens only.
+ * error convention T6.1 hoists into a shared toast). The two destructive triggers (delete list /
+ * remove member) sit behind a confirm dialog and are re-entrancy-guarded (M4-R1) so a fast
+ * double-click fires exactly ONE DELETE. Tokens only.
  */
+
+export interface TrackingListsViewProps {
+  /**
+   * Navigate to a list's time-series detail (`/tracking/$listId`). Injected by the
+   * route wrapper so this view stays router-agnostic (and unit-testable bare). When
+   * absent (e.g. an isolated render) the per-row 開啟 affordance is not shown.
+   */
+  readonly onOpenList?: (listId: string) => void;
+}
 
 const SECTION = 'flex flex-col gap-6';
 const CARD = 'rounded-xl bg-bg-card p-4 ring-1 ring-white/10';
@@ -37,12 +48,10 @@ const TEXT_INPUT =
   'w-full rounded-lg bg-bg-input px-3 py-2 text-sm text-white outline-none ring-1 ring-white/10 focus:ring-brand';
 const FIELD_LABEL = 'mb-1 block text-xs font-medium text-white/60';
 
-export function TrackingListsView(): ReactElement {
-  // Lists as a plain array (never null) so create/rename/delete mutate cleanly; a separate
-  // `listsLoading` flag models the initial fetch (no nullable state → no dead null-branch).
-  const [lists, setLists] = useState<TrackingListSummary[]>([]);
-  const [listsLoading, setListsLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
+export function TrackingListsView({ onOpenList }: TrackingListsViewProps = {}): ReactElement {
+  // Lists come from the shared read hook (also used by the future results-page sidebar,
+  // #443); `setLists` lets create/rename/delete mutate the array optimistically (no refetch).
+  const { lists, setLists, loading: listsLoading, failed: loadFailed } = useTrackingLists();
   const [error, setError] = useState<string | null>(null);
 
   // Create form (list layer fixes geo/language, AC-28.5) — all three required (AC-28.1).
@@ -68,19 +77,6 @@ export function TrackingListsView(): ReactElement {
   const guardRename = useInFlightGuard();
   const guardDelete = useInFlightGuard();
   const guardRemove = useInFlightGuard();
-
-  const loadLists = useCallback(async (): Promise<void> => {
-    setListsLoading(true);
-    setLoadFailed(false);
-    const res = await listTrackingLists();
-    setListsLoading(false);
-    if (res.ok) setLists(res.lists);
-    else setLoadFailed(true);
-  }, []);
-
-  useEffect(() => {
-    void loadLists();
-  }, [loadLists]);
 
   const canCreate = name.trim().length > 0 && geo.trim().length > 0 && language.trim().length > 0;
 
@@ -231,6 +227,16 @@ export function TrackingListsView(): ReactElement {
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
+                    {onOpenList ? (
+                      <button
+                        type="button"
+                        aria-label={`開啟 ${list.name}`}
+                        onClick={() => onOpenList(list.listId)}
+                        className={GHOST_BTN}
+                      >
+                        開啟
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       aria-label={`改名 ${list.name}`}

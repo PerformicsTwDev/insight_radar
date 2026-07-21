@@ -20,12 +20,20 @@ export function RootLayout() {
       activeView={activeView}
       degraded={degraded}
       headerExtra={
-        <Link
-          to="/history"
-          className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
-        >
-          分析歷史
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/tracking"
+            className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
+          >
+            追蹤清單
+          </Link>
+          <Link
+            to="/history"
+            className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
+          >
+            分析歷史
+          </Link>
+        </div>
       }
     >
       <Outlet />
