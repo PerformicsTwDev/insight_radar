@@ -11,7 +11,7 @@ import { configureAxe } from 'vitest-axe';
  * Usage: `expect(await axe(container)).toHaveNoViolations()` (matcher registered in
  * `./setup`). `color-contrast` (a WCAG AA rule) cannot compute in jsdom and reports
  * `incomplete` (never a `violation`); real token contrast is gated separately by the
- * `lib/contrast` audit (`src/test/themeContrast.test.ts`).
+ * `lib/contrast` audit (`src/test/themeA11y.test.ts`).
  */
 export const axe = configureAxe({
   runOnly: {

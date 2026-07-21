@@ -188,15 +188,16 @@ describe('AnalysisDashboard · readiness → content routing', () => {
 });
 
 /**
- * M6-R1 / TC-22 (FR-1 · FR-3 · Design §7 「單一權威傳輸 / 訂閱去重」). A running analysis
+ * M6-R1 / TC-55 (FR-3 · NFR-3 · Design §7 「單一權威傳輸 / 訂閱去重」). A running analysis
  * tracked live via a healthy SSE stream must survive a transient `GET :id` blip: the
  * dashboard must NOT open a second, un-deduped poller that blanks the whole page
  * (`getKeywordAnalysisStatus` never throws — a transient 5xx resolves to a
  * `{kind:'unavailable'}` **success** value) and tears the healthy stream down. Instead
- * readiness is coordinated with the ONE `useJobTracking` transport (shared `['job',
- * analysisId]` state); a mid-run blip is non-blanking + non-halting and self-heals.
+ * readiness is coordinated with the ONE `useJobTracking` transport (shared, streamPath-
+ * scoped `['job', analysisId, 'stream']` state); a mid-run blip is non-blanking +
+ * non-halting and self-heals; a sub-job on another `streamPath` never leaks in.
  */
-describe('AnalysisDashboard · §7 single authoritative transport (M6-R1, TC-22)', () => {
+describe('AnalysisDashboard · §7 single authoritative transport (M6-R1, TC-55)', () => {
   it('a mid-running GET :id blip keeps the live panel + SSE alive and self-heals (no manual retry)', async () => {
     await withFakeEventSource(async () => {
       let blip = false;
@@ -346,16 +347,18 @@ describe('AnalysisDashboard · §7 single authoritative transport (M6-R1, TC-22)
         es.emit('completed', { count: 0 });
       });
 
-      // Wait until the sub-job's not_found has been mirrored into the shared cache
-      // (whichever key the code writes) — so the dashboard has had its chance to react.
+      // Wait until the sub-job's not_found has been mirrored into ITS OWN streamPath-scoped
+      // cache entry (`['job', id, 'topics/stream']`). The mirror writer is single-sourced on
+      // `jobStateQueryKey(id, streamPath)` (always 3-element, scoped), so no bare `['job', id]`
+      // entry is ever written — asserting scoped-only pins the scoping single-source (a
+      // regression that dropped streamPath back to a bare key would read undefined → fail here).
       await waitFor(() => {
-        const bare = queryClient.getQueryData<{ status?: string }>(['job', ANALYSIS_ID]);
         const scoped = queryClient.getQueryData<{ status?: string }>([
           'job',
           ANALYSIS_ID,
           'topics/stream',
         ]);
-        expect(bare?.status ?? scoped?.status).toBe('not_found');
+        expect(scoped?.status).toBe('not_found');
       });
 
       // Regression pin: a SUB-job's not_found must not blank the whole dashboard — the
