@@ -103,6 +103,33 @@ describe('TC-19 · IntentTopicsView (gate 四態 → 主題表)', () => {
     expect(FakeEventSource.last().url).toContain(`/keyword-analyses/${ID}/topics/stream`);
   });
 
+  it('rapid double-click on the start CTA → fires exactly ONE POST (in-flight guard, #603 back-port)', async () => {
+    // Regression for the double-submit race (#646): the CTA stays clickable until the 202
+    // lands (`start` flips the gate to running only AFTER the POST resolves), so a fast
+    // double-click on 開始分析 would enqueue a second topics clustering/LLM run.
+    let postCount = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/topics', async () => {
+        postCount += 1;
+        await gate; // hold the 202 open so the double-click race window stays open
+        return HttpResponse.json({ topicJobId: 'job-1' }, { status: 202 });
+      }),
+    );
+    renderView({});
+
+    const cta = screen.getByRole('button', { name: /開始分析/ });
+    fireEvent.click(cta);
+    fireEvent.click(cta);
+    release();
+
+    await waitFor(() => expect(screen.getByText('分析進行中')).toBeInTheDocument());
+    expect(postCount).toBe(1);
+  });
+
   it('ready → fetches GET :id/topics and renders the 主題表 cluster rows', async () => {
     server.use(
       http.get('/api/v1/keyword-analyses/:id/topics', () => HttpResponse.json(TOPICS_BODY)),
