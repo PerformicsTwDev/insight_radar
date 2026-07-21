@@ -1,8 +1,14 @@
 // Extends Vitest's `expect` with @testing-library/jest-dom matchers
 // (toBeInTheDocument, etc.) and registers automatic DOM cleanup.
 import '@testing-library/jest-dom/vitest';
-import { afterAll, afterEach, beforeAll, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, vi } from 'vitest';
+import { toHaveNoViolations } from 'vitest-axe/matchers';
 import { server } from '../api/msw/server';
+
+// a11y gate (NFR-7 / TC-24): register the vitest-axe `toHaveNoViolations` matcher
+// globally. vitest-axe's `extend-expect` entry ships empty, so we wire it by hand.
+// The shared, WCAG-scoped runner lives in `./axe` (`import { axe } from '../test/axe'`).
+expect.extend({ toHaveNoViolations });
 
 // jsdom 未實作 window.scrollTo——TanStack Router 導航後的 scroll restoration 會在測試 stderr 噴
 // "Not implemented" 噪音（不影響斷言）。stub 掉保持測試輸出乾淨。

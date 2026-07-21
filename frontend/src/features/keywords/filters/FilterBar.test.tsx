@@ -179,6 +179,25 @@ describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
     expect(screen.queryByRole('group', { name: '搜尋量 篩選' })).not.toBeInTheDocument();
   });
 
+  // TC-24 (NFR-7) — the popover is keyboard-dismissible and returns focus to its trigger.
+  it('closes the open popover on Escape and refocuses the chip trigger', () => {
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: /搜尋量/ });
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole('group', { name: '搜尋量 篩選' }), { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: '搜尋量 篩選' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('marks the range inputs aria-invalid when min > max', () => {
+    render(<Harness />);
+    const pop = openChip('搜尋量');
+    fireEvent.change(pop.getByLabelText('最低'), { target: { value: '500' } });
+    fireEvent.change(pop.getByLabelText('最高'), { target: { value: '100' } });
+    expect(pop.getByLabelText('最低')).toHaveAttribute('aria-invalid', 'true');
+    expect(pop.getByLabelText('最高')).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('seeds the popover inputs from the current spec when re-opened', () => {
     render(<Harness />);
     let pop = openChip('搜尋詞');

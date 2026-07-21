@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
+import { axe } from '../../test/axe';
 import { CustomClassifyModal } from './CustomClassifyModal';
 
 /**
@@ -243,5 +244,24 @@ describe('TC-26 · CustomClassifyModal (stage one)', () => {
     renderModal();
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('heading', { name: '新增自訂分類' })).toBeInTheDocument();
+  });
+
+  // TC-24 (NFR-7) — accessible-modal keyboard hardening.
+  it('moves focus into the dialog on open', () => {
+    renderModal();
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+  });
+
+  it('closes on Escape (invokes onClose)', () => {
+    const { onClose } = renderModal();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('has no axe violations', async () => {
+    const { container } = render(
+      <CustomClassifyModal analysisId={ID} onClose={vi.fn()} onConfirm={vi.fn()} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
   });
 });
