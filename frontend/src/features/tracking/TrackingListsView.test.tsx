@@ -447,3 +447,51 @@ describe('TC-40 · TrackingListsView', () => {
     expect(await screen.findByText('成員載入失敗')).toBeInTheDocument();
   });
 });
+
+describe('TC-22 · TrackingListsView error state → 重試 refetch (state matrix)', () => {
+  it('list-load failure → 重試 reloads and renders the lists on success', async () => {
+    let call = 0;
+    server.use(
+      http.get(LIST_ROUTE, () => {
+        call += 1;
+        return call === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json([summary(LIST_ID, 'Running shoes', 1)], { status: 200 });
+      }),
+    );
+    render(<TrackingListsView />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '重試' }));
+    expect(
+      await screen.findByRole('button', { name: '檢視 Running shoes 成員' }),
+    ).toBeInTheDocument();
+  });
+
+  it('member-detail failure → 重試 re-selects the list and renders its members on success', async () => {
+    withLists([summary(LIST_ID, 'Running shoes', 1)]);
+    let call = 0;
+    server.use(
+      http.get(DETAIL_ROUTE, ({ params }) => {
+        call += 1;
+        return call === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json(
+              {
+                listId: params.listId,
+                name: 'Running shoes',
+                geo: 'TW',
+                language: 'zh-TW',
+                createdAt: '2026-07-21T00:00:00.000Z',
+                members: [member('running shoes', 'Running Shoes')],
+              },
+              { status: 200 },
+            );
+      }),
+    );
+    render(<TrackingListsView />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '檢視 Running shoes 成員' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重試' }));
+    expect(await screen.findByText('Running Shoes')).toBeInTheDocument();
+  });
+});

@@ -353,4 +353,22 @@ describe('TC-29 · BulkSelectBar', () => {
     openDropdown();
     expect(await screen.findByText('清單載入失敗')).toBeInTheDocument();
   });
+
+  it('list-load failure → 重試 reloads and renders the lists in the dropdown (state matrix)', async () => {
+    seed([kw('a')]);
+    let call = 0;
+    server.use(
+      http.get(LIST_ROUTE, () => {
+        call += 1;
+        return call === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json([listSummary('Running shoes', LIST_ID)], { status: 200 });
+      }),
+    );
+    render(<BulkSelectBar />);
+
+    openDropdown();
+    fireEvent.click(await screen.findByRole('button', { name: '重試' }));
+    expect(await screen.findByRole('menuitem', { name: /Running shoes/ })).toBeInTheDocument();
+  });
 });

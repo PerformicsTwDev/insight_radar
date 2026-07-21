@@ -214,4 +214,31 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
     fireEvent.click(screen.getByRole('button', { name: /AI 洞察側欄/ }));
     await waitFor(() => expect(screen.queryByText(INSIGHT)).not.toBeInTheDocument());
   });
+
+  it('LLM 502 error → 重試 refetches and renders the insight on success (state matrix)', async () => {
+    let call = 0;
+    server.use(
+      http.post(ROUTE, () => {
+        call += 1;
+        return call === 1
+          ? new HttpResponse(null, { status: 502 })
+          : HttpResponse.json(OK_BODY, { status: 200 });
+      }),
+    );
+
+    render(
+      <AiInsightSidebar
+        analysisId={ID}
+        view="keywords"
+        filters={{}}
+        requiresFeature="keyword_metrics"
+        features={READY}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/生成失敗/));
+    fireEvent.click(screen.getByRole('button', { name: '重試' }));
+    expect(await screen.findByText(INSIGHT)).toBeInTheDocument();
+  });
 });

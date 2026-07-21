@@ -358,4 +358,21 @@ describe('TC-30 · manual refresh (POST /:listId/refresh, guarded)', () => {
     await waitFor(() => expect(screen.getByText(/已排入刷新/)).toBeInTheDocument());
     expect(refreshed).toBe(1);
   });
+
+  it('series-load failure → 重試 reloads and renders the series on success (state matrix)', async () => {
+    let call = 0;
+    server.use(
+      http.get(SERIES_ROUTE, () => {
+        call += 1;
+        return call === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json(seriesBody(), { status: 200 });
+      }),
+    );
+    render(<TrackingDetailView listId={LIST_ID} />);
+
+    expect(await screen.findByText('時序載入失敗')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重試' }));
+    expect(await screen.findByText('Running Shoes')).toBeInTheDocument();
+  });
 });
