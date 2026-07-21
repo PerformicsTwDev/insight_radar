@@ -312,6 +312,56 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       },
     );
 
+    // —— T15.7：M15 AI Search 分析層版本 env（AI_VISIBILITY_SCHEMA_VERSION + 三線 prompt 版本）——
+    // 對齊既有版本 env 慣例（限 `v\d+`、預設 `v1`、擋 `:` 注入 cache namespace，同 INTENT/TOPIC_SCHEMA_VERSION）。
+    // prompt-versions.ts 現以 `process.env.X ?? 'v1'` 取值——Joi 於此補上 fail-fast 驗證，且**守恆**該預設行為
+    // （不改行為，僅收斂 allowUnknown 的靜默放行 + 版本 pin，NFR-5/NFR-19；Design §14）。
+    const M15_VERSION_KEYS = [
+      'AI_VISIBILITY_SCHEMA_VERSION',
+      'BRAND_EXTRACT_PROMPT_VERSION',
+      'SENTIMENT_PROMPT_VERSION',
+      'MEDIA_CLASSIFY_PROMPT_VERSION',
+    ] as const;
+
+    it('defaults the M15 AI visibility schema + prompt versions to v1 (守恆 prompt-versions.ts 預設)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv); // validEnv omits all four M15 version keys
+      expect(error).toBeUndefined();
+      expect(value.AI_VISIBILITY_SCHEMA_VERSION).toBe('v1');
+      expect(value.BRAND_EXTRACT_PROMPT_VERSION).toBe('v1');
+      expect(value.SENTIMENT_PROMPT_VERSION).toBe('v1');
+      expect(value.MEDIA_CLASSIFY_PROMPT_VERSION).toBe('v1');
+    });
+
+    it('accepts valid `v\\d+` overrides for the M15 versions (bump → 下游快取整批失效)', () => {
+      const env = {
+        ...validEnv,
+        AI_VISIBILITY_SCHEMA_VERSION: 'v2',
+        BRAND_EXTRACT_PROMPT_VERSION: 'v3',
+        SENTIMENT_PROMPT_VERSION: 'v4',
+        MEDIA_CLASSIFY_PROMPT_VERSION: 'v5',
+      };
+      const { error } = validationSchema.validate(env, { abortEarly: false });
+      const value = validatedValue(env);
+      expect(error).toBeUndefined();
+      expect(value.AI_VISIBILITY_SCHEMA_VERSION).toBe('v2');
+      expect(value.BRAND_EXTRACT_PROMPT_VERSION).toBe('v3');
+      expect(value.SENTIMENT_PROMPT_VERSION).toBe('v4');
+      expect(value.MEDIA_CLASSIFY_PROMPT_VERSION).toBe('v5');
+    });
+
+    it.each(M15_VERSION_KEYS)(
+      'rejects a non-`v\\d+` %s (cache-namespace version pin, no `:` injection — fail-fast, NFR-5)',
+      (key) => {
+        const { error } = validationSchema.validate(
+          { ...validEnv, [key]: 'v1:evil' },
+          { abortEarly: false },
+        );
+        expect(error).toBeDefined();
+        expect(error?.message).toContain(key);
+      },
+    );
+
     it('rejects a SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS that is not under the 60s page_token expiry (AC-38.1)', () => {
       const { error } = validationSchema.validate(
         { ...validEnv, SERPAPI_AIO_PAGE_TOKEN_TIMEOUT_MS: '60000' },
