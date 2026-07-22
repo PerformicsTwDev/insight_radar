@@ -1,43 +1,57 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type ReactElement } from 'react';
 import { generateIdeas } from '../../api/aiIdeation';
-import { AI_IDEATION_TEMPLATES } from '../../lib/aiIdeation';
+import { AI_IDEATION_TEMPLATES, parseIdeationSeed } from '../../lib/aiIdeation';
 
 /**
- * "詢問 AI 輔助發想" sub-card (T1.5, FR-20; AC-20.1; TC-31). Pick one of 10
- * templates and 送出 → `POST /ai-ideation { template, seeds }` (stub), where
- * `seeds` are the **existing seeds already in the form** (passed via `seeds`;
- * per FR-20/AC-20.1 「現有 seeds」 and the mockup's template-picker-only UI —
- * there is no card-local seed field). The generated keywords are handed to the
- * host via {@link onGenerated}, which de-dupes (C7) and appends them into the
- * seeds field. It **never creates an analysis** — that stays an explicit user
- * action. A non-2xx shows a generic error; a pulsing state shows while
- * generating. Tokens only (no hardcoded hex).
+ * "詢問 AI 輔助發想" sub-card — v4 interactive dropdown (T7.11, FR-2 修訂 e / FR-20;
+ * AC-2.4 / TC-74). An input (placeholder 選擇發想模板) opens a dropdown of the 10 v4
+ * templates; picking one fills the input with a prompt carrying a 「」 slot (e.g.
+ * 發想「」的專業術語與技術規格) and puts the caret inside it. The user types a keyword
+ * into 「」; 送出 sends `POST /ai-ideation { template: <key>, seeds: [「」content] }`
+ * ({@link generateIdeas}) and hands the generated keywords to {@link onGenerated}, which
+ * C7-de-dupes + appends them into the 輸入搜尋詞 textarea. It **never creates an
+ * analysis**. 送出 is disabled until a template is picked AND the 「」 has content; a
+ * non-2xx shows a generic error (no append). Tokens only (no hardcoded hex).
  */
 
 const GENERIC_ERROR = 'AI 發想失敗，請稍後再試。';
-const FIELD_LABEL = 'block text-sm font-medium text-white/80';
 const TEXT_INPUT =
-  'mt-1 w-full rounded-lg bg-bg-input px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-brand';
+  'w-full rounded-lg bg-bg-input px-3 py-2 pr-16 text-sm text-white outline-none ring-1 ring-white/10 focus:ring-brand';
 
 export function AiIdeationCard({
-  seeds,
   onGenerated,
 }: {
-  seeds: string[];
   onGenerated: (keywords: string[]) => void;
-}) {
-  const [template, setTemplate] = useState(AI_IDEATION_TEMPLATES[0].id);
+}): ReactElement {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [templateKey, setTemplateKey] = useState(''); // '' = no template picked yet
+  const [inputValue, setInputValue] = useState('');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = seeds.length > 0 && !generating;
+  const seed = parseIdeationSeed(inputValue);
+  // 送出 is the single gate (disabled unless a template is picked AND 「」 has content) —
+  // so `handleSubmit` never needs a defensive re-check.
+  const canSubmit = templateKey.length > 0 && seed.length > 0 && !generating;
 
-  async function handleSubmit(e: FormEvent): Promise<void> {
-    e.preventDefault();
-    if (seeds.length === 0) return; // guard the Enter-key path (button is also disabled)
+  function selectTemplate(id: string, label: string): void {
+    setTemplateKey(id);
+    setInputValue(label);
+    setError(null);
+    setOpen(false);
+    // Put the caret inside the 「」 slot so the user can type the keyword straight away.
+    const caret = label.indexOf('「');
+    queueMicrotask(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(caret + 1, caret + 1);
+    });
+  }
+
+  async function handleSubmit(): Promise<void> {
     setError(null);
     setGenerating(true);
-    const result = await generateIdeas({ template, seeds });
+    const result = await generateIdeas({ template: templateKey, seeds: [seed] });
     setGenerating(false);
     if (result.ok) onGenerated(result.keywords);
     else setError(GENERIC_ERROR);
@@ -46,56 +60,82 @@ export function AiIdeationCard({
   return (
     <section
       aria-labelledby="ai-ideation-heading"
-      className="mt-8 rounded-xl border border-white/10 bg-bg-input/40 p-4"
+      className="mt-8 rounded-xl border border-white/5 bg-bg-input/40 p-4"
     >
-      <h3 id="ai-ideation-heading" className="text-sm font-semibold text-white/90">
-        詢問 AI 輔助發想
-      </h3>
-      <p className="mt-1 text-xs text-white/40">
-        依上方種子關鍵字選一個模板生成，結果會去重後加入種子欄。
-      </p>
+      <div className="mb-3 flex items-center gap-2">
+        <BoltIcon />
+        <h3 id="ai-ideation-heading" className="text-sm font-bold text-white/70">
+          詢問 AI 輔助發想
+        </h3>
+      </div>
 
       {error ? (
-        <p role="alert" className="mt-3 text-sm text-trend-negative">
+        <p role="alert" className="mb-3 text-sm text-trend-negative">
           {error}
         </p>
       ) : null}
 
-      <form
-        aria-label="AI 輔助發想"
-        className="mt-3 flex flex-col gap-3"
-        onSubmit={(e) => void handleSubmit(e)}
-      >
-        <div>
-          <label htmlFor="ai-template" className={FIELD_LABEL}>
-            發想模板
-          </label>
-          <select
-            id="ai-template"
-            value={template}
-            onChange={(e) => setTemplate(e.target.value)}
-            className={TEXT_INPUT}
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          aria-label="發想模板"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onClick={() => setOpen((o) => !o)}
+          placeholder="選擇發想模板"
+          autoComplete="off"
+          className={TEXT_INPUT}
+        />
+        <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!canSubmit}
+          aria-busy={generating}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-3 py-1.5 text-sm font-bold text-brand hover:bg-brand/10 disabled:cursor-not-allowed disabled:text-white/30 disabled:hover:bg-transparent"
+        >
+          {generating ? '發想中…' : '送出'}
+        </button>
+
+        {open ? (
+          <ul
+            aria-label="發想模板選項"
+            className="absolute left-0 top-full z-20 mt-2 max-h-60 w-full overflow-y-auto rounded-lg border border-white/10 bg-bg-card shadow-xl"
           >
             {AI_IDEATION_TEMPLATES.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label}
-              </option>
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => selectTemplate(t.id, t.label)}
+                  className="w-full border-b border-white/5 px-4 py-3 text-left text-[13.5px] text-white/80 last:border-b-0 hover:bg-white/5"
+                >
+                  {t.label}
+                </button>
+              </li>
             ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            aria-busy={generating}
-            className="rounded-lg bg-brand/90 px-4 py-2 text-sm font-medium text-bg-body enabled:hover:bg-brand disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            送出
-          </button>
-          {generating ? <span className="animate-pulse text-xs text-white/50">生成中…</span> : null}
-        </div>
-      </form>
+          </ul>
+        ) : null}
+      </div>
     </section>
+  );
+}
+
+/** Inline bolt affordance for the AI 發想 heading (decorative). */
+function BoltIcon(): ReactElement {
+  return (
+    <svg
+      className="h-4 w-4 text-brand"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        d="M13 10V3L4 14h7v7l9-11h-7z"
+      />
+    </svg>
   );
 }

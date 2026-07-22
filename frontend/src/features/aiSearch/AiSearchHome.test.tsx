@@ -165,6 +165,13 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
     fireEvent.click(await screen.findByRole('tab', { name: '指定模式' }));
     const seeds = screen.getByLabelText<HTMLTextAreaElement>('搜尋詞');
     fireEvent.change(seeds, { target: { value: 'dyson 吸塵器' } });
+
+    // v4 (T7.11): 「」-slot AI ideation — pick a template, fill 「」, 送出.
+    fireEvent.click(screen.getByLabelText('發想模板'));
+    fireEvent.click(screen.getByRole('button', { name: '發想「」的專業術語與技術規格' }));
+    fireEvent.change(screen.getByLabelText('發想模板'), {
+      target: { value: '發想「吸塵器」的專業術語與技術規格' },
+    });
     fireEvent.click(screen.getByRole('button', { name: '送出' }));
 
     // "dyson 吸塵器" de-dupes against the existing seed (C7); only the new one appends.

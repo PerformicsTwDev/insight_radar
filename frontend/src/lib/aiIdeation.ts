@@ -12,22 +12,33 @@ export interface AiIdeationTemplate {
 }
 
 /**
- * The 10 ideation templates offered by the sub-card dropdown. These are
- * provisional UI-shell placeholders; the authoritative set is backend FR-35
- * (M12) and gets wired for real at T5.3 (Design §3 / Task.md T1.5 ③).
+ * The 10 v4 ideation templates offered by the sub-card dropdown (T7.11, FR-2 修訂 e /
+ * AC-2.4). `id` is the **backend `IDEATION_TEMPLATES` key** (`backend:FR-35` 修訂,
+ * server-controlled directive) — kept in sync MANUALLY (the template is not an openapi
+ * codegen enum). `label` is the interactive prompt with a 「」 slot the user fills with a
+ * keyword; {@link parseIdeationSeed} extracts that keyword as the request seed.
  */
 export const AI_IDEATION_TEMPLATES: readonly AiIdeationTemplate[] = [
-  { id: 'long-tail', label: '長尾關鍵字' },
-  { id: 'questions', label: '問題型（如何 / 為什麼）' },
-  { id: 'comparisons', label: '比較 / 對比' },
-  { id: 'competitors', label: '競品與替代品' },
-  { id: 'use-cases', label: '使用情境 / 場景' },
-  { id: 'audiences', label: '受眾 / 客群' },
-  { id: 'modifiers', label: '修飾語（便宜 / 推薦 / 評價）' },
-  { id: 'seasonal', label: '季節 / 時事' },
-  { id: 'local', label: '在地 / 地區' },
-  { id: 'brand-terms', label: '品牌詞延伸' },
+  { id: 'technical_terms', label: '發想「」的專業術語與技術規格' },
+  { id: 'pain_points', label: '找出「」的消費者痛點與常見困難' },
+  { id: 'subtopics', label: '挖掘「」的延伸子主題與冷門需求' },
+  { id: 'competitor_comparison', label: '比較「」的競品差異與關聯字詞' },
+  { id: 'trends', label: '尋找「」的最新趨勢與熱門話題' },
+  { id: 'related_products', label: '列出「」的相關產品與輔助工具' },
+  { id: 'buying_motivation', label: '分析「」的情感訴求與購買動機' },
+  { id: 'cross_industry', label: '探索「」的跨產業關聯與應用場景' },
+  { id: 'controversies', label: '整理「」的爭議話題與正反面討論' },
+  { id: 'myths', label: '破解「」的常見迷思與謠言' },
 ];
+
+/**
+ * Extract the user-typed seed from a filled template (T7.11): the text inside the 「」
+ * slot, trimmed (e.g. `發想「吸塵器」的專業術語…` → `吸塵器`). Returns `''` when the slot
+ * is empty / absent, which the card treats as "not submittable".
+ */
+export function parseIdeationSeed(templateText: string): string {
+  return templateText.match(/「(.*?)」/)?.[1]?.trim() ?? '';
+}
 
 /**
  * Canonical dedupe key (C7): `lowercase(collapseWhitespace(trim(NFKC(text))))` —

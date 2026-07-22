@@ -290,27 +290,29 @@ describe('TC-71 · Home wiring — 從追蹤清單繼續 loads seeds + adopts ge
   });
 });
 
-describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
-  it('generates from the existing seeds and appends de-duplicated, without creating an analysis', async () => {
-    let received: unknown;
+describe('TC-31/TC-74 · AI ideation (「」 slot) appends into seeds (no auto-create)', () => {
+  it('the 送出 result C7-appends into the 輸入搜尋詞 textarea, without creating an analysis', async () => {
     server.use(
-      http.post('/api/v1/ai-ideation', async ({ request }) => {
-        received = await request.json();
-        return HttpResponse.json(
-          { keywords: ['trail shoes', 'Running Shoes', 'marathon'] },
-          { status: 200 },
-        );
-      }),
+      http.post('/api/v1/ai-ideation', () =>
+        HttpResponse.json({ keywords: ['塵蟎機', '手持吸塵器', '塵蟎機'] }, { status: 200 }),
+      ),
     );
     const router = renderHome();
 
     const seeds = await screen.findByLabelText<HTMLTextAreaElement>('輸入搜尋詞');
-    fireEvent.change(seeds, { target: { value: 'running shoes' } });
+    fireEvent.change(seeds, { target: { value: '手持吸塵器' } }); // an existing seed
+
+    // Pick a template, fill the 「」 slot, 送出.
+    fireEvent.click(screen.getByLabelText('發想模板'));
+    fireEvent.click(screen.getByRole('button', { name: '發想「」的專業術語與技術規格' }));
+    fireEvent.change(screen.getByLabelText('發想模板'), {
+      target: { value: '發想「吸塵器」的專業術語與技術規格' },
+    });
     fireEvent.click(screen.getByRole('button', { name: '送出' }));
 
-    await waitFor(() => expect(seeds.value).toBe('running shoes\ntrail shoes\nmarathon'));
+    // '手持吸塵器' already exists + '塵蟎機' duplicated among generated → one net append (C7).
+    await waitFor(() => expect(seeds.value).toBe('手持吸塵器\n塵蟎機'));
 
-    expect(received).toEqual({ template: 'long-tail', seeds: ['running shoes'] });
     expect(router.state.location.search).not.toHaveProperty('analysisId');
     expect(screen.getByRole('button', { name: '開始分析' })).toBeInTheDocument();
   });

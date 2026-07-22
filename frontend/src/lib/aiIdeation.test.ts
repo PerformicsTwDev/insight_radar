@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { AI_IDEATION_TEMPLATES, appendDedupedSeeds, normalizeSeed } from './aiIdeation';
+import {
+  AI_IDEATION_TEMPLATES,
+  appendDedupedSeeds,
+  normalizeSeed,
+  parseIdeationSeed,
+} from './aiIdeation';
 
 /**
  * TC-31 (pure core) — AI-ideation dedupe. The dedup key is `normalizedText`
@@ -55,5 +60,30 @@ describe('TC-31 · AI_IDEATION_TEMPLATES', () => {
     const ids = AI_IDEATION_TEMPLATES.map((t) => t.id);
     expect(new Set(ids).size).toBe(10);
     for (const t of AI_IDEATION_TEMPLATES) expect(t.label.length).toBeGreaterThan(0);
+  });
+});
+
+describe('TC-74 · v4 templates (backend FR-35 keys) + parseIdeationSeed', () => {
+  it('the template ids are the v4 backend FR-35 keys, and labels carry a 「」 slot', () => {
+    expect(AI_IDEATION_TEMPLATES.map((t) => t.id)).toEqual([
+      'technical_terms',
+      'pain_points',
+      'subtopics',
+      'competitor_comparison',
+      'trends',
+      'related_products',
+      'buying_motivation',
+      'cross_industry',
+      'controversies',
+      'myths',
+    ]);
+    for (const t of AI_IDEATION_TEMPLATES) expect(t.label).toContain('「」');
+  });
+
+  it('parseIdeationSeed extracts the trimmed 「」 content (empty when absent)', () => {
+    expect(parseIdeationSeed('發想「吸塵器」的專業術語與技術規格')).toBe('吸塵器');
+    expect(parseIdeationSeed('發想「 塵蟎機 」的延伸子主題')).toBe('塵蟎機');
+    expect(parseIdeationSeed('發想「」的專業術語')).toBe('');
+    expect(parseIdeationSeed('no slot here')).toBe('');
   });
 });
