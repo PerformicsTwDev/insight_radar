@@ -34,6 +34,11 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
       expect(deserialize(serialize(s))).toEqual(s);
     });
 
+    it('preserves the AI Search jobId (FR-23/FR-24), independent of analysisId', () => {
+      const s: AppSearch = { jobId: UUID };
+      expect(deserialize(serialize(s))).toEqual(s);
+    });
+
     it('preserves a view-only state', () => {
       const s: AppSearch = { view: 'keywords' };
       expect(deserialize(serialize(s))).toEqual(s);
@@ -101,6 +106,10 @@ describe('TC-11 · urlState (URL 即狀態序列化)', () => {
       const result = deserialize({ analysisId: 'not-a-uuid', view: 'trend' });
       expect(result.analysisId).toBeUndefined();
       expect(result.view).toBe('trend');
+    });
+
+    it('normalises a malformed jobId to undefined (not-found)', () => {
+      expect(deserialize({ jobId: 'not-a-uuid' }).jobId).toBeUndefined();
     });
 
     it('drops an empty geo / language (absent context ≠ empty-string filter)', () => {

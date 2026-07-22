@@ -29,6 +29,13 @@ import { SORT_DIRS, SORT_FIELDS, type SortBy, type SortDir } from './pagination'
  */
 export interface AppSearch {
   readonly analysisId?: string;
+  /**
+   * The AI Search capture job's id (= its run id, a UUID; FR-23/FR-24). Carried in
+   * the URL alongside — and distinct from — `analysisId` so the AI job tracking
+   * (T8.2) is shareable / refresh-restorable, and so an AI job never routes into the
+   * keyword-analysis dashboard (which keys off `analysisId`).
+   */
+  readonly jobId?: string;
   /** Any non-empty view name (registry-resolved, AC-1.2) — not a static enum. */
   readonly view?: string;
   readonly page?: number;
@@ -59,6 +66,8 @@ const pageNumber = z.coerce.number().int().positive().optional().catch(undefined
  */
 const AppSearchSchema = z.object({
   analysisId: z.uuid().optional().catch(undefined),
+  // AI Search job id (= run UUID, FR-23/FR-24); malformed → undefined (not-found).
+  jobId: z.uuid().optional().catch(undefined),
   // Any non-empty string — the registry (GET /views) is the authoritative view set
   // (AC-1.2); a static enum here would go stale and block new backend views. An
   // empty / non-string value is malformed → undefined (not-found).
@@ -88,6 +97,7 @@ type MutableAppSearch = { -readonly [K in keyof AppSearch]: AppSearch[K] };
 export function serialize(state: AppSearch): Record<string, string> {
   const out: Record<string, string> = {};
   if (state.analysisId !== undefined) out.analysisId = state.analysisId;
+  if (state.jobId !== undefined) out.jobId = state.jobId;
   if (state.view !== undefined) out.view = state.view;
   if (state.page !== undefined) out.page = String(state.page);
   if (state.pageSize !== undefined) out.pageSize = String(state.pageSize);
@@ -113,6 +123,7 @@ export function deserialize(raw: unknown): AppSearch {
   const parsed = AppSearchSchema.catch({}).parse(raw);
   const out: MutableAppSearch = {};
   if (parsed.analysisId !== undefined) out.analysisId = parsed.analysisId;
+  if (parsed.jobId !== undefined) out.jobId = parsed.jobId;
   if (parsed.view !== undefined) out.view = parsed.view;
   if (parsed.page !== undefined) out.page = parsed.page;
   if (parsed.pageSize !== undefined) out.pageSize = parsed.pageSize;
