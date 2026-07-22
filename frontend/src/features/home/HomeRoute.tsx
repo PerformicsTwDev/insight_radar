@@ -181,7 +181,9 @@ export function HomeRoute() {
             aria-invalid={fieldErrors.seeds ? true : undefined}
             aria-describedby={fieldErrors.seeds ? 'seeds-error' : undefined}
             className={`${TEXT_INPUT} resize-y`}
-            placeholder={'請輸入搜尋詞，可用逗號或換行分隔，例如：\n無線吸塵器, 掃地機器人\n吸塵器推薦'}
+            placeholder={
+              '請輸入搜尋詞，可用逗號或換行分隔，例如：\n無線吸塵器, 掃地機器人\n吸塵器推薦'
+            }
           />
           <FieldErrors id="seeds-error" messages={fieldErrors.seeds} />
 
@@ -314,7 +316,13 @@ export function HomeRoute() {
 /** Inline gear affordance for the 進階選項 toggle (decorative; the button is labelled). */
 function GearIcon() {
   return (
-    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <svg
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      aria-hidden="true"
+    >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"

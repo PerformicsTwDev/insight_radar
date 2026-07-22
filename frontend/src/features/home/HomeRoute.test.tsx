@@ -221,7 +221,10 @@ describe('TC-57 · Home v4 (探索模式 pills + ⚙ 進階 collapsible + Import
     expect(screen.getByText(/精準分析上方輸入的搜尋詞/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '拓展模式' }));
-    expect(screen.getByRole('button', { name: '拓展模式' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '拓展模式' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(screen.getByText(/擴充相關關鍵字/)).toBeInTheDocument();
   });
 
