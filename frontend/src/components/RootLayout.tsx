@@ -31,7 +31,11 @@ export function RootLayout() {
     <AppShell
       dimensions={registry.navItems}
       activeView={activeView}
-      degraded={degraded}
+      // The "無法載入視圖清單" fallback notice is a views-loading error — only meaningful
+      // while an analysis is in context (T7.5, TC-60). On a cold open the left menu is
+      // disabled and there is nothing to view, so a `GET /views` failure must not paint
+      // that misleading error; surface it only once an `analysisId` is present.
+      degraded={degraded && analysisId !== undefined}
       onSelectView={onSelectView}
       headerExtra={
         <div className="flex items-center gap-2">
