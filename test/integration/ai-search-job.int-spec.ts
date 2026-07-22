@@ -50,7 +50,7 @@ function serpCanonical(query: string): AiSearchCanonical {
   };
 }
 
-function makeJob(over: Partial<AiSearchJobPayload>): Job<AiSearchJobPayload> {
+function makeJob(over: Partial<AiSearchJobPayload>, attemptsMade = 0): Job<AiSearchJobPayload> {
   return {
     data: {
       runId: over.runId ?? randomUUID(),
@@ -62,7 +62,7 @@ function makeJob(over: Partial<AiSearchJobPayload>): Job<AiSearchJobPayload> {
       ...over,
     },
     updateProgress: () => Promise.resolve(undefined),
-    attemptsMade: 0,
+    attemptsMade,
     opts: { attempts: 5 },
   } as unknown as Job<AiSearchJobPayload>;
 }
@@ -155,6 +155,72 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
     expect(rows[0].channel).toBe('chatGpt');
     const run = await prisma.aiSearchRun.findUniqueOrThrow({ where: { id: runId } });
     expect(run.status).toBe('partial');
+  });
+
+  it('BullMQ retry after an analysis failure reuses persisted captures — does NOT re-charge the paid SerpAPI pull (#683/M15-R1)', async () => {
+    // Root cause (#683): the analysis stage runs AFTER the PAID SerpAPI pull + persist. If analysis throws on a
+    // non-final attempt, BullMQ retries the whole process() → re-invokes pullSerpapi with a fresh credit ledger →
+    // SerpAPI credits are re-charged on every retry, blowing the per-job budget. A retry must reuse the captures a
+    // prior attempt already persisted (durable, keyed by jobId) instead of paying for the same fetch again.
+    const { runId } = await runRepo.createRun({
+      ownerId: null,
+      idempotencyKey: 'job-retry-recharge',
+      params: { schemaVersion: 'ai-search-v1' },
+    });
+
+    // Counting SerpAPI provider (paid pull): each fetchAiOverviews call = one billable batch.
+    let pullCount = 0;
+    const countingSerpAi: SerpAiProvider = {
+      fetchAiOverviews: (keywords: string[]) => {
+        pullCount += 1;
+        return Promise.resolve(
+          keywords.map((query) => ({ query, aiOverview: serpCanonical(query), creditsUsed: 1 })),
+        );
+      },
+      fetchAiModes: (keywords: string[]) =>
+        Promise.resolve(keywords.map((query) => ({ query, aiMode: null, creditsUsed: 0 }))),
+      fetchBingCopilot: (keywords: string[]) =>
+        Promise.resolve(keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }))),
+    };
+
+    // Analysis throws on the first (non-final) attempt, succeeds on the retry — models a transient LLM/infra error.
+    let analyzeCalls = 0;
+    const flakyAnalysis = {
+      analyzeAndPersist: () => {
+        analyzeCalls += 1;
+        if (analyzeCalls === 1) {
+          return Promise.reject(new Error('LLM 429 (non-final attempt)'));
+        }
+        return Promise.resolve({ answersCount: 0, citedCount: 0, metricsCount: 0, needsReview: 0 });
+      },
+    } as unknown as AiAnalysisService;
+
+    const processor = new AiSearchProcessor(countingSerpAi, runRepo, captureRepo, flakyAnalysis, {
+      queueConcurrency: 3,
+      captureLookbackDays: 30,
+      captureScanLimit: 500,
+    });
+    const payload = {
+      runId,
+      channels: ['aiOverview'] as CaptureChannel[],
+      keywords: ['asus zenbook'],
+    };
+
+    // Attempt 1 (attemptsMade=0): pull + persist succeed, analysis throws → BullMQ will retry the whole job.
+    await expect(processor.process(makeJob(payload, 0))).rejects.toThrow('LLM 429');
+    expect(pullCount).toBe(1);
+
+    // Attempt 2 (attemptsMade=1): BullMQ retry re-runs process() from the top.
+    const result = await processor.process(makeJob(payload, 1));
+
+    expect(result.status).toBe('completed');
+    expect(analyzeCalls).toBe(2);
+    // The paid pull must have run exactly once across both attempts — the retry reuses the persisted captures.
+    expect(pullCount).toBe(1);
+    // No duplicate canonical rows: the retry did not re-persist (nor wipe + re-fetch).
+    const rows = await prisma.aiSearchCapture.findMany({ where: { jobId: runId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe('serpapi');
   });
 
   it('re-run is idempotent at the canonical layer (deleteByJobId clean slate → no duplicate rows)', async () => {
