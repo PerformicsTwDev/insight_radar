@@ -33,6 +33,8 @@ interface Mocks {
   runFindUnique: jest.Mock;
   analysisFindUnique: jest.Mock;
   journeyFindMany: jest.Mock;
+  // #678 G4：linked analysis 的不可變 snapshot 列（Search 線 avgMonthlySearches by normalizedText）。預設空 → exposure null。
+  snapshotFindMany: jest.Mock;
 }
 
 function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mocks } {
@@ -68,6 +70,7 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
     runFindUnique: jest.fn(() => Promise.resolve(null)),
     analysisFindUnique: jest.fn(() => Promise.resolve(null)),
     journeyFindMany: jest.fn(() => Promise.resolve([])),
+    snapshotFindMany: jest.fn(() => Promise.resolve([])),
     ...over,
   };
   const service = new AiAnalysisService(
@@ -81,6 +84,7 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
       aiSearchRun: { findUnique: m.runFindUnique },
       keywordAnalysis: { findUnique: m.analysisFindUnique },
       keywordJourneyAssignment: { findMany: m.journeyFindMany },
+      snapshotRow: { findMany: m.snapshotFindMany },
     } as unknown as PrismaService,
     { schemaVersion: 'v9' },
   );
@@ -209,6 +213,80 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     await service.analyzeAndPersist({ ...base, captures: [cap()] });
     const dims = new Set(rowsOf(m).metrics.map((r) => r.dimension));
     expect([...dims]).toEqual(['keyword']);
+  });
+
+  // ── #678 G4 (T15.8c, AC-43.1)：exposure 接 Search 線 avgMonthlySearches（linked analysis 不可變 snapshot，
+  // by normalizedText；null 不補 0、全 null/空→null、真實 0 保留）。現況 scope searchVolumes=[] → exposure 恆 null＝紅。──
+  it('G4：linked analysis snapshot 有 keyword avgMonthlySearches → keyword 維度 exposure = 加總', async () => {
+    const { service, m } = build({
+      runFindUnique: jest.fn(() => Promise.resolve({ keywordAnalysisId: 'ka-1' })),
+      analysisFindUnique: jest.fn(() => Promise.resolve({ resultSnapshotId: 'snap-1' })),
+      snapshotFindMany: jest.fn(() =>
+        Promise.resolve([{ data: { normalizedText: 'asus laptop', avgMonthlySearches: 1300 } }]),
+      ),
+    });
+    await service.analyzeAndPersist({ ...base, captures: [cap()] }); // query 'asus laptop'
+    // Search 線 avgMonthlySearches 以 linked analysis 的 resultSnapshotId 查（比照 G3 journey 解析鏈）。
+    expect(m.snapshotFindMany).toHaveBeenCalledWith({
+      where: { snapshotId: 'snap-1' },
+      select: { data: true },
+    });
+    const kw = rowsOf(m).metrics.find((r) => r.dimension === 'keyword' && r.brand === 'ASUS');
+    expect(kw?.exposure).toBe(1300);
+  });
+
+  it('G4：某 keyword avgMonthlySearches=null → 不計入（不補 0）；intent 範疇加總只含有值、全 null keyword scope → null', async () => {
+    const { service, m } = build({
+      // 兩相異字同屬 intent 'commercial' → intent scope 加總二者搜量。
+      intentFindMany: jest.fn(() =>
+        Promise.resolve([
+          { normalizedText: 'asus laptop', labels: ['commercial'] },
+          { normalizedText: 'acer laptop', labels: ['commercial'] },
+        ]),
+      ),
+      runFindUnique: jest.fn(() => Promise.resolve({ keywordAnalysisId: 'ka-1' })),
+      analysisFindUnique: jest.fn(() => Promise.resolve({ resultSnapshotId: 'snap-1' })),
+      snapshotFindMany: jest.fn(() =>
+        Promise.resolve([
+          { data: { normalizedText: 'asus laptop', avgMonthlySearches: 1300 } },
+          { data: { normalizedText: 'acer laptop', avgMonthlySearches: null } }, // 缺量 → null（不補 0）
+        ]),
+      ),
+    });
+    await service.analyzeAndPersist({
+      ...base,
+      captures: [cap({ query: 'asus laptop' }), cap({ query: 'acer laptop' })],
+    });
+    const metrics = rowsOf(m).metrics;
+    // intent scope 'commercial' searchVolumes=[1300, null] → sumExposure=1300（null 不當 0）。
+    const intent = metrics.find((r) => r.dimension === 'intent' && r.brand === 'ASUS');
+    expect(intent?.groupKey).toBe('commercial');
+    expect(intent?.exposure).toBe(1300);
+    // 全 null 的 keyword scope（acer laptop）→ exposure null（不呈現假 0）。
+    const acerKw = metrics.find(
+      (r) => r.dimension === 'keyword' && r.groupKey === 'acer laptop' && r.brand === 'ASUS',
+    );
+    expect(acerKw?.exposure).toBeNull();
+  });
+
+  it('G4：standalone（無 linked analysis / 無 Search 資料）→ exposure null（不補 0）', async () => {
+    const { service, m } = build(); // 預設無 run/analysis/snapshot → volumeByNt 空
+    await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    const kw = rowsOf(m).metrics.find((r) => r.dimension === 'keyword' && r.brand === 'ASUS');
+    expect(kw?.exposure).toBeNull();
+  });
+
+  it('G4：真實 avgMonthlySearches=0 → exposure 保留 0（與 null 語意不同、不遮蔽）', async () => {
+    const { service, m } = build({
+      runFindUnique: jest.fn(() => Promise.resolve({ keywordAnalysisId: 'ka-1' })),
+      analysisFindUnique: jest.fn(() => Promise.resolve({ resultSnapshotId: 'snap-1' })),
+      snapshotFindMany: jest.fn(() =>
+        Promise.resolve([{ data: { normalizedText: 'asus laptop', avgMonthlySearches: 0 } }]),
+      ),
+    });
+    await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    const kw = rowsOf(m).metrics.find((r) => r.dimension === 'keyword' && r.brand === 'ASUS');
+    expect(kw?.exposure).toBe(0);
   });
 
   it('無 brandProfileId → 空品牌集：仍落 answers（原字保留）、指標 0 列、不查 DB、不判情緒', async () => {

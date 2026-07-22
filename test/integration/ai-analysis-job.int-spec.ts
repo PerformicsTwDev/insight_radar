@@ -353,4 +353,96 @@ describe('AiAnalysisService (integration · Testcontainers, TC-78 部分)', () =
     const dims = await prisma.aiVisibilityMetric.findMany({ where: { jobId } });
     expect(dims.every((d) => d.dimension === 'keyword')).toBe(true);
   });
+
+  // ── #678 G4 (T15.8c, AC-43.1)：exposure 接 Search 線 avgMonthlySearches（linked analysis 不可變 snapshot 列，
+  // by normalizedText）→ ai_visibility_metrics.exposure 加總；**null 不補 0、全 null→null、真實 0 保留**。 ──
+  it('G4：linked snapshot 有 avgMonthlySearches → exposure 加總（null 不計入、真 0 保留、跨字去重 intent 加總）', async () => {
+    const brandProfileId = await seedBrand();
+    const analysisId = randomUUID();
+    const snapshotId = randomUUID();
+    const jobId = randomUUID();
+    // 三字：有值(1300) / 缺量(null) / 真實 0。皆歸 intent 'commercial' → intent 範疇加總二有值（null 略過）。
+    const seeded = [
+      { query: 'asus zenbook', avgMonthlySearches: 1300 as number | null },
+      { query: 'acer swift', avgMonthlySearches: null as number | null },
+      { query: 'zero kw', avgMonthlySearches: 0 as number | null },
+    ];
+
+    await prisma.keywordAnalysis.create({
+      data: {
+        id: analysisId,
+        status: 'completed',
+        seeds: [],
+        params: {},
+        progress: {},
+        idempotencyKey: `idem-${analysisId}`,
+      },
+    });
+    await prisma.resultSnapshot.create({
+      data: { id: snapshotId, analysisId, keywordCount: seeded.length, checksum: 'x' },
+    });
+    // Search 線落庫＝不可變 snapshot 列（SnapshotRowData：normalizedText + avgMonthlySearches）。
+    await prisma.snapshotRow.createMany({
+      data: seeded.map((s, rowIndex) => ({
+        snapshotId,
+        analysisId,
+        rowIndex,
+        data: {
+          text: s.query,
+          normalizedText: normalizeText(s.query),
+          avgMonthlySearches: s.avgMonthlySearches,
+          competition: 'LOW',
+          competitionIndex: null,
+          cpcLow: null,
+          cpcHigh: null,
+          intent: [],
+          monthlyVolumes: [],
+        },
+      })),
+    });
+    await prisma.keywordAnalysis.update({
+      where: { id: analysisId },
+      data: { resultSnapshotId: snapshotId },
+    });
+    await prisma.aiSearchRun.create({
+      data: {
+        id: jobId,
+        ownerId: null,
+        keywordAnalysisId: analysisId,
+        status: 'running',
+        params: {},
+        progress: {},
+        idempotencyKey: `run-${jobId}`,
+      },
+    });
+    for (const s of seeded) {
+      await prisma.keywordIntent.create({
+        data: {
+          normalizedText: normalizeText(s.query),
+          modelVersion: 'v-test',
+          labels: ['commercial'],
+        },
+      });
+    }
+
+    await service.analyzeAndPersist({
+      jobId,
+      ownerId: null,
+      brandProfileId,
+      captures: seeded.map((s) => canonical('chatGpt', s.query, 'ASUS is great')),
+    });
+
+    const exposureOf = async (dimension: string, groupKey: string): Promise<number | null> => {
+      const row = await prisma.aiVisibilityMetric.findFirst({
+        where: { jobId, dimension, groupKey, brand: 'ASUS' },
+      });
+      return row?.exposure ?? null;
+    };
+    // keyword 維度：per-keyword exposure。
+    expect(await exposureOf('keyword', 'asus zenbook')).toBe(1300); // 有值 → 落非 null
+    expect(await exposureOf('keyword', 'acer swift')).toBeNull(); // 缺量 → null（不補 0）
+    expect(await exposureOf('keyword', 'zero kw')).toBe(0); // 真實 0 保留（≠ null）
+    // intent 維度：'commercial' 範疇跨三字去重加總＝1300 + 0（null 略過）＝1300。
+    expect(await exposureOf('intent', 'commercial')).toBe(1300);
+  });
 });
