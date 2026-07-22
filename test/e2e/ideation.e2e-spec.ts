@@ -68,7 +68,7 @@ describe('POST /ai-ideation (e2e, TC-71)', () => {
   it('rejects a request without x-api-key (401)', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/ai-ideation')
-      .send({ template: 'long_tail', seeds: ['x'] })
+      .send({ template: 'trends', seeds: ['x'] })
       .expect(401);
   });
 
@@ -82,16 +82,16 @@ describe('POST /ai-ideation (e2e, TC-71)', () => {
   });
 
   it('AC-35.3: empty seeds → 400', async () => {
-    await post({ template: 'long_tail', seeds: [] }).expect(400);
+    await post({ template: 'trends', seeds: [] }).expect(400);
   });
 
   it('rejects an unknown field → 400 (global whitelist)', async () => {
-    await post({ template: 'long_tail', seeds: ['x'], extra: 1 }).expect(400);
+    await post({ template: 'trends', seeds: ['x'], extra: 1 }).expect(400);
   });
 
   it('AC-35.1: an LLM failure → 502 (IDEATION_GENERATION_FAILED), never a half result 200', async () => {
     parse.mockResolvedValueOnce(refusalCompletion);
-    const res = await post({ template: 'use_cases', seeds: ['x'] }).expect(502);
+    const res = await post({ template: 'cross_industry', seeds: ['x'] }).expect(502);
     expect((res.body as { code?: string }).code).toBe('IDEATION_GENERATION_FAILED');
     expect(JSON.stringify(res.body)).not.toContain('content_filter');
   });
