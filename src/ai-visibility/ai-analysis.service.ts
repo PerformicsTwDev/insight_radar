@@ -5,6 +5,7 @@ import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import { ownerWhereFromOwnerId } from '../common/owner-scope';
 import { normalizeText } from '../google-ads/normalize';
+import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
 import { type AiTextBlockInput, aiTextBlockSchema } from './ai-answer-content.schema';
@@ -35,10 +36,16 @@ import {
  * query→維度映射（#678 G3，AC-43.3）：`intentByNt`＝normalizedText → 意圖類別（M2 `keyword_intents`）；
  * `stageByNt`＝normalizedText → 購買歷程階段（FR-33 `keyword_journey_assignments`，linked analysis 之 snapshot）。
  * 空 Map（standalone job / 未分類）→ 僅 keyword 維度（無 intent/journey，無回歸）。
+ *
+ * **exposure（#678 G4，AC-43.1）**：`volumeByNt`＝normalizedText → Search 線 `avgMonthlySearches`（linked
+ * analysis 的**不可變 snapshot 列**，即 keywords/journey/custom view 讀取的同一份 per-analysis Search 線）。
+ * **value=null**＝該字缺量（不補 0）；**key 缺**（standalone / 非 Search 線字）→ 查得 undefined，組裝層以 null
+ * 貢獻（不計入 exposure）。真實 `0` 保留（≠ null）。
  */
 export interface DimensionMappings {
   intentByNt: Map<string, string[]>;
   stageByNt: Map<string, string>;
+  volumeByNt: Map<string, number | null>;
 }
 
 /** DI token for AiAnalysisService 設定（analysis 層 schema 版本；由 module 從 AI_VISIBILITY_SCHEMA_VERSION 組裝）。 */
@@ -92,10 +99,12 @@ interface AnalysisIndex {
  * **pipeline stage 抽方法**：`loadBrands`（載入）+ `flattenCaptures`（攤平）+ 三線分析 + `assembleAnalysis`（純函式
  * 組裝：per-answer 聚合 + scope→指標）+ repo 持久化，各自獨立可測。
  *
- * **維度**：本 task 組裝 `keyword` 維度 scope（group=query，直接來自 capture）——`buildAiVisibility` 純函式已支援
- * intent/購買歷程維度（AC-43.3），其 scope 需 query→意圖/歷程映射 join（跨 M2/M12），屬後續接線、非本 task 擋關。
- * **exposure**：本 task scope `searchVolumes=[]`（AI 抓取關鍵字未必在 Search 線）→ exposure=null（null 不補 0，
- * AC-43.1 合法狀態）；接上 Search 線搜量後填入即可。
+ * **維度（#678 G3，AC-43.3）**：除 `keyword` 維度 scope（group=query）外，另依 `loadDimensionMappings` 的
+ * query→意圖（M2 `keyword_intents`）/購買歷程（FR-33 `keyword_journey_assignments`）映射加 intent/journey 維度
+ * scope（分表互補、不覆寫，S10）。
+ * **exposure（#678 G4，AC-43.1）**：scope `searchVolumes` 接 Search 線 `avgMonthlySearches`（linked analysis 之
+ * 不可變 snapshot，by `normalizedText`；scope 內去重）→ `sumExposure` 加總——**null 不補 0、全 null/空→null、
+ * 真實 0 保留**（比照 micros/cpc null≠0）。非 Search 線字（standalone / 未收錄）→ 該字 null 貢獻、不計入。
  */
 @Injectable()
 export class AiAnalysisService {
@@ -241,8 +250,9 @@ export class AiAnalysisService {
     const nts = [...new Set(captures.map((capture) => normalizeText(capture.query)))];
     const intentByNt = new Map<string, string[]>();
     const stageByNt = new Map<string, string>();
+    const volumeByNt = new Map<string, number | null>();
     if (nts.length === 0) {
-      return { intentByNt, stageByNt };
+      return { intentByNt, stageByNt, volumeByNt };
     }
 
     // 意圖：全域 by normalizedText，取最新 labeledAt（同字多 modelVersion → 取最新）。
@@ -257,7 +267,8 @@ export class AiAnalysisService {
       }
     }
 
-    // 購買歷程：jobId＝AiSearchRun.id → linked keywordAnalysisId → resultSnapshotId → snapshot 之階段指派。
+    // 購買歷程（G3）+ Search 線 avgMonthlySearches（G4）：jobId＝AiSearchRun.id → linked keywordAnalysisId →
+    // resultSnapshotId → 同一 snapshot 的階段指派 + 不可變列（Search 線）。無 linked analysis / 無 snapshot → 兩者皆空。
     const run = await this.prisma.aiSearchRun.findUnique({
       where: { id: jobId },
       select: { keywordAnalysisId: true },
@@ -275,9 +286,23 @@ export class AiAnalysisService {
         for (const assignment of assignments) {
           stageByNt.set(assignment.normalizedText, assignment.stage);
         }
+        // Search 線＝該 analysis 的**不可變 snapshot 列**（keywords/journey/custom view 讀取的同一份，
+        // AC-43.1 as-built）。`avgMonthlySearches` 藏於 `snapshot_rows.data` JSON（無 normalizedText 欄可 DB 篩）
+        // → 載列後以 nts 集記憶體篩、by normalizedText 建映射。**value 保留 null**（缺量不補 0）、真實 0 保留。
+        const ntSet = new Set(nts);
+        const rows = await this.prisma.snapshotRow.findMany({
+          where: { snapshotId: analysis.resultSnapshotId },
+          select: { data: true },
+        });
+        for (const { data } of rows) {
+          const row = data as unknown as SnapshotRowData;
+          if (ntSet.has(row.normalizedText)) {
+            volumeByNt.set(row.normalizedText, row.avgMonthlySearches);
+          }
+        }
       }
     }
-    return { intentByNt, stageByNt };
+    return { intentByNt, stageByNt, volumeByNt };
   }
 }
 
@@ -289,6 +314,10 @@ export class AiAnalysisService {
  * **維度（#678 G3，AC-43.3）**：每筆 capture 除既有 **keyword** 維度（group=query）外，另依 `dimensions` 映射
  * 加 **intent**（group=意圖類別，每類別一 scope）與 **journey**（group=購買歷程階段）維度 scope——同一露出（mentions）
  * /引用（citations）沿用（**意圖/歷程語意不變、僅加分組維度**）。空映射（standalone / 未分類）→ 僅 keyword 維度。
+ *
+ * **exposure（#678 G4，AC-43.1）**：每 scope 收集其涉及的**相異**關鍵字 `normalizedText`（`keywordNts`），末段以
+ * `dimensions.volumeByNt` 取 Search 線 `avgMonthlySearches` materialize `searchVolumes`（缺量/非 Search 線字→null）；
+ * `buildAiVisibility`→`sumExposure` 加總（**null 不補 0、全 null/空→null、真實 0 保留**）。
  */
 function assembleAnalysis(
   contexts: readonly CaptureContext[],
@@ -298,7 +327,15 @@ function assembleAnalysis(
 ): { answers: AiAnswerRow[]; cited: AiCitedReferenceRow[]; metrics: AiVisibilityMetricRow[] } {
   const answers: AiAnswerRow[] = [];
   const cited: AiCitedReferenceRow[] = [];
-  const scopes = new Map<string, AiVisibilityScope & { mentions: string[]; citations: string[] }>();
+  // scope 累積器：searchVolumes 於末段由 `keywordNts`（範疇內**相異**關鍵字 normalizedText）materialize（G4 去重）。
+  const scopes = new Map<
+    string,
+    Omit<AiVisibilityScope, 'searchVolumes'> & {
+      mentions: string[];
+      citations: string[];
+      keywordNts: Set<string>;
+    }
+  >();
 
   for (const ctx of contexts) {
     const answerBrands = ctx.blockIds.flatMap((id) => index.brandById.get(id) ?? []);
@@ -331,6 +368,7 @@ function assembleAnalysis(
     }
     // 每筆 capture 攤成 keyword + intent(每類別) + journey(階段) 維度 scope（G3）。
     const refLinks = ctx.refs.map((r) => r.link);
+    const queryNt = normalizeText(ctx.query); // 該 capture 關鍵字（S4 同去重/快取一套；exposure by 此 key）。
     for (const { dimension, group } of dimensionsOf(ctx.query, dimensions)) {
       const key = `${ctx.channel} ${dimension} ${normalizeText(group)}`;
       let scope = scopes.get(key);
@@ -341,16 +379,28 @@ function assembleAnalysis(
           group,
           mentions: [],
           citations: [],
-          searchVolumes: [],
+          keywordNts: new Set<string>(),
         };
         scopes.set(key, scope);
       }
       scope.mentions.push(...answerBrands);
       scope.citations.push(...refLinks);
+      scope.keywordNts.add(queryNt); // 範疇涉及的關鍵字（Set 去重：同字多 capture 不重複計 exposure）。
     }
   }
 
-  const metrics = buildAiVisibility([...scopes.values()], visibilityBrands).map((cell) => ({
+  // materialize searchVolumes（G4，AC-43.1）：範疇內**相異**關鍵字各取 Search 線 `avgMonthlySearches`；
+  // 缺量/非 Search 線字 → null（`sumExposure` 不計入、不補 0）。keyword 維度＝一字；intent/journey＝該範疇多字。
+  const scopeList: AiVisibilityScope[] = [...scopes.values()].map((scope) => ({
+    channel: scope.channel,
+    dimension: scope.dimension,
+    group: scope.group,
+    mentions: scope.mentions,
+    citations: scope.citations,
+    searchVolumes: [...scope.keywordNts].map((nt) => dimensions.volumeByNt.get(nt) ?? null),
+  }));
+
+  const metrics = buildAiVisibility(scopeList, visibilityBrands).map((cell) => ({
     channel: cell.channel,
     dimension: cell.dimension,
     groupKey: cell.group,
