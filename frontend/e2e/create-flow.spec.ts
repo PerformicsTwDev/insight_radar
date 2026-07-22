@@ -39,12 +39,9 @@ test('create an analysis → job progress → keywords grand table (TC-43)', asy
 
   await page.goto('/');
 
-  // 1) Fill + submit the create form (seeds + geo + language all required, FR-2).
-  // v4 (T7.2): geo/language live behind the ⚙ 進階選項 toggle — open it first.
+  // 1) Fill + submit the create form. v4 (T7.10): the home only takes seeds — geo/language
+  // come from the top-nav 分析設定 (defaults TW / zh-TW), network / includeAdult are fixed.
   await page.getByLabel('輸入搜尋詞').fill('running shoes');
-  await page.getByRole('button', { name: '進階選項' }).click();
-  await page.getByLabel('地區 (geo)').fill('TW');
-  await page.getByLabel('語言 (language)').fill('zh-TW');
   await page.getByRole('button', { name: '開始分析' }).click();
 
   // 2) The URL carries the new analysisId, and the live progress panel renders.

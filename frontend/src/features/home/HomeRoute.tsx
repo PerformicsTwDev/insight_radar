@@ -3,42 +3,31 @@ import { useState } from 'react';
 import { createKeywordAnalysis, type CreateKeywordAnalysisBody } from '../../api/keywordAnalyses';
 import { appendDedupedSeeds } from '../../lib/aiIdeation';
 import { checkValidity, mapFieldErrors, parseSeeds } from '../../lib/createAnalysisForm';
+import { useAnalysisSettingsStore } from '../../stores/analysisSettingsStore';
 import { AnalysisDashboard } from '../dashboard/AnalysisDashboard';
 import { AiIdeationCard } from './AiIdeationCard';
 import { TrackingContinueSection } from './TrackingContinueSection';
 
 /**
- * Create-analysis home form — v4 keyword-pool layout (T7.2, FR-2 / TC-57; re-align
- * of T1.2). A thin container over the pure `lib/createAnalysisForm` helpers (seeds
- * parse / validity gate / field-error mapping) + the typed `api/keywordAnalyses`
- * egress (Design §3). On 202 it navigates with the new `analysisId` in the URL
- * search params (Design §5 — URL is state); the progress rendering itself is T1.3.
- *
- * **v4 alignment (match layout / keep real inputs, Design §15).** The wide centred
- * keyword-pool card exposes only 輸入搜尋詞 (seeds) up front; geo / language /
- * network / includeAdult collapse behind a ⚙ 齒輪「進階選項」 toggle **without
- * relaxing validation** (geo / language stay required — a collapsed-but-empty pair
- * keeps the CTA disabled, and a backend 400 on a collapsed field auto-expands the
- * section so the inline error is never hidden). 探索模式 is a pills pair
- * (指定=exact〔v4 default〕 / 拓展=expand — values/semantics unchanged). Import
- * From GAD/GSC are disabled roadmap chips (NG3): clicking shows 即將推出 and fires
- * **no** request. Tokens only (no hardcoded hex).
- *
- * No TanStack Query here (that lands in T1.3 for job tracking) — the POST is a
- * plain async handler with local loading / error state.
+ * Create-analysis home form — v4 slim keyword-pool layout (T7.10, FR-2 修訂
+ * 2026-07-23 第二次; re-align of T7.2). The input screen now shows ONLY the 輸入搜尋詞
+ * pool (+ explore-mode pills + inline AI 發想) — `geo` / `language` are adopted from the
+ * top-nav 分析設定 (`analysisSettingsStore`, T7.9; persisted, defaults `TW` / `zh-TW`),
+ * and `network` / `includeAdult` are FIXED (`GOOGLE_SEARCH_AND_PARTNERS` / `true`). So
+ * the ⚙ 進階選項 gear, the geo/language/network/includeAdult inputs, and the Import
+ * GAD/GSC chips are all removed. On 202 it navigates with the new `analysisId` in the
+ * URL (Design §5). Tokens only (no hardcoded hex).
  */
 
 type Mode = 'expand' | 'exact';
-type Network = 'GOOGLE_SEARCH' | 'GOOGLE_SEARCH_AND_PARTNERS';
 
-/** Advanced (collapsed) fields — a 400 on any of these auto-expands the section. */
-const ADVANCED_FIELDS = new Set(['geo', 'language', 'network', 'includeAdult']);
+/** Fixed create-analysis inputs no longer surfaced in the UI (FR-2 修訂 c). */
+const FIXED_NETWORK = 'GOOGLE_SEARCH_AND_PARTNERS' as const;
+const FIXED_INCLUDE_ADULT = true;
 
 const FIELD_LABEL = 'block text-sm font-medium text-white/80';
 const TEXT_INPUT =
   'mt-1 w-full rounded-lg bg-bg-input px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-brand';
-const IMPORT_CHIP =
-  'rounded-lg bg-bg-input px-3 py-1.5 text-xs text-white/40 ring-1 ring-white/10 hover:text-white/60';
 
 /** Explore-mode helper copy (updates with the selected pill; v4 `#exploreModeHelperA`). */
 const MODE_HELPER: Readonly<Record<Mode, string>> = {
@@ -50,18 +39,20 @@ export function HomeRoute() {
   const navigate = useNavigate();
   const analysisId = useSearch({ strict: false, select: (s) => s.analysisId });
 
+  // geo/language come from the persisted top-nav settings (T7.9), not the form.
+  const geo = useAnalysisSettingsStore((s) => s.geo);
+  const language = useAnalysisSettingsStore((s) => s.language);
+  const setGeo = useAnalysisSettingsStore((s) => s.setGeo);
+  const setLanguage = useAnalysisSettingsStore((s) => s.setLanguage);
+
   const [seedsRaw, setSeedsRaw] = useState('');
-  const [geo, setGeo] = useState('');
-  const [language, setLanguage] = useState('');
   const [mode, setMode] = useState<Mode>('exact');
-  const [network, setNetwork] = useState<Network>('GOOGLE_SEARCH');
-  const [includeAdult, setIncludeAdult] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [importHint, setImportHint] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
+  // geo/language are always present (settings default TW/zh-TW), so the CTA gate reduces
+  // to "seeds non-empty" — but we reuse the pure validity helper for the single source.
   const validity = checkValidity({ seedsRaw, geo, language });
   const ctaDisabled = !validity.isSubmittable || submitting;
 
@@ -76,8 +67,8 @@ export function HomeRoute() {
       geo: geo.trim(),
       language: language.trim(),
       mode,
-      network,
-      includeAdult,
+      network: FIXED_NETWORK,
+      includeAdult: FIXED_INCLUDE_ADULT,
     };
 
     const result = await createKeywordAnalysis(requestBody);
@@ -101,9 +92,6 @@ export function HomeRoute() {
     const mapped = mapFieldErrors(result.error?.fields);
     if (Object.keys(mapped).length > 0) {
       setFieldErrors(mapped);
-      // A field error on a collapsed advanced field must never be hidden — expand
-      // the section so the inline error is visible (AC-2.2).
-      if (Object.keys(mapped).some((f) => ADVANCED_FIELDS.has(f))) setAdvancedOpen(true);
     } else {
       setFormError('建立分析失敗，請稍後再試。');
     }
@@ -116,17 +104,7 @@ export function HomeRoute() {
     return <AnalysisDashboard analysisId={analysisId} />;
   }
 
-  // CTA gate hint: name the still-missing required fields; when a missing field lives
-  // in the collapsed advanced section, point the user at the ⚙ toggle (AC-2.2).
-  const missing: string[] = [];
-  if (!validity.fields.seeds) missing.push('搜尋詞');
-  if (!validity.fields.geo) missing.push('地區');
-  if (!validity.fields.language) missing.push('語言');
-  const missingInAdvanced = !advancedOpen && (!validity.fields.geo || !validity.fields.language);
-  const ctaHint =
-    missing.length > 0
-      ? `請完成：${missing.join(' / ')}${missingInAdvanced ? '（於進階選項 ⚙）' : ''}`
-      : null;
+  const ctaHint = validity.fields.seeds ? null : '請完成：搜尋詞';
 
   return (
     <section aria-labelledby="home-heading" className="mx-auto max-w-3xl">
@@ -135,49 +113,21 @@ export function HomeRoute() {
       </h2>
 
       {/* 從追蹤清單繼續 (T7.7): hidden when the owner has no lists / the read fails. Continuing
-          loads that list's members as seeds (C7-deduped) + prefills its geo/language (AC-2.3). */}
+          loads that list's members as seeds (C7-deduped) + adopts its geo/language settings. */}
       <TrackingContinueSection
         onContinue={(loadedSeeds, listGeo, listLanguage) => {
           setSeedsRaw((prev) => appendDedupedSeeds(parseSeeds(prev), loadedSeeds).join('\n'));
           setGeo(listGeo);
           setLanguage(listLanguage);
-          setAdvancedOpen(true); // reveal the prefilled geo/language
         }}
         onSeeMore={() => void navigate({ to: '/tracking' })}
       />
 
-      {/* Keyword-pool card: 輸入搜尋詞 + ⚙ advanced + Import roadmap chips + inline AI 發想. */}
+      {/* Keyword-pool card: 輸入搜尋詞 + inline AI 發想 (no gear / no advanced / no Import). */}
       <div className="rounded-2xl bg-bg-card p-6 shadow-lg ring-1 ring-white/10">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <label htmlFor="seeds" className="text-base font-bold text-white/90">
-              輸入搜尋詞
-            </label>
-            <button
-              type="button"
-              aria-label="進階選項"
-              aria-expanded={advancedOpen}
-              onClick={() => setAdvancedOpen((o) => !o)}
-              className="rounded-md p-1.5 text-white/50 hover:bg-white/5 hover:text-white"
-            >
-              <GearIcon />
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setImportHint(true)} className={IMPORT_CHIP}>
-              Import From GAD
-            </button>
-            <button type="button" onClick={() => setImportHint(true)} className={IMPORT_CHIP}>
-              Import From GSC
-            </button>
-          </div>
-        </div>
-
-        {importHint ? (
-          <p role="status" className="mb-3 text-xs text-white/50">
-            即將推出
-          </p>
-        ) : null}
+        <label htmlFor="seeds" className="mb-4 block text-base font-bold text-white/90">
+          輸入搜尋詞
+        </label>
 
         <form
           aria-label="建立分析"
@@ -199,73 +149,6 @@ export function HomeRoute() {
             }
           />
           <FieldErrors id="seeds-error" messages={fieldErrors.seeds} />
-
-          {advancedOpen ? (
-            <fieldset className="mt-5 flex flex-col gap-5 rounded-xl bg-bg-input/40 p-4">
-              <legend className="px-1 text-xs font-semibold text-white/50">
-                進階選項（Google Ads 參數）
-              </legend>
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="geo" className={FIELD_LABEL}>
-                    地區 (geo)
-                  </label>
-                  <input
-                    id="geo"
-                    type="text"
-                    value={geo}
-                    onChange={(e) => setGeo(e.target.value)}
-                    aria-invalid={fieldErrors.geo ? true : undefined}
-                    aria-describedby={fieldErrors.geo ? 'geo-error' : undefined}
-                    className={TEXT_INPUT}
-                    placeholder="TW"
-                  />
-                  <FieldErrors id="geo-error" messages={fieldErrors.geo} />
-                </div>
-                <div>
-                  <label htmlFor="language" className={FIELD_LABEL}>
-                    語言 (language)
-                  </label>
-                  <input
-                    id="language"
-                    type="text"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    aria-invalid={fieldErrors.language ? true : undefined}
-                    aria-describedby={fieldErrors.language ? 'language-error' : undefined}
-                    className={TEXT_INPUT}
-                    placeholder="zh-TW"
-                  />
-                  <FieldErrors id="language-error" messages={fieldErrors.language} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="network" className={FIELD_LABEL}>
-                    搜尋網路 (network)
-                  </label>
-                  <select
-                    id="network"
-                    value={network}
-                    onChange={(e) => setNetwork(e.target.value as Network)}
-                    className={TEXT_INPUT}
-                  >
-                    <option value="GOOGLE_SEARCH">Google 搜尋</option>
-                    <option value="GOOGLE_SEARCH_AND_PARTNERS">Google 搜尋 + 夥伴</option>
-                  </select>
-                </div>
-                <label className="flex items-end gap-2 text-sm text-white/80">
-                  <input
-                    type="checkbox"
-                    checked={includeAdult}
-                    onChange={(e) => setIncludeAdult(e.target.checked)}
-                    className="mb-2 accent-brand"
-                  />
-                  包含成人內容 (includeAdult)
-                </label>
-              </div>
-            </fieldset>
-          ) : null}
         </form>
 
         <AiIdeationCard
@@ -323,27 +206,6 @@ export function HomeRoute() {
         {ctaHint ? <p className="text-xs text-white/40">{ctaHint}</p> : null}
       </div>
     </section>
-  );
-}
-
-/** Inline gear affordance for the 進階選項 toggle (decorative; the button is labelled). */
-function GearIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-      />
-      <circle cx="12" cy="12" r="3" strokeWidth="2" />
-    </svg>
   );
 }
 
