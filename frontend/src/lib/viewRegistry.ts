@@ -22,9 +22,27 @@ export const VIEW_LABELS: Readonly<Record<string, string>> = {
   cpc_histogram: 'CPC 分佈',
   serp_questions: 'SERP 問題',
   intent_topics: '意圖主題',
-  journey: '購買歷程',
+  journey: '購買歷程主題',
   journey_funnel: '購買歷程漏斗',
 };
+
+/**
+ * Secondary / embedded views hidden from the collapsed v4 left-menu taxonomy (T7.3,
+ * TC-58〔taxonomy〕). These are surfaced WITHIN their parent dimension, not as their own
+ * top-level menu item: 趨勢 / 意圖分佈 / CPC 分佈 live inside the 搜尋詞總表 page (T7.4);
+ * 購買歷程漏斗 is the 購買歷程主題 view's own 表格|漏斗 toggle. They stay in the registry's
+ * `byName` map (so they remain URL-resolvable — the funnel deep-link, the T7.4 embeds),
+ * only the nav LIST drops them. A denylist (not an allowlist) keeps AC-1.2: a
+ * newly-registered backend view is NOT embedded → it still surfaces top-level with zero
+ * code change here.
+ */
+const EMBEDDED_VIEWS: ReadonlySet<string> = new Set([
+  'trend',
+  'intent_distribution',
+  'cpc_histogram',
+  'journey_funnel',
+  'serp_questions',
+]);
 
 /** A selectable column derived from a view's `allowedSelect` (key + type). */
 export interface ViewColumn {
@@ -76,12 +94,16 @@ export function buildViewRegistry(views: readonly ViewMetadata[]): ViewRegistry 
     allowedSort: view.allowedSort,
   }));
   return {
-    navItems: configs.map(({ name, label, responseShape, requiresFeature }) => ({
-      name,
-      label,
-      responseShape,
-      requiresFeature,
-    })),
+    // Nav LIST collapses to the top-level v4 dimensions (embedded views hidden, T7.3);
+    // `byName` keeps EVERY view so embedded ones stay URL-resolvable / T7.4-embeddable.
+    navItems: configs
+      .filter((config) => !EMBEDDED_VIEWS.has(config.name))
+      .map(({ name, label, responseShape, requiresFeature }) => ({
+        name,
+        label,
+        responseShape,
+        requiresFeature,
+      })),
     byName: new Map(configs.map((config) => [config.name, config])),
   };
 }

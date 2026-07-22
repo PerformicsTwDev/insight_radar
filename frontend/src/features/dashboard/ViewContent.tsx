@@ -28,7 +28,11 @@ export interface ViewContentProps {
 
 export function ViewContent({ analysisId, view, features }: ViewContentProps): ReactElement {
   const { registry } = useViews();
-  const known = useMemo(() => new Set(registry.navItems.map((item) => item.name)), [registry]);
+  // Resolve against ALL registry views (`byName`), not just the collapsed nav list —
+  // the v4 taxonomy (T7.3) hides embedded views (trend / intent_distribution / …) from
+  // the menu but they must still route by URL (funnel deep-link, T7.4 embeds). A nav-only
+  // set would wrongly resolve a hidden-but-real view to the FR-1 not-found (AC-1.2).
+  const known = useMemo(() => new Set(registry.byName.keys()), [registry]);
   const resolution = resolveView(view, known);
 
   switch (resolution.kind) {
