@@ -19,7 +19,7 @@ import {
  * AI Search 讀取層 view 註冊 + 實讀 build（T15.6 註冊 / T15.8b build，#678 G2；FR-44/AC-44.1~44.3；Design §18.4）。
  * 9 view 皆經既有 `POST /keyword-analyses/:id/query` primitive + 統一 `FilterSpec`（無專屬 endpoint，INV-1/2）。
  *
- * **build 分工（比照 journey/custom 動態 view）**：SnapshotQueryService 解析最新 completed linked `AiSearchRun.id`、
+ * **build 分工（比照 journey/custom 動態 view）**：SnapshotQueryService 解析**最新 linked `AiSearchRun.id`〔任何 status、與 gate 同一 `findLatestLinkedRun`，M15-R13〕**、
  * gate（`ai_search` feature 未 ready→409 `FEATURE_NOT_READY`，非誤導空表 INV-6）、由 {@link AI_VIEW_SOURCE} 載入該
  * job 的 T15.5 落庫列（`ai_answers`/`ai_cited_references`/`ai_visibility_metrics`）後注入 `ctx.rows`；此處 `build`
  * 為**純形狀函式**（`ai-view-shape`：filter → sort → paginate → 投影）。`ctx.rows` 型別為 snapshot 列（靜態 pipeline
@@ -171,7 +171,7 @@ export const journeyAiVisibilitySummaryView: ViewDefinition = aiSummaryView(
 );
 
 /**
- * view → T15.5 載入來源（keyed by 最新 completed linked `AiSearchRun.id`）。`metrics` view 依 dimension 篩選：
+ * view → T15.5 載入來源（keyed by 最新 linked `AiSearchRun.id`〔任何 status、與 gate 同一 `findLatestLinkedRun`，M15-R13〕）。`metrics` view 依 dimension 篩選：
  * `brand_*`→keyword、`intent_*`→intent、`journey_*`→journey（AC-43.3；brand 概覽＝keyword 維度逐字，其餘為 G3 維度）。
  */
 export const AI_VIEW_SOURCE: Record<string, AiViewSource> = {

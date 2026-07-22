@@ -12,7 +12,7 @@ import type {
 /**
  * AI Search 讀取層 view 的**純形狀函式**（T15.8b，#678 G2；FR-44/AC-44.1）。把 T15.5 落庫列
  * （`ai_answers`/`ai_cited_references`/`ai_visibility_metrics`，由 `AiVisibilityReadRepository` keyed by
- * 最新 completed linked `AiSearchRun.id` 讀出）→ 統一 `FilterSpec` 過濾 → 排序 → 分頁 → 投影 view 形狀。
+ * 最新 linked `AiSearchRun.id`〔任何 status、與 gate 同一 `findLatestLinkedRun`，M15-R13〕讀出）→ 統一 `FilterSpec` 過濾 → 排序 → 分頁 → 投影 view 形狀。
  *
  * **無 IO/DB**：列由 SnapshotQueryService 載入後注入（比照 journey/custom 動態 view 的「載入 + 純 build」分工）。
  * **統一 FilterSpec（INV-1/2）**：過濾直接複用 `buildPredicate`（keyword 讀取層同一單點）——AI 列以其主要文字欄
