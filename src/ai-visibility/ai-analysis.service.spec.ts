@@ -217,12 +217,16 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
 
   // ── #678 G4 (T15.8c, AC-43.1)：exposure 接 Search 線 avgMonthlySearches（linked analysis 不可變 snapshot，
   // by normalizedText；null 不補 0、全 null/空→null、真實 0 保留）。現況 scope searchVolumes=[] → exposure 恆 null＝紅。──
-  it('G4：linked analysis snapshot 有 keyword avgMonthlySearches → keyword 維度 exposure = 加總', async () => {
+  it('G4：linked analysis snapshot 有 keyword avgMonthlySearches → keyword 維度 exposure = 加總（非本次查詢字忽略）', async () => {
     const { service, m } = build({
       runFindUnique: jest.fn(() => Promise.resolve({ keywordAnalysisId: 'ka-1' })),
       analysisFindUnique: jest.fn(() => Promise.resolve({ resultSnapshotId: 'snap-1' })),
       snapshotFindMany: jest.fn(() =>
-        Promise.resolve([{ data: { normalizedText: 'asus laptop', avgMonthlySearches: 1300 } }]),
+        Promise.resolve([
+          { data: { normalizedText: 'asus laptop', avgMonthlySearches: 1300 } },
+          // snapshot 含分析其餘關鍵字（非本次 AI Search 查詢字）→ 不在 nts 集 → 略過（不進 volumeByNt）。
+          { data: { normalizedText: 'unrelated kw', avgMonthlySearches: 999 } },
+        ]),
       ),
     });
     await service.analyzeAndPersist({ ...base, captures: [cap()] }); // query 'asus laptop'
