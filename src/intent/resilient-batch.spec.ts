@@ -43,15 +43,17 @@ describe('resilientChunk (T12.5 shared skeleton / FR-4·FR-33 共用)', () => {
     expect(calls.slice(1).map((c) => c.length)).toEqual([2, 2]); // then two halves
   });
 
-  it('drops a single keyword (empty collected, no needsReview) when length persists at size 1', async () => {
+  it('flags a single keyword to needsReview (empty collected) when length persists at size 1', async () => {
     const { callBatch } = scripted((chunk) => {
       if (chunk.includes('huge')) throw new LengthFinishReasonError();
       return ok(chunk);
     });
     const out = await resilientChunk(['huge', 'small'], callBatch);
 
-    expect(out.collected.map((r) => r.id)).toEqual(['small']); // 'huge' split to 1, still length → dropped
-    expect(out.needsReview).toEqual([]); // length is not a review reason
+    // 'huge' split to size 1, still length → dropped from collected but flagged for review so the
+    // job-level needsReview count converges → run correctly marked partial (INV-6/AC-42.5, #684).
+    expect(out.collected.map((r) => r.id)).toEqual(['small']);
+    expect(out.needsReview).toEqual(['huge']);
   });
 
   it('sends the whole chunk to needsReview on a completion-side content_filter', async () => {

@@ -157,6 +157,30 @@ describe('TC-78: BrandExtractionService (AI 回答品牌抽取——不去重 + 
       expect(batches.slice(1).map((b) => b.length)).toEqual([2, 2]);
     });
 
+    it('size-1 length degradation → block 補空品牌集但入 needsReview（job-level partial 收斂，INV-6/AC-42.5，#684）', async () => {
+      const { service } = build({
+        batchSize: 2,
+        behave: (blocks) => {
+          // 'huge' 無論拆到多小都 length → 拆到 size 1 仍失敗 → 該 block 被放棄。
+          if (blocks.some((b) => b.id === 'huge')) throw new LengthFinishReasonError();
+          return {
+            parsed: { results: blocks.map((b) => ({ id: b.id, brands: [`brand-${b.id}`] })) },
+            refusal: null,
+          };
+        },
+      });
+      const huge = block('huge');
+      const outcome = await service.extractBrandsOutcome([block('small'), huge]);
+
+      // 'huge' 拆到 size 1 仍 length → 補空品牌集（不污染 small），但**必須**入 needsReview，否則
+      // AiAnalysisService.needsReview=0 → run 誤標 completed 非 partial（違 INV-6）。
+      expect(outcome.results).toEqual([
+        { id: 'small', brands: ['brand-small'] },
+        { id: 'huge', brands: [] },
+      ]);
+      expect(outcome.needsReview).toEqual([huge]);
+    });
+
     it('refusal → 該批 blocks 補空品牌集，不污染他批', async () => {
       const { service } = build({
         batchSize: 1,
