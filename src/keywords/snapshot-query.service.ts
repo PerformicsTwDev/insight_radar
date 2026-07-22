@@ -112,8 +112,22 @@ export class SnapshotQueryService {
    *
    * **用 completed（非「最新 run」）**：run 於*建立*時即改 id 但其 assignments 要*完成*才落表——用 completed
    * 才與物化資料同步（避免「版本先於資料」翻轉致重跑後再度回舊 insight）。
+   *
+   * **owner-scope（M15-R11 安全補正，S25.1/AC-32.2）**：AI-search 分支的 run 解析必 owner-scoped
+   * （`...ownerWhere(actor)`），與 data path {@link queryAiSearchView}→{@link AiViewRepository.findLatestLinkedRun}
+   * **同一 owner 單點**（S8）。`AiSearchRun` 有 `ownerId`（session 各自 run），shared（null-owner）analysis 上兩
+   * session 使用者各 link 自己的 run；若取**全域最新** run.id（無 owner filter）→ 人人同 dataVersion → AI-insight
+   * cache key（無 ownerId 成分）相同 → userB 於 owner-scoped data path **之前** short-circuit 命中 userA 的
+   * insight（跨租戶洩漏）。apiKey（`ownerWhere={}`）→ 全域最新（AC-27.5，機器 actor 不隔離）。**journey/custom
+   * 分支無此問題**：`JourneyRun`/`CustomClassifyRun`/`CustomClassification` **無 `ownerId`**（per-analysis 單一 run
+   * 模型、資料 by `snapshotId`/`classificationId`，owner-agnostic）→ shared analysis 上兩 owner 見同一份物化資料、
+   * dataVersion 與 data path 皆 owner-agnostic → cache 共享正確、不可利用，故保持不變。
    */
-  async resolveViewDataVersion(analysisId: string, view: string): Promise<string> {
+  async resolveViewDataVersion(
+    analysisId: string,
+    view: string,
+    actor: AuthenticatedUser,
+  ): Promise<string> {
     if (view.startsWith(CUSTOM_VIEW_PREFIX)) {
       const cid = view.slice(CUSTOM_VIEW_PREFIX.length);
       // 非 UUID cid → 直接回 ''（避免 Prisma UUID 欄位 P2023 → 500；比照 queryCustomView 的 UUID_RE 守衛，M12-R3 blocker）。
@@ -141,8 +155,14 @@ export class SnapshotQueryService {
       // AI Search view 的資料版本＝最新 completed/partial linked `AiSearchRun.id`（比照 journey/custom 動態 view，
       // Design §18.4 ⑤）：bump `AI_*_SCHEMA_VERSION`（→ 新 run）後 `(snapshotId, view, filters)` 相同亦得新版本、
       // 不回舊 insight（60 天 TTL）。partial 亦落庫（某渠道 async 到達）→ 與 gate 的 ready 集一致。
+      // **owner-scoped**（M15-R11）：`...ownerWhere(actor)` 與 data path `findLatestLinkedRun(ownerWhere(actor))`
+      // 同一 owner 單點（S8）→ per-owner run.id → cache key 分家、不跨租戶命中；apiKey→`{}`→全域最新（AC-27.5）。
       const run = await this.prisma.aiSearchRun.findFirst({
-        where: { keywordAnalysisId: analysisId, status: { in: ['completed', 'partial'] } },
+        where: {
+          keywordAnalysisId: analysisId,
+          status: { in: ['completed', 'partial'] },
+          ...ownerWhere(actor),
+        },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
