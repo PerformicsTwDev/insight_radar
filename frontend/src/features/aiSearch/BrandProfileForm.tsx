@@ -69,7 +69,8 @@ export function BrandProfileForm({ value, onChange }: BrandProfileFormProps) {
   }
 
   async function handleAssist(): Promise<void> {
-    if (!assistEnabled) return;
+    // The trigger is gated by `disabled={!assistEnabled || assisting}`, so this only
+    // runs with a non-blank brand name — no redundant guard needed here.
     await runGuarded(async () => {
       setAssistError(false);
       setAssisting(true);

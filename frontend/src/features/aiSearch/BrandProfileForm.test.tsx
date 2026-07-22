@@ -47,12 +47,31 @@ describe('TC-61 · BrandProfileForm interactive surface', () => {
     fireEvent.change(compSite, { target: { value: 'shark.com' } });
     fireEvent.keyDown(compSite, { key: 'Enter' });
     expect(screen.getByText('shark.com')).toBeInTheDocument();
-    // remove the competitor alias chip (competitor onRemove path)
+    // remove the competitor alias + site chips (both competitor onRemove paths)
     fireEvent.click(screen.getByRole('button', { name: '移除 夏克' }));
     expect(screen.queryByText('夏克')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '移除 shark.com' }));
+    expect(screen.queryByText('shark.com')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '移除競品 1' }));
     expect(screen.queryByLabelText('競品 1 名稱')).not.toBeInTheDocument();
+  });
+
+  it('patches only the targeted competitor row, leaving siblings unchanged', () => {
+    render(
+      <Harness
+        initial={{
+          ...EMPTY_BRAND,
+          competitors: [
+            { name: 'Shark', aliases: [], sites: [] },
+            { name: 'Miele', aliases: [], sites: [] },
+          ],
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('競品 1 名稱'), { target: { value: 'Shark Pro' } });
+    expect(screen.getByLabelText('競品 1 名稱')).toHaveValue('Shark Pro');
+    expect(screen.getByLabelText('競品 2 名稱')).toHaveValue('Miele');
   });
 
   it('shows an error when ✦ AI 補全 fails, leaving manual entry usable', async () => {
