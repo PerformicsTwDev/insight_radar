@@ -42,15 +42,21 @@ function renderHome() {
   return router;
 }
 
+/** v4: geo/language/network/includeAdult live behind the ⚙ 進階選項 toggle (T7.2). */
+function openAdvanced() {
+  fireEvent.click(screen.getByRole('button', { name: '進階選項' }));
+}
+
 describe('TC-13 · HomeRoute create-analysis form (validation + inline field errors)', () => {
-  it('disables the CTA until seeds + geo + language are all filled', async () => {
+  it('disables the CTA until seeds + geo + language are all filled (geo/language behind ⚙)', async () => {
     renderHome();
-    const cta = await screen.findByRole('button', { name: '建立分析' });
+    const cta = await screen.findByRole('button', { name: '開始分析' });
     expect(cta).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText('種子關鍵字'), { target: { value: 'running shoes' } });
-    expect(cta).toBeDisabled(); // geo + language still empty
+    fireEvent.change(screen.getByLabelText('輸入搜尋詞'), { target: { value: 'running shoes' } });
+    expect(cta).toBeDisabled(); // geo + language still empty (collapsed but still required)
 
+    openAdvanced();
     fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
     expect(cta).toBeDisabled(); // language still empty
 
@@ -76,10 +82,11 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
     );
     renderHome();
 
-    fireEvent.change(await screen.findByLabelText('種子關鍵字'), { target: { value: 'x' } });
+    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'x' } });
+    openAdvanced();
     fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'ZZ' } });
     fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'bad' } });
-    fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     expect(await screen.findByText('地區為必填')).toBeInTheDocument();
     expect(screen.getByText('至少一個種子字')).toBeInTheDocument();
@@ -105,7 +112,7 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
 });
 
 describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', () => {
-  it('submits the typed body and navigates to the analysisId URL on 202', async () => {
+  it('submits the typed body (v4 default mode = exact) and navigates on 202', async () => {
     let received: unknown;
     server.use(
       http.post('/api/v1/keyword-analyses', async ({ request }) => {
@@ -119,12 +126,13 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     );
     const router = renderHome();
 
-    fireEvent.change(await screen.findByLabelText('種子關鍵字'), {
+    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), {
       target: { value: 'running shoes\ntrail shoes' },
     });
+    openAdvanced();
     fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
     fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
-    fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     await waitFor(() => {
       // The analysis (geo, language) context rides along in the URL (Design §5) so the
@@ -139,15 +147,14 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
       seeds: ['running shoes', 'trail shoes'],
       geo: 'TW',
       language: 'zh-TW',
-      mode: 'expand',
+      mode: 'exact', // v4 default 探索模式 = 指定模式 (exact)
     });
     // After navigation the home route swaps the form for the analysis dashboard;
-    // a still-running snapshot shows the job-tracking progress panel (queued →
-    // progress view; SSE is the inert test stub, so it stays put).
+    // a still-running snapshot shows the job-tracking progress panel.
     expect(await screen.findByText('分析進行中')).toBeInTheDocument();
   });
 
-  it('wires the optional mode / network / includeAdult controls into the body', async () => {
+  it('wires the explore-mode pill + network + includeAdult into the body', async () => {
     let received: unknown;
     server.use(
       http.post('/api/v1/keyword-analyses', async ({ request }) => {
@@ -159,22 +166,23 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     );
     renderHome();
 
-    fireEvent.change(await screen.findByLabelText('種子關鍵字'), { target: { value: 'shoes' } });
+    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
+    fireEvent.click(screen.getByRole('button', { name: '拓展模式' })); // exact (default) → expand
+    openAdvanced();
     fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'US' } });
     fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'en' } });
-    fireEvent.click(screen.getByLabelText('精準 (exact)'));
     fireEvent.change(screen.getByLabelText('搜尋網路 (network)'), {
       target: { value: 'GOOGLE_SEARCH_AND_PARTNERS' },
     });
     fireEvent.click(screen.getByLabelText('包含成人內容 (includeAdult)'));
-    fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     await waitFor(() => {
       expect(received).toEqual({
         seeds: ['shoes'],
         geo: 'US',
         language: 'en',
-        mode: 'exact',
+        mode: 'expand',
         network: 'GOOGLE_SEARCH_AND_PARTNERS',
         includeAdult: true,
       });
@@ -189,14 +197,107 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     );
     renderHome();
 
-    fireEvent.change(await screen.findByLabelText('種子關鍵字'), { target: { value: 'shoes' } });
+    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
+    openAdvanced();
     fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
     fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
-    fireEvent.click(screen.getByRole('button', { name: '建立分析' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     expect(await screen.findByText('建立分析失敗，請稍後再試。')).toBeInTheDocument();
     // Non-terminal failure: still on the form (no navigation), CTA re-enabled.
-    expect(screen.getByRole('button', { name: '建立分析' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled();
+  });
+});
+
+describe('TC-57 · Home v4 (探索模式 pills + ⚙ 進階 collapsible + Import roadmap chips)', () => {
+  it('defaults 探索模式 to 指定模式 (exact) and toggles to 拓展模式 (expand) with helper copy', async () => {
+    renderHome();
+    const exact = await screen.findByRole('button', { name: '指定模式' });
+    expect(exact).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '拓展模式' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(screen.getByText(/精準分析上方輸入的搜尋詞/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '拓展模式' }));
+    expect(screen.getByRole('button', { name: '拓展模式' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText(/擴充相關關鍵字/)).toBeInTheDocument();
+  });
+
+  it('hides the Google Ads params behind the ⚙ 進階選項 toggle (collapsed by default)', async () => {
+    renderHome();
+    await screen.findByLabelText('輸入搜尋詞');
+    expect(screen.queryByLabelText('地區 (geo)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('語言 (language)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('搜尋網路 (network)')).not.toBeInTheDocument();
+
+    openAdvanced();
+    expect(screen.getByLabelText('地區 (geo)')).toBeInTheDocument();
+    expect(screen.getByLabelText('語言 (language)')).toBeInTheDocument();
+    expect(screen.getByLabelText('搜尋網路 (network)')).toBeInTheDocument();
+  });
+
+  it('keeps geo/language required while collapsed: CTA disabled with a ⚙-pointing hint', async () => {
+    renderHome();
+    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeDisabled();
+    // Hint names the missing required fields and points at the collapsed advanced section.
+    expect(screen.getByText(/進階選項/)).toBeInTheDocument();
+  });
+
+  it('renders Import From GAD/GSC as roadmap chips: click shows 即將推出 and fires NO request', async () => {
+    let posted = false;
+    server.use(
+      http.post('/api/v1/keyword-analyses', () => {
+        posted = true;
+        return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
+      }),
+    );
+    renderHome();
+    await screen.findByLabelText('輸入搜尋詞');
+    expect(screen.queryByText('即將推出')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import From GAD' }));
+    expect(screen.getByRole('status')).toHaveTextContent('即將推出');
+    fireEvent.click(screen.getByRole('button', { name: 'Import From GSC' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posted).toBe(false); // roadmap chips never hit the backend
+  });
+
+  it('auto-expands the advanced section when a 400 targets a collapsed field (geo)', async () => {
+    server.use(
+      http.post('/api/v1/keyword-analyses', () =>
+        HttpResponse.json(
+          {
+            statusCode: 400,
+            code: 'VALIDATION',
+            message: 'Validation failed',
+            fields: { geo: ['地區為必填'] },
+            path: '/api/v1/keyword-analyses',
+            timestamp: '2026-07-14T00:00:00.000Z',
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    renderHome();
+
+    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
+    openAdvanced();
+    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'ZZ' } });
+    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
+    openAdvanced(); // collapse again — the field stays filled (state persists) but hidden
+    expect(screen.queryByLabelText('地區 (geo)')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
+
+    // The 400 targets the collapsed geo field → the section auto-expands so the error shows.
+    expect(await screen.findByText('地區為必填')).toBeInTheDocument();
+    expect(screen.getByLabelText('地區 (geo)')).toBeInTheDocument();
   });
 });
 
@@ -214,7 +315,7 @@ describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
     );
     const router = renderHome();
 
-    const seeds = await screen.findByLabelText<HTMLTextAreaElement>('種子關鍵字');
+    const seeds = await screen.findByLabelText<HTMLTextAreaElement>('輸入搜尋詞');
     fireEvent.change(seeds, { target: { value: 'running shoes' } });
     fireEvent.click(screen.getByRole('button', { name: '送出' }));
 
@@ -227,6 +328,6 @@ describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
 
     // 不自動建立分析：URL 無 analysisId、仍在建立表單。
     expect(router.state.location.search).not.toHaveProperty('analysisId');
-    expect(screen.getByRole('button', { name: '建立分析' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeInTheDocument();
   });
 });
