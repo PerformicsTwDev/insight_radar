@@ -29,7 +29,7 @@ describe('TC-37 · labelForView', () => {
   it('maps known view names to their zh label', () => {
     expect(labelForView('keywords')).toBe('搜尋詞總表');
     expect(labelForView('intent_topics')).toBe('意圖主題');
-    expect(labelForView('journey')).toBe('購買歷程');
+    expect(labelForView('journey')).toBe('購買歷程主題');
   });
 
   it('falls back to the raw name for an unknown (newly-registered) view — AC-1.2', () => {
@@ -48,7 +48,9 @@ describe('TC-37 · buildViewRegistry (metadata → nav + column/filter/sort conf
       allowedFilters: ['q', 'volumeMin'],
       allowedSort: ['avgMonthlySearches'],
     }),
-    meta({ name: 'trend', responseShape: 'trend' }),
+    // A top-level dimension (not an embedded/secondary view — those are covered by the
+    // TC-58 taxonomy block below, which asserts trend/intent_distribution/… are hidden).
+    meta({ name: 'intent_topics', responseShape: 'table', requiresFeature: 'topics' }),
   ];
   const registry = buildViewRegistry(views);
 
@@ -61,10 +63,10 @@ describe('TC-37 · buildViewRegistry (metadata → nav + column/filter/sort conf
         requiresFeature: 'keyword_metrics',
       },
       {
-        name: 'trend',
-        label: '搜尋趨勢',
-        responseShape: 'trend',
-        requiresFeature: 'keyword_metrics',
+        name: 'intent_topics',
+        label: '意圖主題',
+        responseShape: 'table',
+        requiresFeature: 'topics',
       },
     ]);
   });
@@ -87,11 +89,41 @@ describe('TC-37 · buildViewRegistry (metadata → nav + column/filter/sort conf
       meta({ name: 'journey', responseShape: 'chart' }),
     ]);
     expect(withJourney.navItems.map((n) => n.name)).toContain('journey');
-    expect(withJourney.byName.get('journey')?.label).toBe('購買歷程');
+    expect(withJourney.byName.get('journey')?.label).toBe('購買歷程主題');
 
     // even a brand-new, unlabelled view surfaces — its label defaults to the name.
     const withUnknown = buildViewRegistry([...views, meta({ name: 'foo_bar' })]);
     expect(withUnknown.byName.get('foo_bar')?.label).toBe('foo_bar');
+  });
+});
+
+describe('TC-58〔taxonomy〕· nav collapses embedded/secondary views (v4 IA, T7.3)', () => {
+  const registry = buildViewRegistry([
+    meta({ name: 'keywords' }),
+    meta({ name: 'trend', responseShape: 'trend' }),
+    meta({ name: 'intent_distribution', responseShape: 'chart' }),
+    meta({ name: 'cpc_histogram', responseShape: 'chart' }),
+    meta({ name: 'serp_questions', requiresFeature: 'serp' }),
+    meta({ name: 'intent_topics', requiresFeature: 'topics' }),
+    meta({ name: 'journey', requiresFeature: 'journey' }),
+    meta({ name: 'journey_funnel', responseShape: 'chart', requiresFeature: 'journey' }),
+    // an unknown, newly-registered backend view still surfaces top-level (AC-1.2 守恆).
+    meta({ name: 'new_dimension' }),
+  ]);
+
+  it('shows only the collapsed top-level dimensions in the nav (trend/intent_distribution/cpc_histogram/journey_funnel/serp_questions hidden)', () => {
+    expect(registry.navItems.map((n) => n.name)).toEqual([
+      'keywords',
+      'intent_topics',
+      'journey',
+      'new_dimension',
+    ]);
+  });
+
+  it('keeps every view in byName so embedded views stay URL-resolvable (T7.4 embeds them)', () => {
+    for (const name of ['trend', 'intent_distribution', 'cpc_histogram', 'journey_funnel']) {
+      expect(registry.byName.get(name)).toBeDefined();
+    }
   });
 });
 
