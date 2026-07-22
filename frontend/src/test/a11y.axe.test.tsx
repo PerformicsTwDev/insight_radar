@@ -6,6 +6,8 @@ import { SegmentedControl } from '../components/SegmentedControl';
 import { ChipBox } from '../components/ChipBox';
 import { FeatureGate } from '../components/FeatureGate';
 import { EmptyState, ErrorState, LoadingState } from '../components/StateViews';
+import { BrandProfileForm } from '../features/aiSearch/BrandProfileForm';
+import { EMPTY_BRAND } from '../lib/aiSearchForm';
 import { FilterBar } from '../features/keywords/filters/FilterBar';
 import { DEFAULT_ALLOWED_FILTERS } from '../features/keywords/filters/filterFields';
 import { KeywordsTable } from '../features/keywords/KeywordsTable';
@@ -77,6 +79,16 @@ describe('TC-24 · axe gate (WCAG A/AA, no violations)', () => {
   it('ChipBox', async () => {
     const { container } = render(
       <ChipBox labels={['價格導向', '品質導向']} onAdd={() => {}} onRemove={() => {}} />,
+    );
+    await expectClean(container);
+  });
+
+  it('BrandProfileForm (品牌檔案卡, T8.1)', async () => {
+    const { container } = render(
+      <BrandProfileForm
+        value={{ ...EMPTY_BRAND, competitors: [{ name: 'Shark', aliases: [], sites: [] }] }}
+        onChange={() => {}}
+      />,
     );
     await expectClean(container);
   });

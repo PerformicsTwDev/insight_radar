@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
 import { RootLayout } from './components/RootLayout';
+import { AiSearchHome } from './features/aiSearch/AiSearchHome';
 import { LoginRoute } from './features/auth/LoginRoute';
 import { HistoryView } from './features/history/HistoryView';
 import { HomeRoute } from './features/home/HomeRoute';
@@ -36,6 +37,15 @@ const loginRoute = createRoute({
   component: LoginRoute,
 });
 
+// AI Search Insight home (T8.1, FR-22/FR-23). Its own top-level path so it is
+// reachable/shareable and carries the AI job's `jobId` in the URL (URL-is-state).
+// The full top-tab nav alignment is T7.1; this + a header entry is the minimal shell.
+const aiSearchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/ai-search',
+  component: AiSearchHome,
+});
+
 // Analysis history (T3.5, FR-10). Its own path so it is reachable/shareable; a row
 // reopen navigates back to `/` with the chosen `analysisId` (URL restore, FR-1).
 const historyRoute = createRoute({
@@ -62,6 +72,7 @@ const trackingDetailRoute = createRoute({
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
+  aiSearchRoute,
   historyRoute,
   trackingListsRoute,
   trackingDetailRoute,

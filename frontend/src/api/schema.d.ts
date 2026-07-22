@@ -598,6 +598,11 @@ export interface components {
         CreateAiSearchAnalysisDto: {
             /**
              * Format: uuid
+             * @description keyword-analysis 連結（T15.8a #678 G1，Option A additive optional）；帶入時該 analysis 的 `ai_search` feature 由本 run 狀態推導。未帶＝standalone（不連結、保留 M14/FR-41 行為）。owner-verify：越權/未知→404
+             */
+            analysisId?: string;
+            /**
+             * Format: uuid
              * @description 品牌檔案（FR-40）；供 M15 可見度分析，本抓取層僅記錄關聯
              */
             brandProfileId?: string;

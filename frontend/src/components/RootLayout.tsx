@@ -36,6 +36,12 @@ export function RootLayout() {
       headerExtra={
         <div className="flex items-center gap-2">
           <Link
+            to="/ai-search"
+            className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
+          >
+            AI Search
+          </Link>
+          <Link
             to="/tracking"
             className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
           >

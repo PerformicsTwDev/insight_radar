@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { server } from './msw/server';
 import {
   BRAND_ALIAS_IDEATION_TEMPLATE,
@@ -19,12 +19,9 @@ import {
  *
  * The ✦ AI 別名補全 (AC-40.2 HITL) has **no dedicated backend endpoint** (deferred,
  * undelivered — backend `should` #668), so it consumes the delivered FR-20 ideation
- * endpoint (`POST /ai-ideation`) — see `suggestBrandTerms`.
+ * endpoint (`POST /ai-ideation`) — see `suggestBrandTerms`. The MSW server lifecycle
+ * (listen / reset / close) is owned by the global `src/test/setup.ts`.
  */
-
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
 
 const PROFILE_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
@@ -107,6 +104,25 @@ describe('listBrandProfiles / getBrandProfile / updateBrandProfile / removeBrand
     expect(result).toEqual({ ok: true, profiles: [view()] });
   });
 
+  it('degrades to ok:false when the list body is not an array of profiles', async () => {
+    server.use(
+      http.get('/api/v1/brand-profiles', () => HttpResponse.json({ nope: true }, { status: 200 })),
+    );
+    expect(await listBrandProfiles()).toMatchObject({ ok: false, status: 200 });
+  });
+
+  it('degrades to ok:false when the list request itself fails', async () => {
+    server.use(http.get('/api/v1/brand-profiles', () => HttpResponse.json({}, { status: 500 })));
+    expect(await listBrandProfiles()).toMatchObject({ ok: false, status: 500 });
+  });
+
+  it('fetches one profile (GET :id → 200)', async () => {
+    server.use(
+      http.get('/api/v1/brand-profiles/:id', () => HttpResponse.json(view(), { status: 200 })),
+    );
+    expect(await getBrandProfile(PROFILE_ID)).toEqual({ ok: true, profile: view() });
+  });
+
   it('returns 404 for an unknown / cross-owner profile (GET :id)', async () => {
     server.use(
       http.get('/api/v1/brand-profiles/:id', () =>
@@ -127,6 +143,18 @@ describe('listBrandProfiles / getBrandProfile / updateBrandProfile / removeBrand
     const result = await updateBrandProfile(PROFILE_ID, { aliases: ['戴森', 'Dyson TW'] });
     expect(result).toEqual({ ok: true, profile: view() });
     expect(received).toEqual({ aliases: ['戴森', 'Dyson TW'] });
+  });
+
+  it('degrades to ok:false when the update collides with an existing name (409)', async () => {
+    server.use(
+      http.patch('/api/v1/brand-profiles/:id', () =>
+        HttpResponse.json({ statusCode: 409, code: 'CONFLICT' }, { status: 409 }),
+      ),
+    );
+    expect(await updateBrandProfile(PROFILE_ID, { name: 'Taken' })).toMatchObject({
+      ok: false,
+      status: 409,
+    });
   });
 
   it('removes a profile (DELETE :id) → true on 200', async () => {
@@ -158,9 +186,7 @@ describe('suggestBrandTerms (AI 別名補全 HITL — consumes FR-20 ideation)',
   });
 
   it('degrades to ok:false when the ideation call fails (manual entry still works)', async () => {
-    server.use(
-      http.post('/api/v1/ai-ideation', () => HttpResponse.json({}, { status: 500 })),
-    );
+    server.use(http.post('/api/v1/ai-ideation', () => HttpResponse.json({}, { status: 500 })));
     expect(await suggestBrandTerms('Dyson')).toMatchObject({ ok: false });
   });
 });

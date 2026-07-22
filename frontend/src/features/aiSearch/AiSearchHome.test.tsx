@@ -25,7 +25,7 @@ import { AiSearchHome } from './AiSearchHome';
 const PROFILE_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const JOB_ID = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
 
-function renderHome() {
+function renderHome(entry = '/ai-search') {
   const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
   const aiRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -34,7 +34,7 @@ function renderHome() {
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([aiRoute]),
-    history: createMemoryHistory({ initialEntries: ['/ai-search'] }),
+    history: createMemoryHistory({ initialEntries: [entry] }),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -46,8 +46,8 @@ function renderHome() {
 }
 
 /** Fill the always-required brand fields (品牌名 + ≥1 alias + ≥1 site). */
-function fillBrand() {
-  fireEvent.change(screen.getByLabelText('品牌名'), { target: { value: 'Dyson' } });
+async function fillBrand() {
+  fireEvent.change(await screen.findByLabelText('品牌名'), { target: { value: 'Dyson' } });
   const alias = screen.getByLabelText('新增品牌別名');
   fireEvent.change(alias, { target: { value: '戴森' } });
   fireEvent.keyDown(alias, { key: 'Enter' });
@@ -61,9 +61,11 @@ describe('TC-61 · 品牌檔案卡 (品牌名 / 別名 chips / 網站 chips / �
     renderHome();
     const cta = await screen.findByRole('button', { name: '開始分析' });
     expect(cta).toBeDisabled();
-    expect(screen.getByText(/請完成：.*品牌名.*品牌別名.*品牌網站.*至少一個抓取渠道/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/請完成：.*品牌名.*品牌別名.*品牌網站.*至少一個抓取渠道/),
+    ).toBeInTheDocument();
 
-    fillBrand();
+    await fillBrand();
     // still missing a channel
     expect(cta).toBeDisabled();
     expect(screen.getByText('請完成：至少一個抓取渠道')).toBeInTheDocument();
@@ -117,23 +119,24 @@ describe('TC-61 · 品牌檔案卡 (品牌名 / 別名 chips / 網站 chips / �
     fireEvent.click(screen.getByRole('button', { name: /AI 補全/ }));
 
     // Candidates appear as suggestion chips — NOT written into the alias list yet.
+    // (Alias chips are counted by their "移除 X" remove buttons, which suggestions lack.)
     const suggestDyson = await screen.findByRole('button', { name: '加入品牌別名 Dyson Taiwan' });
     expect(screen.getByRole('button', { name: '加入品牌別名 戴森' })).toBeInTheDocument();
-    // Only the manually-added "戴森" alias chip exists so far (no auto-write).
-    expect(screen.getAllByText('戴森')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '移除 戴森' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '移除 Dyson Taiwan' })).not.toBeInTheDocument();
 
     fireEvent.click(suggestDyson);
-    expect(screen.getByText('Dyson Taiwan')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '移除 Dyson Taiwan' })).toBeInTheDocument();
 
     // Clicking the "戴森" suggestion is a no-op (de-dupes against the existing chip).
     fireEvent.click(screen.getByRole('button', { name: '加入品牌別名 戴森' }));
-    expect(screen.getAllByText('戴森')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '移除 戴森' })).toHaveLength(1);
   });
 
   it('has no axe violations on first render', async () => {
-    const { container } = renderHome();
+    renderHome();
     await screen.findByRole('button', { name: '開始分析' });
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axe(document.body)).toHaveNoViolations();
   });
 });
 
@@ -150,9 +153,25 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
     expect(screen.getByRole('button', { name: '送出' })).toBeInTheDocument();
   });
 
+  it('appends FR-20 AI-ideation results into the 搜尋詞 field (de-duped) in 指定模式', async () => {
+    server.use(
+      http.post('/api/v1/ai-ideation', () =>
+        HttpResponse.json({ keywords: ['吸塵器推薦', 'dyson 吸塵器'] }, { status: 200 }),
+      ),
+    );
+    renderHome();
+    fireEvent.click(await screen.findByRole('tab', { name: '指定模式' }));
+    const seeds = screen.getByLabelText<HTMLTextAreaElement>('搜尋詞');
+    fireEvent.change(seeds, { target: { value: 'dyson 吸塵器' } });
+    fireEvent.click(screen.getByRole('button', { name: '送出' }));
+
+    // "dyson 吸塵器" de-dupes against the existing seed (C7); only the new one appends.
+    await waitFor(() => expect(seeds.value).toBe('dyson 吸塵器\n吸塵器推薦'));
+  });
+
   it('requires 搜尋詞 in 指定模式 (added to the missing-fields hint)', async () => {
     renderHome();
-    fillBrand();
+    await fillBrand();
     fireEvent.click(await screen.findByRole('button', { name: 'ChatGPT' }));
     // brand mode → submittable
     expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled();
@@ -195,7 +214,7 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
     );
     const router = renderHome();
 
-    fillBrand();
+    await fillBrand();
     fireEvent.click(await screen.findByRole('button', { name: 'AI Overview' }));
     fireEvent.click(screen.getByRole('button', { name: 'ChatGPT' }));
     fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
@@ -227,7 +246,7 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
     );
     const router = renderHome();
 
-    fillBrand();
+    await fillBrand();
     fireEvent.click(await screen.findByRole('button', { name: 'ChatGPT' }));
     fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
@@ -257,7 +276,7 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
     );
     renderHome();
 
-    fillBrand();
+    await fillBrand();
     fireEvent.click(await screen.findByRole('tab', { name: '指定模式' }));
     fireEvent.change(screen.getByLabelText('搜尋詞'), {
       target: { value: 'dyson 吸塵器\n吸塵器推薦' },
@@ -269,6 +288,49 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
       expect(analysisBody).toMatchObject({ keywords: ['dyson 吸塵器', '吸塵器推薦'] }),
     );
   });
+
+  it('surfaces a generic error when the brand create fails (non-409)', async () => {
+    server.use(http.post('/api/v1/brand-profiles', () => HttpResponse.json({}, { status: 500 })));
+    renderHome();
+    await fillBrand();
+    fireEvent.click(await screen.findByRole('button', { name: 'ChatGPT' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
+    expect(await screen.findByText('建立品牌檔案失敗，請稍後再試。')).toBeInTheDocument();
+  });
+
+  it('surfaces a generic error when the analysis enqueue fails', async () => {
+    server.use(
+      http.post('/api/v1/brand-profiles', () =>
+        HttpResponse.json(
+          {
+            id: PROFILE_ID,
+            brand: { name: 'Dyson', aliases: ['戴森'], sites: ['https://www.dyson.tw'] },
+            competitors: [],
+            createdAt: '2026-07-23T00:00:00.000Z',
+          },
+          { status: 201 },
+        ),
+      ),
+      http.post('/api/v1/ai-search-analyses', () => HttpResponse.json({}, { status: 500 })),
+    );
+    renderHome();
+    await fillBrand();
+    fireEvent.click(await screen.findByRole('button', { name: 'ChatGPT' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
+    expect(await screen.findByText('建立分析失敗，請稍後再試。')).toBeInTheDocument();
+  });
+
+  it('restores the AI-job placeholder from a jobId in the URL (URL-is-state) and can reset', async () => {
+    const router = renderHome(`/ai-search?jobId=${JOB_ID}`);
+    expect(
+      await screen.findByRole('heading', { name: 'AI Search 分析建立中' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(JOB_ID)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '建立另一個分析' }));
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty('jobId'));
+    expect(await screen.findByRole('button', { name: '開始分析' })).toBeInTheDocument();
+  });
 });
 
 /** Guards against the competitor row markup regressing to shared-name inputs. */
@@ -278,6 +340,8 @@ describe('competitor row wiring', () => {
     fireEvent.click(await screen.findByRole('button', { name: /新增競品/ }));
     const row = screen.getByLabelText('競品 1 名稱');
     fireEvent.change(row, { target: { value: 'Shark' } });
-    expect(within(screen.getByRole('group', { name: '競品 1' })).getByDisplayValue('Shark')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: '競品 1' })).getByDisplayValue('Shark'),
+    ).toBeInTheDocument();
   });
 });
