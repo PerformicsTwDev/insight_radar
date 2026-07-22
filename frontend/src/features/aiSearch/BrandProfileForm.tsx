@@ -1,19 +1,17 @@
-import { useState } from 'react';
-import { suggestBrandTerms } from '../../api/brandProfiles';
 import { ChipBox } from '../../components/ChipBox';
-import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import { appendDedupedSeeds } from '../../lib/aiIdeation';
-import { canBrandAssist, type BrandFormState, type CompetitorEntry } from '../../lib/aiSearchForm';
+import type { BrandFormState, CompetitorEntry } from '../../lib/aiSearchForm';
 
 /**
  * 品牌與競品資料 card (T8.1, FR-22; v4 `#brandOverallForm`). Controlled — the parent
  * (`AiSearchHome`) owns `value` + `onChange` so the CTA validity gate lives in one
  * place. Reuses `ChipBox` (alias / site chips) and the C7 dedupe (`appendDedupedSeeds`).
  *
- * ✦ AI 別名補全 is **HITL**: pressing it fetches candidate aliases (`suggestBrandTerms`
- * → the delivered ideation endpoint, since AC-40.2's dedicated route is undelivered)
- * and renders them as suggestion chips — nothing is written until the user clicks a
- * candidate (de-duped on add; AC-22.1 「不自動寫入」). Tokens only — no hardcoded hex.
+ * ✦ AI 別名補全 is a **disabled roadmap affordance** (FR-22 revision 2026-07-23): the
+ * dedicated brand-alias-extractor (`backend:AC-40.2`) is undelivered, and the FR-20
+ * `/ai-ideation` endpoint returns competitor/comparison terms — NOT same-brand aliases
+ * — so wiring it would pollute the canonical `BrandProfile.aliases`. Until the backend
+ * endpoint lands, manual alias entry (the ChipBox) is the supported path. Tokens only.
  */
 
 const FIELD_LABEL = 'block text-sm font-medium text-white/80';
@@ -21,8 +19,6 @@ const TEXT_INPUT =
   'mt-1 w-full rounded-lg bg-bg-input px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-brand';
 const ASSIST_BTN =
   'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-brand ring-1 ring-brand/40 enabled:hover:bg-brand/10 disabled:cursor-not-allowed disabled:text-white/30 disabled:ring-white/10';
-const SUGGEST_CHIP =
-  'inline-flex items-center gap-1 rounded-full bg-brand/10 px-3 py-1 text-xs font-medium text-brand ring-1 ring-brand/40 hover:bg-brand/20';
 const SEC_BTN =
   'rounded-lg px-3 py-1.5 text-xs font-medium text-white/80 ring-1 ring-white/15 hover:ring-white/30';
 
@@ -32,13 +28,6 @@ export interface BrandProfileFormProps {
 }
 
 export function BrandProfileForm({ value, onChange }: BrandProfileFormProps) {
-  const runGuarded = useInFlightGuard();
-  const [assisting, setAssisting] = useState(false);
-  const [assistError, setAssistError] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-
-  const assistEnabled = canBrandAssist(value.name);
-
   function addAlias(label: string): void {
     onChange({ ...value, aliases: appendDedupedSeeds([...value.aliases], [label]) });
   }
@@ -68,19 +57,6 @@ export function BrandProfileForm({ value, onChange }: BrandProfileFormProps) {
     onChange({ ...value, competitors: value.competitors.filter((_, i) => i !== index) });
   }
 
-  async function handleAssist(): Promise<void> {
-    // The trigger is gated by `disabled={!assistEnabled || assisting}`, so this only
-    // runs with a non-blank brand name — no redundant guard needed here.
-    await runGuarded(async () => {
-      setAssistError(false);
-      setAssisting(true);
-      const result = await suggestBrandTerms(value.name);
-      setAssisting(false);
-      if (result.ok) setSuggestions(result.keywords);
-      else setAssistError(true);
-    });
-  }
-
   return (
     <section
       aria-labelledby="brand-profile-heading"
@@ -92,31 +68,22 @@ export function BrandProfileForm({ value, onChange }: BrandProfileFormProps) {
             品牌與競品資料
           </h3>
           <p className="mt-1 text-xs text-white/50">
-            先輸入品牌名，再用 AI 補全品牌別名、網站與建議競品。
+            手動輸入品牌別名、網站與競品；AI 別名補全即將推出。
           </p>
         </div>
+        {/* Roadmap affordance: disabled until the backend brand-alias-extractor
+            (backend:AC-40.2) ships — never wired to /ai-ideation (competitor terms,
+            not aliases). Manual entry via the ChipBox below is the supported path. */}
         <button
           type="button"
-          disabled={!assistEnabled || assisting}
-          aria-busy={assisting}
-          onClick={() => void handleAssist()}
+          disabled
+          title="AI 別名補全即將推出（依賴後端 brand-alias-extractor）——暫以手動輸入品牌別名"
           className={ASSIST_BTN}
         >
           <span aria-hidden="true">✦</span>
-          {assistEnabled ? 'AI 補全品牌資料與競品' : '先輸入品牌名以啟用 AI 補全'}
+          AI 補全別名（即將推出）
         </button>
       </div>
-
-      {assisting ? (
-        <p role="status" className="mt-2 animate-pulse text-xs text-white/50">
-          AI 查找中…
-        </p>
-      ) : null}
-      {assistError ? (
-        <p role="alert" className="mt-2 text-xs text-trend-negative">
-          AI 補全失敗，請稍後再試或手動輸入。
-        </p>
-      ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div>
@@ -178,29 +145,6 @@ export function BrandProfileForm({ value, onChange }: BrandProfileFormProps) {
           </div>
         </div>
       </div>
-
-      {suggestions.length > 0 ? (
-        <div className="mt-4">
-          <p className={FIELD_LABEL}>
-            AI 建議別名
-            <span className="ml-1 text-xs font-normal text-white/40">點擊加入品牌別名</span>
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {suggestions.map((term) => (
-              <button
-                key={term}
-                type="button"
-                aria-label={`加入品牌別名 ${term}`}
-                onClick={() => addAlias(term)}
-                className={SUGGEST_CHIP}
-              >
-                <span aria-hidden="true">＋</span>
-                {term}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
 
       <div className="mt-5">
         <div className="mb-2 flex items-center justify-between">

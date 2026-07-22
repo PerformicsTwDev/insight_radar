@@ -80,11 +80,6 @@ export const INITIAL_AI_SEARCH_FORM: AiSearchFormState = {
   seedsRaw: '',
 };
 
-/** ✦ AI 補全 is enabled only once a non-blank brand name is entered (AC-22.1). */
-export function canBrandAssist(name: string): boolean {
-  return name.trim().length > 0;
-}
-
 /**
  * Ordered list of what is still missing (drives the CTA hint, mirroring the v4
  * `updateStartButtons`): 品牌名 → 品牌別名 → 品牌網站 → (指定模式) 搜尋詞 → 抓取渠道.

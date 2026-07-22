@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { generateIdeas, type AiIdeationResult } from './aiIdeation';
 import { api } from './client';
 import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
 import type { components } from './schema';
@@ -107,22 +106,11 @@ export async function removeBrandProfile(id: string): Promise<boolean> {
   return response.ok;
 }
 
-/**
- * The ideation directive that powers the ✦ AI 別名補全 HITL. Backend AC-40.2's
- * dedicated alias-completion endpoint was **deferred and never delivered** (a
- * backend `should`, open #668 — no HTTP route in `openapi.json`). Rather than
- * fabricate a non-existent contract, the HITL consumes the **delivered** FR-20
- * ideation endpoint with the real backend template key `competitor_comparison`
- * ("列出與種子詞相關的競品名稱、品牌與比較用詞") to surface candidate brand aliases /
- * competitor terms. Deviation is documented in the T8.1 note.
+/*
+ * Note: ✦ AI 別名補全 has **no client egress**. Its dedicated backend endpoint
+ * (`backend:AC-40.2` brand-alias-extractor) is undelivered, and the FR-20
+ * `/ai-ideation` endpoint returns competitor/comparison terms (not same-brand
+ * aliases), so wiring it here would pollute canonical `BrandProfile.aliases`.
+ * The front end renders it as a disabled roadmap affordance (FR-22 revision
+ * 2026-07-23) until the backend endpoint ships; there is nothing to call.
  */
-export const BRAND_ALIAS_IDEATION_TEMPLATE = 'competitor_comparison';
-
-/**
- * Suggest candidate brand aliases / competitor terms for a brand name (FR-22 HITL).
- * Results are **suggestions only** — the caller confirms before adding (never
- * auto-writes; AC-22.1). Degrades to `ok:false` on failure so manual entry still works.
- */
-export function suggestBrandTerms(brandName: string): Promise<AiIdeationResult> {
-  return generateIdeas({ template: BRAND_ALIAS_IDEATION_TEMPLATE, seeds: [brandName] });
-}

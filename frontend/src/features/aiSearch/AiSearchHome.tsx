@@ -163,15 +163,6 @@ export function AiSearchHome() {
               className="mt-2 w-full rounded-lg bg-bg-input px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-brand"
               placeholder={'dyson 吸塵器\n吸塵器推薦'}
             />
-            <AiIdeationCard
-              seeds={parseSeeds(form.seedsRaw)}
-              onGenerated={(keywords) =>
-                setForm((f) => ({
-                  ...f,
-                  seedsRaw: appendDedupedSeeds(parseSeeds(f.seedsRaw), keywords).join('\n'),
-                }))
-              }
-            />
           </div>
         ) : null}
 
@@ -214,6 +205,21 @@ export function AiSearchHome() {
           ) : null}
         </div>
       </form>
+
+      {/* The FR-20 AI 發想 sub-card carries its own <form>; keep it a SIBLING of the
+          create-analysis <form> (never nested — invalid HTML / hydration warning).
+          Mirrors HomeRoute; only shown in 指定模式 where 搜尋詞 seeds apply. */}
+      {specified ? (
+        <AiIdeationCard
+          seeds={parseSeeds(form.seedsRaw)}
+          onGenerated={(keywords) =>
+            setForm((f) => ({
+              ...f,
+              seedsRaw: appendDedupedSeeds(parseSeeds(f.seedsRaw), keywords).join('\n'),
+            }))
+          }
+        />
+      ) : null}
     </section>
   );
 }
