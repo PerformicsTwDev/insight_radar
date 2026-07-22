@@ -323,6 +323,18 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       'MEDIA_CLASSIFY_PROMPT_VERSION',
     ] as const;
 
+    it('does not expose the removed dead per-line prompt-version levers (M15-R6, #688)', () => {
+      // brandExtract/sentiment/mediaClassify prompt versions had zero production consumers (only
+      // aiVisibilitySchemaVersion() is wired) yet were documented as an active "bump→整批失效" lever in
+      // Joi/.env.example/RUNBOOK — a documented no-op / ops trap. The sole invalidation lever is
+      // AI_VISIBILITY_SCHEMA_VERSION (which R5 makes effective even for completed runs).
+      const keys = Object.keys((validationSchema.describe().keys ?? {}) as Record<string, unknown>);
+      expect(keys).not.toContain('BRAND_EXTRACT_PROMPT_VERSION');
+      expect(keys).not.toContain('SENTIMENT_PROMPT_VERSION');
+      expect(keys).not.toContain('MEDIA_CLASSIFY_PROMPT_VERSION');
+      expect(keys).toContain('AI_VISIBILITY_SCHEMA_VERSION');
+    });
+
     it('defaults the M15 AI visibility schema + prompt versions to v1 (守恆 prompt-versions.ts 預設)', () => {
       const { error } = validationSchema.validate(validEnv, { abortEarly: false });
       const value = validatedValue(validEnv); // validEnv omits all four M15 version keys

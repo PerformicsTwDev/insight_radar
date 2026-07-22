@@ -17,7 +17,14 @@ import type { AiSearchRunParams, AiSearchStatusResponse } from './ai-search-run.
 export const AI_SEARCH_RUN_CONFIG = Symbol('AI_SEARCH_RUN_CONFIG');
 
 export interface AiSearchRunConfig {
+  /** 抓取層版本（`AI_SEARCH_SCHEMA_VERSION`）——入 idempotency key。 */
   schemaVersion: string;
+  /**
+   * 分析層版本（`AI_VISIBILITY_SCHEMA_VERSION`）——同入 idempotency key（M15-R5/#687）。T15.5 in-job 分析
+   * 用它 tag `ai_answers`/`ai_cited_references`/`ai_visibility_metrics` 落列；漏此欄則 bump 分析版本 + 同輸入
+   * POST 會命中既有 completed run（不 reset）→ 分析永不重跑、rows 停留舊版本。
+   */
+  analysisSchemaVersion: string;
   jobAttempts: number;
   jobBackoffMs: number;
   jobBackoffJitter: number;
