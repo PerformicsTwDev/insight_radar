@@ -3,7 +3,6 @@ import { selectPage } from '../paginate';
 import {
   type ColumnDef,
   FILTER_KEYS,
-  type SummaryViewResult,
   type TableViewResult,
   type ViewContext,
   type ViewDefinition,
@@ -33,31 +32,6 @@ export function placeholderTableView(
     build(ctx: ViewContext): TableViewResult {
       const { meta } = selectPage([], {}, ctx.request.pagination ?? {});
       return { view: name, columns, rows: [], pagination: meta };
-    },
-  };
-}
-
-/**
- * 尚未接線 compute 的 `*_summary` KPI score-cards view（單列物化指標，Design §6.5/§18.4）。同 `placeholderTableView`
- * 的 gated 過渡語意：宣告 view 名 + grain + 依賴 feature，`build` 在 feature ready 前不被呼叫（由 QueryViewService
- * gate，AC-14.7），此處回**空 summary 形狀**（`metrics:{}`）；接線時把 `build` 換成聚合物化指標即可（免新 endpoint）。
- * summary 為單列 KPI（無 select/sort 欄位）；`allowedFilters` 沿用統一 `FilterSpec`（INV-1/2）。
- */
-export function placeholderSummaryView(
-  name: string,
-  requiresFeature: FeatureKey,
-  grain: string,
-): ViewDefinition {
-  return {
-    name,
-    kind: 'summary',
-    grain,
-    requiresFeature,
-    allowedSelect: [],
-    allowedFilters: FILTER_KEYS,
-    allowedSort: [],
-    build(): SummaryViewResult {
-      return { view: name, metrics: {} };
     },
   };
 }
