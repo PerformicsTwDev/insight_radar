@@ -1,11 +1,13 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { BrandAliasInput } from '../brand-profile/brand-match';
 import { toBrandProfileView } from '../brand-profile/brand-profile.mapper';
 import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import { ownerWhereFromOwnerId } from '../common/owner-scope';
 import { normalizeText } from '../google-ads/normalize';
+import { scrubSecrets } from '../logger/redaction';
 import { PrismaService } from '../prisma';
+import { type AiTextBlockInput, aiTextBlockSchema } from './ai-answer-content.schema';
 import { AiAnalysisRepository } from './ai-analysis.repository';
 import type {
   AiAnalysisResult,
@@ -13,6 +15,7 @@ import type {
   AiAnswerRow,
   AiCitedReferenceRow,
   AiVisibilityMetricRow,
+  AnalysisLineOutcome,
   BrandExtractor,
   CitedMediaClassifier,
   SentimentAnalyzer,
@@ -85,6 +88,8 @@ interface AnalysisIndex {
  */
 @Injectable()
 export class AiAnalysisService {
+  private readonly logger = new Logger(AiAnalysisService.name);
+
   // narrow 介面型別 + `@Inject(具體類 token)`：DI 照舊解析具體服務，但建構子參數非 class-typed → 無
   // emitDecoratorMetadata `typeof X==='function'?X:Object` phantom branch（同時 depend on abstraction）。
   constructor(
@@ -112,12 +117,22 @@ export class AiAnalysisService {
     const brands = await this.loadBrands(brandProfileId, ownerId);
     const { contexts, textBlocks, mediaRefs } = flattenCaptures(captures);
 
-    // 三線分析（各保留 needsReview 供 job-level partial 收斂，AC-42.5）。sentiment 需目標本品牌；無 → 略過（全 0）。
-    const brandOutcome = await this.brands.extractBrandsOutcome(textBlocks, brands.aliases);
-    const sentimentOutcome = brands.primary
-      ? await this.sentiment.analyzeSentimentOutcome(brands.primary, textBlocks)
+    // 三線分析（各保留 needsReview 供 job-level partial 收斂，AC-42.5）。每線經 {@link runLine} per-line guard：
+    // 某線 non-content_filter 基礎設施錯（Azure 500/timeout……——content_filter/length 已由 resilientChunk 內部降級
+    // 不 throw）→ 補空結果 + 全部輸入入 needsReview（→ partial），**不丟他線成功結果、不整體 throw**（M15-R3/#685
+    // INV-6）。sentiment 需目標本品牌；無 → 略過（全 0，非降級）。
+    const primary = brands.primary;
+    const brandOutcome = await this.runLine('brand', textBlocks, () =>
+      this.brands.extractBrandsOutcome(textBlocks, brands.aliases),
+    );
+    const sentimentOutcome = primary
+      ? await this.runLine('sentiment', textBlocks, () =>
+          this.sentiment.analyzeSentimentOutcome(primary, textBlocks),
+        )
       : { results: [], needsReview: [] };
-    const mediaOutcome = await this.media.classifyMediaOutcome(mediaRefs);
+    const mediaOutcome = await this.runLine('media', mediaRefs, () =>
+      this.media.classifyMediaOutcome(mediaRefs),
+    );
 
     // 組裝（純函式）：per-answer 聚合（brands/情緒/media）+ per-scope（channel×query）攤成可見度指標列。
     const { answers, cited, metrics } = assembleAnalysis(
@@ -172,6 +187,27 @@ export class AiAnalysisService {
       aliases: all.map((b) => ({ name: b.name, aliases: b.aliases })),
       primary: { name: view.brand.name, aliases: view.brand.aliases },
     };
+  }
+
+  /**
+   * 單線 per-line guard（M15-R3/#685，INV-6）：跑某分析線；正常回其 `AnalysisLineOutcome`。若該線 throw
+   * （**已耗盡 SDK retry 的基礎設施錯**——content_filter/length 由 `resilientChunk` 內部降級不 throw）→ 補**空
+   * 結果**（`assembleAnalysis` 對缺 id 補預設：空 brands / 情緒 {0,0} / media `other`）+ 把該線**全部輸入**收入
+   * `needsReview`（→ job-level partial），**不丟他線成功結果、不讓錯冒出整個 `analyzeAndPersist`**。
+   */
+  private async runLine<T, I>(
+    line: string,
+    inputs: readonly I[],
+    run: () => Promise<AnalysisLineOutcome<T, I>>,
+  ): Promise<AnalysisLineOutcome<T, I>> {
+    try {
+      return await run();
+    } catch (error) {
+      this.logger.warn(
+        `analysis line '${line}' failed, degrading run to partial: ${scrubSecrets(String(error))}`,
+      );
+      return { results: [], needsReview: [...inputs] };
+    }
   }
 }
 
@@ -278,7 +314,16 @@ function flattenCaptures(captures: readonly AiSearchCanonical[]): {
   return { contexts, textBlocks, mediaRefs };
 }
 
-/** 中立化 block（`unknown`）→ LLM 可讀文字：字串原樣、數值/布林 String()、物件取常見文字欄或 JSON 序列化、其餘空。 */
+/**
+ * 中立化 block（`unknown`）→ LLM 可讀文字：字串原樣、數值/布林 String()、物件先試 AI-Overview text block 形狀
+ * （`aiTextBlockSchema`，含遞迴 `list`），否則取常見文字欄或 JSON 序列化，其餘空。
+ *
+ * **list block 可讀化（M15-R4/#686）**：AI-Overview `list` block **無 top-level `snippet`**——子項 `snippet`
+ * 藏在 `list[]`（可再巢狀）。舊版落至 `JSON.stringify` → 餵 LLM 結構 JSON + `ai_answers.answer_text` 亂碼。改依
+ * 本里程碑自帶 `aiTextBlockSchema` 遞迴取 `snippet` 串接成可讀文字；heading/paragraph（有 top-level snippet）亦
+ * 由此路取得。schema 全欄 optional 且 strip 未知欄 → 對非 text-block 物件（如 `{html:'x'}`）遞迴取值為空、續走
+ * text/content/markdown fallback 或 JSON.stringify（保既有行為）。
+ */
 function coerceBlockText(block: unknown): string {
   if (typeof block === 'string') {
     return block;
@@ -287,8 +332,15 @@ function coerceBlockText(block: unknown): string {
     return String(block);
   }
   if (block !== null && typeof block === 'object') {
+    const parsed = aiTextBlockSchema.safeParse(block);
+    if (parsed.success) {
+      const text = flattenTextBlock(parsed.data);
+      if (text) {
+        return text;
+      }
+    }
     const record = block as Record<string, unknown>;
-    for (const key of ['text', 'content', 'snippet', 'markdown']) {
+    for (const key of ['text', 'content', 'markdown']) {
       const value = record[key];
       if (typeof value === 'string') {
         return value;
@@ -297,4 +349,24 @@ function coerceBlockText(block: unknown): string {
     return JSON.stringify(block);
   }
   return ''; // null / undefined / symbol / function → 無可分析文字
+}
+
+/**
+ * 攤平 AI-Overview text block（`aiTextBlockSchema` 形狀）→ 可讀純文字：本層 `snippet` + 遞迴子 `list` 的
+ * snippet，以換行串接（M15-R4）。無 snippet/list（如純 `reference_indexes`）→ 空字串（交由 coerceBlockText fallback）。
+ */
+function flattenTextBlock(block: AiTextBlockInput): string {
+  const parts: string[] = [];
+  if (block.snippet) {
+    parts.push(block.snippet);
+  }
+  if (block.list) {
+    for (const child of block.list) {
+      const childText = flattenTextBlock(child);
+      if (childText) {
+        parts.push(childText);
+      }
+    }
+  }
+  return parts.join('\n');
 }

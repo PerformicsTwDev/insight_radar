@@ -25,53 +25,55 @@ export class AiAnalysisRepository implements AiAnalysisStore {
     schemaVersion: string,
     rows: AiAnalysisRows,
   ): Promise<AiAnalysisPersistCounts> {
-    // RED（M15-R8）：暫以 delete-txn + 分散 createMany 保留現況 bug（跨表非原子）。
-    await this.prisma.$transaction([
+    // 單一 `$transaction`：三表 deleteMany（clean-slate）→ 三表 createMany（新列）。Postgres 於同一 txn 內順序
+    // 執行 → delete 先於 create；任一 op 失敗（含 create 期基礎設施錯）整批 rollback，delete 與 creates 全有或
+    // 全無（M15-R8/#689，比照 Journey/CustomClassify 的 `saveAssignments`）。createMany 空 data → no-op（count 0）。
+    const [, , , answers, cited, metrics] = await this.prisma.$transaction([
       this.prisma.aiAnswer.deleteMany({ where: { jobId } }),
       this.prisma.aiCitedReference.deleteMany({ where: { jobId } }),
       this.prisma.aiVisibilityMetric.deleteMany({ where: { jobId } }),
+      this.prisma.aiAnswer.createMany({
+        data: rows.answers.map((row) => ({
+          ownerId,
+          jobId,
+          channel: row.channel,
+          query: row.query,
+          answerText: row.answerText,
+          brands: row.brands,
+          positive: row.positive,
+          negative: row.negative,
+          schemaVersion,
+        })),
+      }),
+      this.prisma.aiCitedReference.createMany({
+        data: rows.cited.map((row) => ({
+          ownerId,
+          jobId,
+          channel: row.channel,
+          query: row.query,
+          link: row.link,
+          domain: row.domain,
+          title: row.title,
+          mediaType: row.mediaType,
+          schemaVersion,
+        })),
+      }),
+      this.prisma.aiVisibilityMetric.createMany({
+        data: rows.metrics.map((row) => ({
+          ownerId,
+          jobId,
+          channel: row.channel,
+          dimension: row.dimension,
+          groupKey: row.groupKey,
+          brand: row.brand,
+          mentions: row.mentions,
+          shareOfVoice: row.shareOfVoice,
+          citations: row.citations,
+          exposure: row.exposure,
+          schemaVersion,
+        })),
+      }),
     ]);
-    const answers = await this.prisma.aiAnswer.createMany({
-      data: rows.answers.map((row) => ({
-        ownerId,
-        jobId,
-        channel: row.channel,
-        query: row.query,
-        answerText: row.answerText,
-        brands: row.brands,
-        positive: row.positive,
-        negative: row.negative,
-        schemaVersion,
-      })),
-    });
-    const cited = await this.prisma.aiCitedReference.createMany({
-      data: rows.cited.map((row) => ({
-        ownerId,
-        jobId,
-        channel: row.channel,
-        query: row.query,
-        link: row.link,
-        domain: row.domain,
-        title: row.title,
-        mediaType: row.mediaType,
-        schemaVersion,
-      })),
-    });
-    const metrics = await this.prisma.aiVisibilityMetric.createMany({
-      data: rows.metrics.map((row) => ({
-        ownerId,
-        jobId,
-        channel: row.channel,
-        dimension: row.dimension,
-        groupKey: row.groupKey,
-        brand: row.brand,
-        mentions: row.mentions,
-        shareOfVoice: row.shareOfVoice,
-        citations: row.citations,
-        exposure: row.exposure,
-        schemaVersion,
-      })),
-    });
     return {
       answersCount: answers.count,
       citedCount: cited.count,

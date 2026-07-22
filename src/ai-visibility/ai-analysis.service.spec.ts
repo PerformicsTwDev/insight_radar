@@ -229,7 +229,8 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
           blocks: [
             { text: 'ASUS obj' },
             { text: 123, content: 'from content' }, // text 非字串 → 續找 content
-            { html: 'x' }, // 無已知文字欄 → JSON.stringify
+            { html: 'x' }, // 無已知文字欄（schema strip 後空）→ JSON.stringify
+            { snippet: 42 }, // snippet 非字串 → aiTextBlockSchema 驗證失敗 → 續 fallback → JSON.stringify
             42,
             true,
             10n,
@@ -243,6 +244,7 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
       'ASUS obj',
       'from content',
       '{"html":"x"}',
+      '{"snippet":42}',
       '42',
       'true',
       '10',
@@ -315,6 +317,7 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
               type: 'list',
               list: [
                 { snippet: 'ASUS ZenBook' },
+                { reference_indexes: [0] }, // 無 snippet/list → 攤平為空 → 跳過（不留空行）
                 { snippet: 'Acer Swift', list: [{ snippet: 'thin and light' }] },
               ],
             },
