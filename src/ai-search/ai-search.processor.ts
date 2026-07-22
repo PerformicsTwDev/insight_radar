@@ -80,21 +80,15 @@ export class AiSearchProcessor
       await this.runRepo.markStatus(runId, 'running');
       await this.reportProgress(job, runId, 'pulling', 20);
 
-      // clean slate：重入列/retry 時清舊合流列，避免重複落列（idempotent re-run）。
-      await this.captureRepo.deleteByJobId(runId);
-
-      const merged: AiSearchCanonical[] = [];
-      // 1. SerpAPI pull（reserved；關閉時 provider 回 null → 該渠道缺 → partial，零外部呼叫）。
-      merged.push(...(await this.pullSerpapi(serpapiChannelsOf(channels), keywords)));
-
-      await this.reportProgress(job, runId, 'collecting', 60);
-      // 2. extension push（經 `/captures` 已落 raw）：讀 owner 範圍內指定渠道 → 收斂 + 依 query 集合流。
-      merged.push(
-        ...(await this.collectExtension(ownerId, extensionChannelsOf(channels), keywords)),
+      // 抓取合流（reuse-on-retry：見 {@link gatherCaptures}，#683/M15-R1）——第一 attempt clean-slate + 兩來源
+      // fetch + 落列；BullMQ 重試則重用前次已落庫的合流（不重打 PAID SerpAPI pull → 不重扣 credit）。
+      const { merged, captureCount } = await this.gatherCaptures(
+        job,
+        runId,
+        ownerId,
+        keywords,
+        channels,
       );
-
-      await this.reportProgress(job, runId, 'persisting', 85);
-      const captureCount = await this.captureRepo.persistCanonical(runId, ownerId, merged);
 
       // 分析 stage（T15.5，沿用抓取 job 落點）：合流 captures → 三線 LLM pipeline（品牌/情緒/媒體）→
       // buildAiVisibility → 持久化分析結果 + 指標（clean-slate by jobId，idempotent re-run）。mapper/postProcess
@@ -129,6 +123,51 @@ export class AiSearchProcessor
       }
       throw error;
     }
+  }
+
+  /**
+   * 抓取合流 + 落列，回 `{ merged, captureCount }` 供 analysis stage 消費。**重試不重扣 PAID fetch（#683/M15-R1）**：
+   *
+   * analysis stage 在 PAID SerpAPI pull + 落列**之後**跑；若 analysis 於**非 final** attempt throw，BullMQ 會整個
+   * `process()` 從頭重試——若每次都重跑 `pullSerpapi`（每 attempt 一份 fresh `SerpCreditLedger`），SerpAPI credit 會
+   * **每次重試重複計費**、爆 per-job `SERPAPI_AI_CREDITS_BUDGET`。故：
+   * - **第一 attempt（`attemptsMade === 0`，含 partial-reset 重入列）**：clean-slate → 兩來源 fetch → **落列**（durable
+   *   `ai_search_captures` by jobId）。partial-reset 屬新 job 實例（attemptsMade 歸零）→ 走此路重抓，保留其「async 到達
+   *   的 extension capture 重送可再收」語意（M14-R3/#579）。
+   * - **BullMQ 重試（`attemptsMade > 0`）**：前一 attempt 已完成 PAID pull 並落列（在 throw 的 analysis 之前）→ **重用**
+   *   已落庫合流、**不重打供應商、不 clean-slate、不重落列**（無重扣、無重複列）。前一 attempt 若在落列前就 throw
+   *   （pull/persist 基礎設施錯）→ 無可重用列 → fall through 走完整 fetch（該情境無 durable 結果可省）。
+   */
+  private async gatherCaptures(
+    job: Job<AiSearchJobPayload>,
+    runId: string,
+    ownerId: string | null,
+    keywords: string[],
+    channels: CaptureChannel[],
+  ): Promise<{ merged: AiSearchCanonical[]; captureCount: number }> {
+    if (job.attemptsMade > 0) {
+      const persisted = await this.captureRepo.readCanonicalByJobId(runId);
+      if (persisted.length > 0) {
+        // 重用前次 attempt 已落庫的合流（含 PAID serpapi 列）→ 直接進 analysis，零外部呼叫、零重扣（#683）。
+        return { merged: persisted, captureCount: persisted.length };
+      }
+      // 前次 attempt 落列前即失敗（無 durable 列）→ 落至完整 fetch（re-charge 不可免，但該情境本無可省之結果）。
+    }
+
+    // clean slate：重入列/retry 時清舊合流列，避免重複落列（idempotent re-run）。
+    await this.captureRepo.deleteByJobId(runId);
+
+    const merged: AiSearchCanonical[] = [];
+    // 1. SerpAPI pull（reserved；關閉時 provider 回 null → 該渠道缺 → partial，零外部呼叫）。
+    merged.push(...(await this.pullSerpapi(serpapiChannelsOf(channels), keywords)));
+
+    await this.reportProgress(job, runId, 'collecting', 60);
+    // 2. extension push（經 `/captures` 已落 raw）：讀 owner 範圍內指定渠道 → 收斂 + 依 query 集合流。
+    merged.push(...(await this.collectExtension(ownerId, extensionChannelsOf(channels), keywords)));
+
+    await this.reportProgress(job, runId, 'persisting', 85);
+    const captureCount = await this.captureRepo.persistCanonical(runId, ownerId, merged);
+    return { merged, captureCount };
   }
 
   /**

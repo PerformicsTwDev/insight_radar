@@ -7,10 +7,12 @@ function build(
     findMany?: jest.Mock;
     deleteMany?: jest.Mock;
     createMany?: jest.Mock;
+    aiFindMany?: jest.Mock;
   } = {},
 ) {
   const capture = { findMany: overrides.findMany ?? jest.fn(() => Promise.resolve([])) };
   const aiSearchCapture = {
+    findMany: overrides.aiFindMany ?? jest.fn(() => Promise.resolve([])),
     deleteMany: overrides.deleteMany ?? jest.fn(() => Promise.resolve({ count: 0 })),
     createMany: overrides.createMany ?? jest.fn(() => Promise.resolve({ count: 0 })),
   };
@@ -105,6 +107,57 @@ describe('AiSearchCaptureRepository (unit, T14.6 / FR-41 / AC-41.2)', () => {
       expect(arg.where.capturedAt).toEqual({ gte: LOOKBACK });
       expect(arg.take).toBe(250);
       expect(arg.orderBy).toEqual({ capturedAt: 'desc' });
+    });
+  });
+
+  describe('readCanonicalByJobId (#683/M15-R1: reuse persisted captures on a retry)', () => {
+    it('reconstructs AiSearchCanonical from persisted rows, ordered deterministically by capturedAt,id', async () => {
+      const aiFindMany = jest.fn<Promise<unknown[]>, [unknown]>(() =>
+        Promise.resolve([
+          {
+            channel: 'aiOverview',
+            query: 'asus zenbook',
+            source: 'serpapi',
+            schemaVersion: 'serpapi-v1',
+            blocks: ['aio block'],
+            references: [{ title: 't', link: 'https://x', index: 0 }],
+            capturedAt: new Date('2026-07-20T00:00:00Z'),
+          },
+        ]),
+      );
+      const { repo } = build({ aiFindMany });
+
+      const rows = await repo.readCanonicalByJobId('run-1');
+
+      expect(aiFindMany).toHaveBeenCalledWith({
+        where: { jobId: 'run-1' },
+        orderBy: [{ capturedAt: 'asc' }, { id: 'asc' }],
+        select: {
+          channel: true,
+          query: true,
+          source: true,
+          schemaVersion: true,
+          blocks: true,
+          references: true,
+          capturedAt: true,
+        },
+      });
+      expect(rows).toEqual([
+        {
+          source: 'serpapi',
+          channel: 'aiOverview',
+          schemaVersion: 'serpapi-v1',
+          query: 'asus zenbook',
+          blocks: ['aio block'],
+          references: [{ title: 't', link: 'https://x', index: 0 }],
+          capturedAt: '2026-07-20T00:00:00.000Z', // Date → ISO round-trip
+        },
+      ]);
+    });
+
+    it('returns [] when the job has no persisted captures', async () => {
+      const { repo } = build();
+      expect(await repo.readCanonicalByJobId('run-1')).toEqual([]);
     });
   });
 
