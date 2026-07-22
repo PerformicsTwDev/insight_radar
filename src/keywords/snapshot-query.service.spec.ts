@@ -388,12 +388,15 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       over: {
         customRun?: { id: string } | null;
         journeyRun?: { id: string } | null;
-        aiRun?: { id: string } | null;
+        aiRun?: { id: string; status: string } | null;
       } = {},
     ) {
       const ccrFindFirst = jest.fn().mockResolvedValue(over.customRun ?? null);
       const jrFindFirst = jest.fn().mockResolvedValue(over.journeyRun ?? null);
-      const airFindFirst = jest.fn().mockResolvedValue(over.aiRun ?? null);
+      // M15-R13：AI-search 分支不再走 prisma.aiSearchRun.findFirst（自加 status filter），改用與 gate 同一
+      // AiViewRepository.findLatestLinkedRun（最新 linked run 任何 status、owner-scoped）；此 findFirst 應保持未被呼叫。
+      const airFindFirst = jest.fn().mockResolvedValue(null);
+      const findLatestLinkedRun = jest.fn().mockResolvedValue(over.aiRun ?? null);
       const prisma = {
         customClassifyRun: { findFirst: ccrFindFirst },
         journeyRun: { findFirst: jrFindFirst },
@@ -402,10 +405,10 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       const service = new SnapshotQueryService(
         prisma,
         {} as unknown as QueryViewService,
-        aiRepoStub(),
+        aiRepoStub({ findLatestLinkedRun }),
         CONFIG,
       );
-      return { service, ccrFindFirst, jrFindFirst, airFindFirst };
+      return { service, ccrFindFirst, jrFindFirst, airFindFirst, findLatestLinkedRun };
     }
 
     const CID_UUID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -443,39 +446,43 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       });
     });
 
-    it('AI Search view (apiKey) → GLOBAL latest COMPLETED/PARTIAL linked AiSearchRun.id (AC-27.5)', async () => {
-      const { service, airFindFirst } = buildVersion({ aiRun: { id: 'run-ai' } });
-      // apiKey → ownerWhere = {} → 全域最新（機器 actor 不隔離，維持 M9 前語意）。
+    it('AI Search view (apiKey) → GLOBAL latest linked run via findLatestLinkedRun (any status, AC-27.5/M15-R13)', async () => {
+      const { service, airFindFirst, findLatestLinkedRun } = buildVersion({
+        aiRun: { id: 'run-ai', status: 'completed' },
+      });
+      // apiKey → ownerWhere = {} → 全域最新（機器 actor 不隔離，維持 M9 前語意）；用與 gate 同一 findLatestLinkedRun。
       expect(await service.resolveViewDataVersion('an-1', 'ai_answers', API_ACTOR)).toBe('run-ai');
       expect(await service.resolveViewDataVersion('an-1', 'brand_ai_visibility', API_ACTOR)).toBe(
         'run-ai',
       );
-      expect(airFindFirst).toHaveBeenCalledWith({
-        where: { keywordAnalysisId: 'an-1', status: { in: ['completed', 'partial'] } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
+      expect(findLatestLinkedRun).toHaveBeenCalledWith('an-1', {});
+      expect(airFindFirst).not.toHaveBeenCalled(); // M15-R13：不再自查 prisma（自加 status filter 已移除）
     });
 
-    it('AI Search view (session) → OWNER-SCOPED latest run (M15-R11: prevents cross-owner cache leak)', async () => {
-      const { service, airFindFirst } = buildVersion({ aiRun: { id: 'run-ai' } });
-      // session → dataVersion 解析必 owner-scoped（`...ownerWhere(actor)`）→ per-owner run.id → cache key 分家。
+    it('AI Search view (session) → OWNER-SCOPED latest run via findLatestLinkedRun (M15-R11: prevents cross-owner cache leak)', async () => {
+      const { service, findLatestLinkedRun } = buildVersion({
+        aiRun: { id: 'run-ai', status: 'completed' },
+      });
+      // session → dataVersion 解析必 owner-scoped（`ownerWhere(actor)`）→ per-owner run.id → cache key 分家。
       expect(await service.resolveViewDataVersion('an-1', 'ai_answers', SESSION_ACTOR)).toBe(
         'run-ai',
       );
-      expect(airFindFirst).toHaveBeenCalledWith({
-        where: {
-          keywordAnalysisId: 'an-1',
-          status: { in: ['completed', 'partial'] },
-          OR: [{ ownerId: 'user-1' }, { ownerId: null }],
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
+      expect(findLatestLinkedRun).toHaveBeenCalledWith('an-1', {
+        OR: [{ ownerId: 'user-1' }, { ownerId: null }],
       });
     });
 
+    it('AI Search view → dataVersion binds latest NON-READY linked run (M15-R13: unified with gate, not "latest completed/partial")', async () => {
+      // 最新 linked run 為 running（非-ready）→ dataVersion＝該非-ready run.id（cache 未曾為其落 insight →
+      // miss → 走 query → gate 409），而非退回較舊 completed run.id（會 cache-HIT 回舊 insight、繞過 gate）。
+      const { service } = buildVersion({ aiRun: { id: 'run-running', status: 'running' } });
+      expect(await service.resolveViewDataVersion('an-1', 'ai_answers', SESSION_ACTOR)).toBe(
+        'run-running',
+      );
+    });
+
     it('returns "" when a dynamic view has no completed run yet (valid cid, null run)', async () => {
-      const { service, ccrFindFirst } = buildVersion(); // both findFirst → null
+      const { service, ccrFindFirst } = buildVersion(); // all resolvers → null
       expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`, API_ACTOR)).toBe(
         '',
       );
@@ -485,11 +492,13 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
     });
 
     it('returns "" for a static view without any DB round-trip', async () => {
-      const { service, ccrFindFirst, jrFindFirst, airFindFirst } = buildVersion();
+      const { service, ccrFindFirst, jrFindFirst, airFindFirst, findLatestLinkedRun } =
+        buildVersion();
       expect(await service.resolveViewDataVersion('an-1', 'keywords', API_ACTOR)).toBe('');
       expect(ccrFindFirst).not.toHaveBeenCalled();
       expect(jrFindFirst).not.toHaveBeenCalled();
       expect(airFindFirst).not.toHaveBeenCalled();
+      expect(findLatestLinkedRun).not.toHaveBeenCalled();
     });
   });
 });
