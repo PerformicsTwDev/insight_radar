@@ -252,19 +252,22 @@ describe('placeholder views (serp_questions / intent_topics, T6.8)', () => {
   });
 });
 
-describe('AI Search views (T15.6 / FR-44 / #679, gated placeholders)', () => {
-  it('all declare requiresFeature=ai_search + unified FilterSpec allowedFilters', () => {
-    expect(AI_SEARCH_VIEWS).toHaveLength(9);
-    for (const view of AI_SEARCH_VIEWS) {
-      expect(view.requiresFeature).toBe('ai_search');
-      // 統一 FilterSpec（INV-1/2）：allowedFilters 沿用同一份 FILTER_KEYS（非另抄）。
-      expect(view.allowedFilters).toEqual(FILTER_KEYS);
+describe('AI Search views (T15.6 註冊 / T15.8b build, FR-44 / #678 G2)', () => {
+  const byName = new Map(AI_SEARCH_VIEWS.map((v) => [v.name, v]));
+  const view = (name: string): ViewDefinition => {
+    const found = byName.get(name);
+    if (!found) {
+      throw new Error(`missing AI view ${name}`);
     }
-  });
+    return found;
+  };
+  // AI 讀取層 build 由 SnapshotQueryService 載入 T15.5 列後注入 ctx.rows（非 snapshot 列）——測試以型別收斂注入。
+  const aiCtx = (rows: unknown[], request: QueryRequest): ViewContext =>
+    ctx(rows as unknown as SnapshotRowData[], request);
 
-  it('detail/visibility views build an empty typed table shell (gated until compute lands)', () => {
-    const tableViews = AI_SEARCH_VIEWS.filter((v) => v.kind === 'table');
-    expect(tableViews.map((v) => v.name)).toEqual([
+  it('all 9 declare requiresFeature=ai_search + unified FilterSpec allowedFilters (registration unchanged)', () => {
+    expect(AI_SEARCH_VIEWS).toHaveLength(9);
+    expect(AI_SEARCH_VIEWS.filter((v) => v.kind === 'table').map((v) => v.name)).toEqual([
       'ai_answers',
       'ai_cited_media',
       'ai_cited_pages',
@@ -272,28 +275,348 @@ describe('AI Search views (T15.6 / FR-44 / #679, gated placeholders)', () => {
       'intent_ai_visibility',
       'journey_ai_visibility',
     ]);
-    const answers = tableViews[0].build(ctx([srow()], { view: 'ai_answers' })) as TableViewResult;
-    expect(answers.view).toBe('ai_answers');
-    expect(answers.rows).toEqual([]);
-    expect(answers.pagination.total).toBe(0);
-    expect(answers.columns.find((c) => c.key === 'brands')?.type).toBe('array');
-    expect(answers.columns.find((c) => c.key === 'positive')?.type).toBe('number');
-  });
-
-  it('*_summary views build an empty KPI-cards shell (kind=summary → responseShape=summary)', () => {
-    const summaryViews = AI_SEARCH_VIEWS.filter((v) => v.kind === 'summary');
-    expect(summaryViews.map((v) => v.name)).toEqual([
+    expect(AI_SEARCH_VIEWS.filter((v) => v.kind === 'summary').map((v) => v.name)).toEqual([
       'brand_ai_visibility_summary',
       'intent_ai_visibility_summary',
       'journey_ai_visibility_summary',
     ]);
-    for (const view of summaryViews) {
-      expect(view.allowedSelect).toEqual([]);
-      expect(view.allowedSort).toEqual([]);
-      const res = view.build(ctx([srow()], { view: view.name })) as SummaryViewResult;
-      expect(res.view).toBe(view.name);
-      expect(res.metrics).toEqual({});
+    for (const v of AI_SEARCH_VIEWS) {
+      expect(v.requiresFeature).toBe('ai_search');
+      // 統一 FilterSpec（INV-1/2）：allowedFilters 沿用同一份 FILTER_KEYS（非另抄）。
+      expect(v.allowedFilters).toEqual(FILTER_KEYS);
     }
+  });
+
+  it('ai_answers build: reads injected ai_answers rows + projects typed columns (brands array, positive number)', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'chatGpt',
+        query: 'asus',
+        answerText: 'x',
+        brands: ['ASUS', 'ASUS'],
+        positive: 2,
+        negative: 0,
+      },
+    ];
+    const res = view('ai_answers').build(aiCtx(rows, { view: 'ai_answers' })) as TableViewResult;
+    expect(res.view).toBe('ai_answers');
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]).toMatchObject({ query: 'asus', brands: ['ASUS', 'ASUS'], positive: 2 });
+    expect(res.pagination.total).toBe(1);
+    expect(res.columns.find((c) => c.key === 'brands')?.type).toBe('array');
+    expect(res.columns.find((c) => c.key === 'positive')?.type).toBe('number');
+  });
+
+  it('ai_answers build: unified FilterSpec q filters by query text', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'c',
+        query: 'asus zenbook',
+        answerText: '',
+        brands: [],
+        positive: 0,
+        negative: 0,
+      },
+      {
+        id: '2',
+        channel: 'c',
+        query: 'macbook air',
+        answerText: '',
+        brands: [],
+        positive: 0,
+        negative: 0,
+      },
+    ];
+    const res = view('ai_answers').build(
+      aiCtx(rows, { view: 'ai_answers', filters: { q: 'zenbook' } }),
+    ) as TableViewResult;
+    expect(res.rows.map((r) => r.query)).toEqual(['asus zenbook']);
+  });
+
+  it('ai_cited_media build: aggregates cited references by media_type (count + share)', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'c',
+        query: 'q',
+        link: 'a',
+        domain: 'a',
+        title: null,
+        mediaType: 'retail',
+      },
+      {
+        id: '2',
+        channel: 'c',
+        query: 'q',
+        link: 'b',
+        domain: 'b',
+        title: null,
+        mediaType: 'retail',
+      },
+      { id: '3', channel: 'c', query: 'q', link: 'c', domain: 'c', title: null, mediaType: 'news' },
+    ];
+    const res = view('ai_cited_media').build(
+      aiCtx(rows, { view: 'ai_cited_media' }),
+    ) as TableViewResult;
+    const retail = res.rows.find((r) => r.mediaType === 'retail');
+    expect(retail).toMatchObject({ count: 2 });
+    expect(retail?.share).toBeCloseTo(2 / 3);
+    expect(res.rows.find((r) => r.mediaType === 'news')?.count).toBe(1);
+  });
+
+  it('visibility build: reads metric rows + sorts by mentions desc', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'c',
+        groupKey: 'k',
+        brand: 'ASUS',
+        mentions: 3,
+        shareOfVoice: 0.75,
+        citations: 1,
+        exposure: null,
+      },
+      {
+        id: '2',
+        channel: 'c',
+        groupKey: 'k',
+        brand: 'Acer',
+        mentions: 1,
+        shareOfVoice: 0.25,
+        citations: 0,
+        exposure: null,
+      },
+    ];
+    const res = view('brand_ai_visibility').build(
+      aiCtx(rows, {
+        view: 'brand_ai_visibility',
+        sort: [{ field: 'mentions', direction: 'desc' }],
+      }),
+    ) as TableViewResult;
+    expect(res.rows.map((r) => r.brand)).toEqual(['ASUS', 'Acer']);
+  });
+
+  it('*_summary build: aggregates KPI metrics (Σ mentions/citations, distinct groups, null-safe exposure)', () => {
+    const summaryViews = AI_SEARCH_VIEWS.filter((v) => v.kind === 'summary');
+    for (const v of summaryViews) {
+      expect(v.allowedSelect).toEqual([]);
+      expect(v.allowedSort).toEqual([]);
+    }
+    const rows = [
+      {
+        id: '1',
+        channel: 'c',
+        groupKey: 'k1',
+        brand: 'ASUS',
+        mentions: 3,
+        shareOfVoice: 0.6,
+        citations: 2,
+        exposure: null,
+      },
+      {
+        id: '2',
+        channel: 'c',
+        groupKey: 'k1',
+        brand: 'Acer',
+        mentions: 2,
+        shareOfVoice: 0.4,
+        citations: 0,
+        exposure: null,
+      },
+    ];
+    const res = view('brand_ai_visibility_summary').build(
+      aiCtx(rows, { view: 'brand_ai_visibility_summary' }),
+    ) as SummaryViewResult;
+    expect(res.view).toBe('brand_ai_visibility_summary');
+    expect(res.metrics).toMatchObject({ mentions: 5, citations: 2, groups: 1, exposure: null });
+  });
+
+  it('ai_cited_pages build: reads cited references逐頁列表 (projects link/domain/mediaType)', () => {
+    const rows = [
+      { id: '1', channel: 'c', query: 'q', link: 'l', domain: 'd', title: 't', mediaType: 'news' },
+    ];
+    const res = view('ai_cited_pages').build(
+      aiCtx(rows, { view: 'ai_cited_pages' }),
+    ) as TableViewResult;
+    expect(res.rows[0]).toMatchObject({ link: 'l', domain: 'd', mediaType: 'news' });
+  });
+
+  it('table build: offset + cursor pagination (keyset by stable row key)', () => {
+    const rows = [
+      { id: '1', channel: 'c', query: 'a', answerText: '', brands: [], positive: 0, negative: 0 },
+      { id: '2', channel: 'c', query: 'b', answerText: '', brands: [], positive: 0, negative: 0 },
+    ];
+    const p1 = view('ai_answers').build(
+      aiCtx(rows, { view: 'ai_answers', pagination: { pageSize: 1 } }),
+    ) as TableViewResult;
+    expect(p1.rows.map((r) => r.query)).toEqual(['a']);
+    expect(p1.pagination.total).toBe(2);
+    expect(p1.pagination.cursor).not.toBeNull();
+    const p2 = view('ai_answers').build(
+      aiCtx(rows, {
+        view: 'ai_answers',
+        pagination: { pageSize: 1, cursor: p1.pagination.cursor ?? undefined },
+      }),
+    ) as TableViewResult;
+    expect(p2.rows.map((r) => r.query)).toEqual(['b']);
+    expect(p2.pagination.cursor).toBeNull(); // 末頁
+  });
+
+  it('table build: equal / all-null sort values fall back to stable key tie-break (3 rows)', () => {
+    const row = (id: string, brand: string) => ({
+      id,
+      channel: 'c',
+      groupKey: 'k', // 同 string → 相等 → tie-break
+      brand,
+      mentions: 5, // 同 number → 相等 → tie-break
+      shareOfVoice: null,
+      citations: 0,
+      exposure: null, // 全 null → both-null → tie-break
+    });
+    const rows = [row('z', 'Z'), row('a', 'A'), row('m', 'M')];
+    const sortBy = (field: string) =>
+      (
+        view('brand_ai_visibility').build(
+          aiCtx(rows, { view: 'brand_ai_visibility', sort: [{ field, direction: 'asc' }] }),
+        ) as TableViewResult
+      ).rows.map((r) => r.brand);
+    // 相等 number（mentions）/ 相等 string（groupKey）/ 全 null（exposure）皆退回 id asc tie-break（3 列驅動兩向）。
+    expect(sortBy('mentions')).toEqual(['A', 'M', 'Z']);
+    expect(sortBy('groupKey')).toEqual(['A', 'M', 'Z']);
+    expect(sortBy('exposure')).toEqual(['A', 'M', 'Z']);
+  });
+
+  it('table build: explicit select projects only the requested columns', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'chatGpt',
+        query: 'q',
+        answerText: 'a',
+        brands: ['ASUS'],
+        positive: 1,
+        negative: 0,
+      },
+    ];
+    const res = view('ai_answers').build(
+      aiCtx(rows, { view: 'ai_answers', select: ['query', 'positive'] }),
+    ) as TableViewResult;
+    expect(res.columns.map((c) => c.key)).toEqual(['query', 'positive']);
+    expect(Object.keys(res.rows[0])).toEqual(['query', 'positive']);
+  });
+
+  it('table build: malformed/unknown cursor → empty tail page (opaque cursor never 500s)', () => {
+    const rows = [
+      { id: '1', channel: 'c', query: 'a', answerText: '', brands: [], positive: 0, negative: 0 },
+    ];
+    const res = view('ai_answers').build(
+      aiCtx(rows, { view: 'ai_answers', pagination: { pageSize: 1, cursor: 'not-a-cursor' } }),
+    ) as TableViewResult;
+    expect(res.rows).toEqual([]);
+    expect(res.pagination.total).toBe(1);
+  });
+
+  it('visibility build: sorts by string column (asc) and places null metric values last (3 rows)', () => {
+    const mk = (id: string, channel: string, exposure: number | null) => ({
+      id,
+      channel,
+      groupKey: 'k',
+      brand: id,
+      mentions: 1,
+      shareOfVoice: null,
+      citations: 0,
+      exposure,
+    });
+    // 3 列（含跨值比較兩向 + 混合 null）驅動 comparator 的 </> 與 null 兩序。
+    const rows = [mk('1', 'b', null), mk('2', 'a', 5), mk('3', 'c', 1)];
+    const byChannel = view('brand_ai_visibility').build(
+      aiCtx(rows, { view: 'brand_ai_visibility', sort: [{ field: 'channel', direction: 'asc' }] }),
+    ) as TableViewResult;
+    expect(byChannel.rows.map((r) => r.channel)).toEqual(['a', 'b', 'c']);
+    const byExposure = view('brand_ai_visibility').build(
+      aiCtx(rows, { view: 'brand_ai_visibility', sort: [{ field: 'exposure', direction: 'asc' }] }),
+    ) as TableViewResult;
+    expect(byExposure.rows.map((r) => r.exposure)).toEqual([1, 5, null]); // null 置尾（與方向無關）
+  });
+
+  it('table build: sort by an array column falls back to stable string ordering (no crash)', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'c',
+        query: 'a',
+        answerText: '',
+        brands: ['b'],
+        positive: 0,
+        negative: 0,
+      },
+      {
+        id: '2',
+        channel: 'c',
+        query: 'b',
+        answerText: '',
+        brands: ['a'],
+        positive: 0,
+        negative: 0,
+      },
+    ];
+    const res = view('ai_answers').build(
+      aiCtx(rows, { view: 'ai_answers', sort: [{ field: 'brands', direction: 'asc' }] }),
+    ) as TableViewResult;
+    // JSON(["a"]) < JSON(["b"]) → 'a'-brands row first.
+    expect(res.rows.map((r) => r.query)).toEqual(['b', 'a']);
+  });
+
+  it('*_summary build: sums exposure across distinct groups (counted once per group), null-safe', () => {
+    const rows = [
+      {
+        id: '1',
+        channel: 'c',
+        groupKey: 'k1',
+        brand: 'A',
+        mentions: 1,
+        shareOfVoice: 1,
+        citations: 0,
+        exposure: 10,
+      },
+      {
+        id: '2',
+        channel: 'c',
+        groupKey: 'k1',
+        brand: 'B',
+        mentions: 1,
+        shareOfVoice: 1,
+        citations: 0,
+        exposure: 10,
+      },
+      {
+        id: '3',
+        channel: 'c',
+        groupKey: 'k2',
+        brand: 'A',
+        mentions: 1,
+        shareOfVoice: 1,
+        citations: 0,
+        exposure: 5,
+      },
+    ];
+    const res = view('intent_ai_visibility_summary').build(
+      aiCtx(rows, { view: 'intent_ai_visibility_summary' }),
+    ) as SummaryViewResult;
+    // exposure per-group（k1=10 一次、k2=5）→ 15；groups=2；mentions=3。
+    expect(res.metrics).toMatchObject({ groups: 2, exposure: 15, mentions: 3 });
+  });
+
+  it('empty injected rows → honest empty table shell / zeroed summary (no misleading rows)', () => {
+    const table = view('ai_answers').build(aiCtx([], { view: 'ai_answers' })) as TableViewResult;
+    expect(table.rows).toEqual([]);
+    expect(table.pagination.total).toBe(0);
+    const summary = view('brand_ai_visibility_summary').build(
+      aiCtx([], { view: 'brand_ai_visibility_summary' }),
+    ) as SummaryViewResult;
+    expect(summary.metrics).toMatchObject({ mentions: 0, citations: 0, groups: 0, exposure: null });
   });
 });
 

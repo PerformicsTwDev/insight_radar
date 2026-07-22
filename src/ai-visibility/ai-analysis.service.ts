@@ -26,9 +26,20 @@ import { SentimentService } from './sentiment.service';
 import {
   type AiVisibilityScope,
   type VisibilityBrand,
+  type VisibilityDimension,
   buildAiVisibility,
   normalizeDomain,
 } from './visibility-metrics';
+
+/**
+ * query→維度映射（#678 G3，AC-43.3）：`intentByNt`＝normalizedText → 意圖類別（M2 `keyword_intents`）；
+ * `stageByNt`＝normalizedText → 購買歷程階段（FR-33 `keyword_journey_assignments`，linked analysis 之 snapshot）。
+ * 空 Map（standalone job / 未分類）→ 僅 keyword 維度（無 intent/journey，無回歸）。
+ */
+export interface DimensionMappings {
+  intentByNt: Map<string, string[]>;
+  stageByNt: Map<string, string>;
+}
 
 /** DI token for AiAnalysisService 設定（analysis 層 schema 版本；由 module 從 AI_VISIBILITY_SCHEMA_VERSION 組裝）。 */
 export const AI_ANALYSIS_CONFIG = Symbol('AI_ANALYSIS_CONFIG');
@@ -134,7 +145,10 @@ export class AiAnalysisService {
       this.media.classifyMediaOutcome(mediaRefs),
     );
 
-    // 組裝（純函式）：per-answer 聚合（brands/情緒/media）+ per-scope（channel×query）攤成可見度指標列。
+    // query→意圖/購買歷程維度映射（#678 G3，AC-43.3）：intent 全域 by normalizedText、journey by linked snapshot。
+    const dimensions = await this.loadDimensionMappings(jobId, captures);
+
+    // 組裝（純函式）：per-answer 聚合（brands/情緒/media）+ per-scope（channel×dimension×group）攤成可見度指標列。
     const { answers, cited, metrics } = assembleAnalysis(
       contexts,
       {
@@ -143,6 +157,7 @@ export class AiAnalysisService {
         mediaById: new Map(mediaOutcome.results.map((r) => [r.id, r.type])),
       },
       brands.visibilityBrands,
+      dimensions,
     );
 
     // 原子持久化（M15-R8/#689）：delete + 三 createMany 收斂單一 `$transaction`（全有或全無，不跨表撕裂）。
@@ -209,17 +224,77 @@ export class AiAnalysisService {
       return { results: [], needsReview: [...inputs] };
     }
   }
+
+  /**
+   * 載入 query→意圖/購買歷程維度映射（#678 G3，AC-43.3；**分表互補、不覆寫**，S10）：
+   * - **意圖類別**：`keyword_intents`（M2，全域 by `normalizedText`，取最新 `labeledAt`）——即使 standalone job 亦可 join。
+   * - **購買歷程**：`keyword_journey_assignments`（FR-33，by snapshot）——由 jobId＝`AiSearchRun.id` 解出 linked
+   *   `keywordAnalysisId` → analysis 的 `resultSnapshotId` → 該 snapshot 的階段指派；無 linked analysis / 無 snapshot /
+   *   無指派 → 空 Map（僅 keyword 維度，無回歸）。
+   *
+   * **意圖類別/主題、購買歷程本身語意一律不變**——僅把每字既有的意圖/歷程當作 AI 可見度指標的**額外分組維度**。
+   */
+  private async loadDimensionMappings(
+    jobId: string,
+    captures: readonly AiSearchCanonical[],
+  ): Promise<DimensionMappings> {
+    const nts = [...new Set(captures.map((capture) => normalizeText(capture.query)))];
+    const intentByNt = new Map<string, string[]>();
+    const stageByNt = new Map<string, string>();
+    if (nts.length === 0) {
+      return { intentByNt, stageByNt };
+    }
+
+    // 意圖：全域 by normalizedText，取最新 labeledAt（同字多 modelVersion → 取最新）。
+    const intents = await this.prisma.keywordIntent.findMany({
+      where: { normalizedText: { in: nts } },
+      orderBy: { labeledAt: 'desc' },
+      select: { normalizedText: true, labels: true },
+    });
+    for (const row of intents) {
+      if (!intentByNt.has(row.normalizedText)) {
+        intentByNt.set(row.normalizedText, (row.labels as string[] | null) ?? []);
+      }
+    }
+
+    // 購買歷程：jobId＝AiSearchRun.id → linked keywordAnalysisId → resultSnapshotId → snapshot 之階段指派。
+    const run = await this.prisma.aiSearchRun.findUnique({
+      where: { id: jobId },
+      select: { keywordAnalysisId: true },
+    });
+    if (run?.keywordAnalysisId) {
+      const analysis = await this.prisma.keywordAnalysis.findUnique({
+        where: { id: run.keywordAnalysisId },
+        select: { resultSnapshotId: true },
+      });
+      if (analysis?.resultSnapshotId) {
+        const assignments = await this.prisma.keywordJourneyAssignment.findMany({
+          where: { snapshotId: analysis.resultSnapshotId, normalizedText: { in: nts } },
+          select: { normalizedText: true, stage: true },
+        });
+        for (const assignment of assignments) {
+          stageByNt.set(assignment.normalizedText, assignment.stage);
+        }
+      }
+    }
+    return { intentByNt, stageByNt };
+  }
 }
 
 /**
  * 組裝層（純函式）：把 per-input 三線結果對回 per-answer（ai_answers）+ per-reference（ai_cited_references）+
- * per (channel × keyword × brand) 指標（`buildAiVisibility`）。scope key = `channel × normalizeText(query)`
- * （S4 同去重/快取一套）；group 存首見原字（顯示用）。同 (channel,query) 多 captures 聚合為單一 scope。
+ * per (channel × dimension × group × brand) 指標（`buildAiVisibility`）。scope key = `channel × dimension ×
+ * normalizeText(group)`（S4 同去重/快取一套）；group 存原字/類別/階段（顯示用）。同 scope 多 captures 聚合。
+ *
+ * **維度（#678 G3，AC-43.3）**：每筆 capture 除既有 **keyword** 維度（group=query）外，另依 `dimensions` 映射
+ * 加 **intent**（group=意圖類別，每類別一 scope）與 **journey**（group=購買歷程階段）維度 scope——同一露出（mentions）
+ * /引用（citations）沿用（**意圖/歷程語意不變、僅加分組維度**）。空映射（standalone / 未分類）→ 僅 keyword 維度。
  */
 function assembleAnalysis(
   contexts: readonly CaptureContext[],
   index: AnalysisIndex,
   visibilityBrands: readonly VisibilityBrand[],
+  dimensions: DimensionMappings,
 ): { answers: AiAnswerRow[]; cited: AiCitedReferenceRow[]; metrics: AiVisibilityMetricRow[] } {
   const answers: AiAnswerRow[] = [];
   const cited: AiCitedReferenceRow[] = [];
@@ -254,21 +329,25 @@ function assembleAnalysis(
         mediaType: index.mediaById.get(ref.id) ?? 'other',
       });
     }
-    const key = `${ctx.channel} ${normalizeText(ctx.query)}`;
-    let scope = scopes.get(key);
-    if (!scope) {
-      scope = {
-        channel: ctx.channel,
-        dimension: 'keyword',
-        group: ctx.query,
-        mentions: [],
-        citations: [],
-        searchVolumes: [],
-      };
-      scopes.set(key, scope);
+    // 每筆 capture 攤成 keyword + intent(每類別) + journey(階段) 維度 scope（G3）。
+    const refLinks = ctx.refs.map((r) => r.link);
+    for (const { dimension, group } of dimensionsOf(ctx.query, dimensions)) {
+      const key = `${ctx.channel} ${dimension} ${normalizeText(group)}`;
+      let scope = scopes.get(key);
+      if (!scope) {
+        scope = {
+          channel: ctx.channel,
+          dimension,
+          group,
+          mentions: [],
+          citations: [],
+          searchVolumes: [],
+        };
+        scopes.set(key, scope);
+      }
+      scope.mentions.push(...answerBrands);
+      scope.citations.push(...refLinks);
     }
-    scope.mentions.push(...answerBrands);
-    scope.citations.push(...ctx.refs.map((r) => r.link));
   }
 
   const metrics = buildAiVisibility([...scopes.values()], visibilityBrands).map((cell) => ({
@@ -283,6 +362,28 @@ function assembleAnalysis(
   }));
 
   return { answers, cited, metrics };
+}
+
+/**
+ * 某 query 的可見度分組維度（#678 G3）：恆含 **keyword**（group=原字）；另依映射加 **intent**（每意圖類別一列）
+ * 與 **journey**（購買歷程階段，至多一列）。`normalizeText(query)` 為映射 key（S4 同去重/快取一套）。
+ */
+function dimensionsOf(
+  query: string,
+  dimensions: DimensionMappings,
+): Array<{ dimension: VisibilityDimension; group: string }> {
+  const nt = normalizeText(query);
+  const out: Array<{ dimension: VisibilityDimension; group: string }> = [
+    { dimension: 'keyword', group: query },
+  ];
+  for (const label of dimensions.intentByNt.get(nt) ?? []) {
+    out.push({ dimension: 'intent', group: label });
+  }
+  const stage = dimensions.stageByNt.get(nt);
+  if (stage) {
+    out.push({ dimension: 'journey', group: stage });
+  }
+  return out;
 }
 
 /** 攤平 captures：合成 block/reference id（`${c}::${b}`）、抽 block 文字、收 references；回線輸入 + per-capture 語境。 */

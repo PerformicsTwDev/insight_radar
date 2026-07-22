@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma';
+import { AiViewRepository } from './ai-view.repository';
 import { KeywordsController } from './keywords.controller';
 import { QueryViewService } from './query-view.service';
 import { SnapshotQueryService } from './snapshot-query.service';
@@ -18,6 +19,7 @@ import { ViewRegistry, createViewRegistry } from './views';
     { provide: ViewRegistry, useFactory: createViewRegistry },
     QueryViewService,
     SnapshotQueryService,
+    AiViewRepository,
   ],
   exports: [SnapshotQueryService],
 })

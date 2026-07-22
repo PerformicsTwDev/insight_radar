@@ -13,6 +13,7 @@ import { AiAnalysisService } from 'src/ai-visibility/ai-analysis.service';
 import { BrandExtractionService } from 'src/ai-visibility/brand-extraction.service';
 import { SentimentService } from 'src/ai-visibility/sentiment.service';
 import { MediaClassifierService } from 'src/ai-visibility/media-classifier.service';
+import { normalizeText } from 'src/google-ads/normalize';
 import { createPrismaTestApp } from '../utils/create-prisma-test-app';
 
 /**
@@ -115,6 +116,13 @@ describe('AiAnalysisService (integration · Testcontainers, TC-78 部分)', () =
     await prisma.$executeRawUnsafe('DELETE FROM ai_cited_references');
     await prisma.$executeRawUnsafe('DELETE FROM ai_answers');
     await prisma.$executeRawUnsafe('DELETE FROM brand_profiles');
+    await prisma.$executeRawUnsafe('DELETE FROM ai_search_runs');
+    await prisma.$executeRawUnsafe('DELETE FROM keyword_journey_assignments');
+    await prisma.$executeRawUnsafe('DELETE FROM keyword_intents');
+    await prisma.snapshotRow.deleteMany();
+    await prisma.keywordAnalysis.updateMany({ data: { resultSnapshotId: null } });
+    await prisma.resultSnapshot.deleteMany();
+    await prisma.keywordAnalysis.deleteMany();
   });
 
   async function seedBrand(): Promise<string> {
@@ -253,5 +261,96 @@ describe('AiAnalysisService (integration · Testcontainers, TC-78 部分)', () =
     expect(await prisma.aiAnswer.count({ where: { jobId } })).toBe(1);
     expect(await prisma.aiCitedReference.count({ where: { jobId } })).toBe(1);
     expect(await prisma.aiVisibilityMetric.count({ where: { jobId } })).toBe(1);
+  });
+
+  // ── #678 G3 (T15.8b, AC-43.3)：assembleAnalysis 補 query→意圖(keyword_intents)/購買歷程
+  // (keyword_journey_assignments) join → ai_visibility_metrics 含 intent/journey 維度 scope。 ──
+  it('G3：linked analysis 有 intent/journey 指派 → 指標落 keyword + intent + journey 三維度', async () => {
+    const brandProfileId = await seedBrand();
+    const analysisId = randomUUID();
+    const snapshotId = randomUUID();
+    const jobId = randomUUID();
+    const query = 'asus zenbook';
+    const nt = normalizeText(query);
+
+    await prisma.keywordAnalysis.create({
+      data: {
+        id: analysisId,
+        status: 'completed',
+        seeds: [],
+        params: {},
+        progress: {},
+        idempotencyKey: `idem-${analysisId}`,
+      },
+    });
+    await prisma.resultSnapshot.create({
+      data: { id: snapshotId, analysisId, keywordCount: 1, checksum: 'x' },
+    });
+    await prisma.keywordAnalysis.update({
+      where: { id: analysisId },
+      data: { resultSnapshotId: snapshotId },
+    });
+    // AI Search run linked → analyzeAndPersist 由 jobId 解出 keywordAnalysisId → snapshot → journey 指派。
+    await prisma.aiSearchRun.create({
+      data: {
+        id: jobId,
+        ownerId: null,
+        keywordAnalysisId: analysisId,
+        status: 'running',
+        params: {},
+        progress: {},
+        idempotencyKey: `run-${jobId}`,
+      },
+    });
+    // M2 意圖（keyword_intents，全域 by normalizedText）+ FR-33 購買歷程（keyword_journey_assignments，by snapshot）。
+    await prisma.keywordIntent.create({
+      data: { normalizedText: nt, modelVersion: 'v-test', labels: ['commercial'] },
+    });
+    await prisma.keywordJourneyAssignment.create({
+      data: { analysisId, snapshotId, normalizedText: nt, stage: 'consideration' },
+    });
+
+    await service.analyzeAndPersist({
+      jobId,
+      ownerId: null,
+      brandProfileId,
+      captures: [canonical('chatGpt', query, 'ASUS is great')],
+    });
+
+    // keyword 維度（既有）。
+    const keywordDim = await prisma.aiVisibilityMetric.findMany({
+      where: { jobId, dimension: 'keyword', brand: 'ASUS' },
+    });
+    expect(keywordDim).toHaveLength(1);
+    expect(keywordDim[0].groupKey).toBe(query);
+
+    // intent 維度（G3）：group=意圖類別、mentions 沿用同一露出（不改情緒/意圖語意，僅加維度）。
+    const intentDim = await prisma.aiVisibilityMetric.findMany({
+      where: { jobId, dimension: 'intent', brand: 'ASUS' },
+    });
+    expect(intentDim).toHaveLength(1);
+    expect(intentDim[0].groupKey).toBe('commercial');
+    expect(intentDim[0].mentions).toBe(1);
+
+    // journey 維度（G3）：group=購買歷程階段。
+    const journeyDim = await prisma.aiVisibilityMetric.findMany({
+      where: { jobId, dimension: 'journey', brand: 'ASUS' },
+    });
+    expect(journeyDim).toHaveLength(1);
+    expect(journeyDim[0].groupKey).toBe('consideration');
+  });
+
+  it('G3：standalone job（無 linked analysis）→ 僅 keyword 維度（無 intent/journey，不硬崩）', async () => {
+    const brandProfileId = await seedBrand();
+    const jobId = randomUUID();
+    // 無 aiSearchRun / 無 keyword_intents / 無 journey 指派 → intent/journey 映射空。
+    await service.analyzeAndPersist({
+      jobId,
+      ownerId: null,
+      brandProfileId,
+      captures: [canonical('chatGpt', 'asus zenbook', 'ASUS is great')],
+    });
+    const dims = await prisma.aiVisibilityMetric.findMany({ where: { jobId } });
+    expect(dims.every((d) => d.dimension === 'keyword')).toBe(true);
   });
 });

@@ -28,6 +28,11 @@ interface Mocks {
   classifyMediaOutcome: jest.Mock;
   replaceForJob: jest.Mock;
   findFirst: jest.Mock;
+  // #678 G3：query→意圖/購買歷程維度映射載入（預設空 → 僅 keyword 維度、無回歸）。
+  intentFindMany: jest.Mock;
+  runFindUnique: jest.Mock;
+  analysisFindUnique: jest.Mock;
+  journeyFindMany: jest.Mock;
 }
 
 function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mocks } {
@@ -59,6 +64,10 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
       }),
     ),
     findFirst: jest.fn(() => Promise.resolve(BRAND_ROW)),
+    intentFindMany: jest.fn(() => Promise.resolve([])),
+    runFindUnique: jest.fn(() => Promise.resolve(null)),
+    analysisFindUnique: jest.fn(() => Promise.resolve(null)),
+    journeyFindMany: jest.fn(() => Promise.resolve([])),
     ...over,
   };
   const service = new AiAnalysisService(
@@ -66,7 +75,13 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
     { analyzeSentimentOutcome: m.analyzeSentimentOutcome },
     { classifyMediaOutcome: m.classifyMediaOutcome },
     { replaceForJob: m.replaceForJob },
-    { brandProfile: { findFirst: m.findFirst } } as unknown as PrismaService,
+    {
+      brandProfile: { findFirst: m.findFirst },
+      keywordIntent: { findMany: m.intentFindMany },
+      aiSearchRun: { findUnique: m.runFindUnique },
+      keywordAnalysis: { findUnique: m.analysisFindUnique },
+      keywordJourneyAssignment: { findMany: m.journeyFindMany },
+    } as unknown as PrismaService,
     { schemaVersion: 'v9' },
   );
   return { service, m };
@@ -162,6 +177,38 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     const asus = rowsOf(m).metrics.filter((row) => row.brand === 'ASUS');
     expect(asus).toHaveLength(1); // 單一 scope（非兩列）
     expect(asus[0].mentions).toBe(2); // 兩 capture 各 1 → 加總
+  });
+
+  // ── #678 G3 (AC-43.3)：query→意圖(keyword_intents)/購買歷程(keyword_journey_assignments) join → 三維度 scope。 ──
+  it('G3：intent/journey 映射齊備 → 指標落 keyword + intent + journey 三維度（僅加維度、露出不變）', async () => {
+    const { service, m } = build({
+      intentFindMany: jest.fn(() =>
+        Promise.resolve([{ normalizedText: 'asus laptop', labels: ['commercial'] }]),
+      ),
+      runFindUnique: jest.fn(() => Promise.resolve({ keywordAnalysisId: 'ka-1' })),
+      analysisFindUnique: jest.fn(() => Promise.resolve({ resultSnapshotId: 'snap-1' })),
+      journeyFindMany: jest.fn(() =>
+        Promise.resolve([{ normalizedText: 'asus laptop', stage: 'consideration' }]),
+      ),
+    });
+    await service.analyzeAndPersist({ ...base, captures: [cap({ blocks: ['ASUS rocks'] })] });
+    // 意圖映射全域 by normalizedText；購買歷程 by linked snapshot（jobId→run→analysis→snapshot）。
+    expect(m.journeyFindMany).toHaveBeenCalledWith({
+      where: { snapshotId: 'snap-1', normalizedText: { in: ['asus laptop'] } },
+      select: { normalizedText: true, stage: true },
+    });
+    const { metrics } = rowsOf(m);
+    const asus = (dim: string) => metrics.find((r) => r.brand === 'ASUS' && r.dimension === dim);
+    expect(asus('keyword')).toMatchObject({ groupKey: 'asus laptop', mentions: 1 });
+    expect(asus('intent')).toMatchObject({ groupKey: 'commercial', mentions: 1 });
+    expect(asus('journey')).toMatchObject({ groupKey: 'consideration', mentions: 1 });
+  });
+
+  it('G3：無 intent/journey 映射（standalone / 未分類）→ 僅 keyword 維度（不硬崩）', async () => {
+    const { service, m } = build(); // 預設映射空
+    await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    const dims = new Set(rowsOf(m).metrics.map((r) => r.dimension));
+    expect([...dims]).toEqual(['keyword']);
   });
 
   it('無 brandProfileId → 空品牌集：仍落 answers（原字保留）、指標 0 列、不查 DB、不判情緒', async () => {

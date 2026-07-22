@@ -1,17 +1,25 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { AuthenticatedUser } from '../common/authenticated-user';
-import { assertOwnedRow } from '../common/owner-scope';
+import { assertOwnedRow, ownerWhere } from '../common/owner-scope';
 import { queryConfig } from '../config/query.config';
 import { type AnalysisFeatureInput, computeFeatures } from '../keyword-analysis/features';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import { PrismaService } from '../prisma';
+import { AiViewRepository } from './ai-view.repository';
 import { FeatureNotReadyException } from './feature-not-ready.exception';
 import { type FilterSpec, applyFilter } from './filter-spec';
 import { NotReadyException } from './not-ready.exception';
 import { type PageSpec, type SortSpec, selectPage } from './paginate';
 import { QueryViewService } from './query-view.service';
-import { type QueryLimits, type QueryRequest, type ViewResult, customView } from './views';
+import {
+  AI_SEARCH_VIEW_NAMES,
+  AI_VIEW_SOURCE,
+  type QueryLimits,
+  type QueryRequest,
+  type ViewResult,
+  customView,
+} from './views';
 
 /** 依賴 journey feature 的 view 名（僅這些 view 才查 JourneyRun + left-join stage，T12.6/AC-33.4/33.6）。 */
 const JOURNEY_VIEWS = new Set<string>(['journey', 'journey_funnel']);
@@ -61,6 +69,7 @@ export class SnapshotQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly viewService: QueryViewService,
+    private readonly aiViewRepo: AiViewRepository,
     @Inject(queryConfig.KEY) private readonly config: ConfigType<typeof queryConfig>,
   ) {}
 
@@ -122,6 +131,17 @@ export class SnapshotQueryService {
     }
     if (JOURNEY_VIEWS.has(view)) {
       const run = await this.prisma.journeyRun.findFirst({
+        where: { keywordAnalysisId: analysisId, status: { in: ['completed', 'partial'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      return run?.id ?? '';
+    }
+    if (AI_SEARCH_VIEW_NAMES.has(view)) {
+      // AI Search view 的資料版本＝最新 completed/partial linked `AiSearchRun.id`（比照 journey/custom 動態 view，
+      // Design §18.4 ⑤）：bump `AI_*_SCHEMA_VERSION`（→ 新 run）後 `(snapshotId, view, filters)` 相同亦得新版本、
+      // 不回舊 insight（60 天 TTL）。partial 亦落庫（某渠道 async 到達）→ 與 gate 的 ready 集一致。
+      const run = await this.prisma.aiSearchRun.findFirst({
         where: { keywordAnalysisId: analysisId, status: { in: ['completed', 'partial'] } },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
@@ -221,6 +241,12 @@ export class SnapshotQueryService {
     if (request.view.startsWith(CUSTOM_VIEW_PREFIX)) {
       return this.queryCustomView(analysisId, analysis.resultSnapshotId, request, limits);
     }
+    // AI Search view（T15.8b/#678 G2）：讀 T15.5 落庫（keyed by 最新 completed/partial linked run），gate 隨
+    // 真實資料翻轉（owner-scoped run 推導 `ai_search` feature；未 ready→409、非誤導空表 INV-6）。owner 已由
+    // loadAnalysis 驗分析；run 另 owner-scoped（shared analysis 下他 session 的 run 不外洩，S8/S25）。
+    if (AI_SEARCH_VIEW_NAMES.has(request.view)) {
+      return this.queryAiSearchView(analysis, analysisId, request, limits, actor);
+    }
     // journey view/漏斗依賴 journey feature（AC-33.6）：**僅** 該類 view 才查最新 JourneyRun 狀態（其餘 view
     // 免此開銷）；未接 run → not_generated → gate 擋（409）。
     const needsJourney = JOURNEY_VIEWS.has(request.view);
@@ -267,6 +293,54 @@ export class SnapshotQueryService {
     let rows = await this.loadRows(snapshotId);
     rows = await this.mergeCustomLabel(cid, rows);
     return this.viewService.queryWithView(rows, request, limits, customView(cid));
+  }
+
+  /**
+   * AI Search view 的解析 + 查詢（T15.8b/#678 G2；FR-44/AC-44.2）。gate 隨真實資料翻轉：以最新 **linked**
+   * `AiSearchRun`（owner-scoped，S8/S25）推導 `ai_search` feature——未 ready（無 run/running/failed/canceled）→
+   * `assertExecutable` 拋 409 `FEATURE_NOT_READY`（**先於**載入，非誤導空表 INV-6）；ready（completed/partial）→
+   * 由 {@link AI_VIEW_SOURCE} 載入該 run.id 的 T15.5 落庫列（`ai_answers`/`ai_cited_references`/
+   * `ai_visibility_metrics`）注入 `ctx.rows`，交 `queryWithView`（白名單/build 共用單點）套統一 `FilterSpec`。
+   */
+  private async queryAiSearchView(
+    analysis: AnalysisFeatureInput,
+    analysisId: string,
+    request: QueryRequest,
+    limits: QueryLimits,
+    actor: AuthenticatedUser,
+  ): Promise<ViewResult> {
+    // 最新 linked run（owner-scoped，鏡射 getStatus 的 G1 推導）；gate 依其 status（partial/completed→ready）。
+    const run = await this.aiViewRepo.findLatestLinkedRun(analysisId, ownerWhere(actor));
+    const features = computeFeatures(analysis, { aiSearchStatus: run?.status });
+    // 未 ready → 拋 409（先於載入，gated view 不白抓落庫，M6-R6 精神）；ready → 回解析出的 view def。
+    const view = this.viewService.assertExecutable(request.view, features);
+    // ready（completed/partial）⟹ run 非 null（`aiSearchFeatureStatus` 僅該兩態→ready，assertExecutable 已擋
+    // 其餘）；此分支理論不可達，僅為收斂型別（TS narrowing）+ 防禦。
+    if (!run) {
+      throw new FeatureNotReadyException('ai_search', 'not_generated');
+    }
+    const rows = await this.loadAiRows(request.view, run.id);
+    return this.viewService.queryWithView(rows, request, limits, view);
+  }
+
+  /**
+   * 依 {@link AI_VIEW_SOURCE} 載入某 AI view 的 T15.5 落庫列（keyed by jobId＝ready run.id）。回列以
+   * `SnapshotRowData[]` 收斂（動態讀取層之列非 snapshot 列，由對應 AI view `build` 以 `as unknown` 還原其型別）。
+   */
+  private async loadAiRows(view: string, jobId: string): Promise<SnapshotRowData[]> {
+    const source = AI_VIEW_SOURCE[view];
+    switch (source.table) {
+      case 'answers':
+        return (await this.aiViewRepo.findAnswers(jobId)) as unknown as SnapshotRowData[];
+      case 'cited':
+        return (await this.aiViewRepo.findCited(jobId)) as unknown as SnapshotRowData[];
+      case 'metrics':
+        // metrics view 必帶 dimension（AI_VIEW_SOURCE 定義保證）；keyword/intent/journey 篩選（AC-43.3）。
+        return (await this.aiViewRepo.findMetrics(
+          jobId,
+          source.dimension ?? 'keyword',
+        )) as unknown as SnapshotRowData[];
+    }
   }
 
   /** 取某分類定義最新 CustomClassifyRun 的 status（無→undefined；供 custom view readiness gate，AC-34.3）。 */

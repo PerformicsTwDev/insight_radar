@@ -189,3 +189,140 @@ describe('AI Search views registration + gating (e2e, TC-80)', () => {
     expect(byName.get('brand_ai_visibility_summary')?.allowedSelect).toEqual([]);
   });
 });
+
+/**
+ * TC-80（#678 G2/G3）：gate 隨真實資料翻轉——analysis 有 **completed linked `AiSearchRun`** + T15.5 落庫 →
+ * `POST /query{view:'ai_*'}` 回**真實資料 200**（非 409、非誤導空表）；`GET /:id` 的 `ai_search` feature = ready。
+ */
+describe('AI Search views ready → real data (e2e, TC-80 · #678 G2/G3)', () => {
+  let app: INestApplication<App>;
+  const RUN_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+  beforeAll(async () => {
+    const prisma = {
+      keywordAnalysis: {
+        findUnique: jest.fn(() =>
+          Promise.resolve({
+            status: 'completed',
+            resultSnapshotId: 'snap-1',
+            ownerId: null,
+            progress: { phase: 'done', percent: 100 },
+            resultSnapshot: { id: 'snap-1', keywordCount: 1 },
+          }),
+        ),
+      },
+      snapshotRow: {
+        findMany: jest.fn(() => Promise.resolve([{ data: srow({ normalizedText: 'a' }) }])),
+      },
+      journeyRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
+      // completed linked run → ai_search feature ready + build 讀該 run.id 的落庫。
+      aiSearchRun: {
+        findFirst: jest.fn(() => Promise.resolve({ id: RUN_ID, status: 'completed' })),
+      },
+      aiAnswer: {
+        findMany: jest.fn(() =>
+          Promise.resolve([
+            {
+              id: 'ans-1',
+              channel: 'chatGpt',
+              query: 'asus zenbook',
+              answerText: 'great',
+              brands: ['ASUS'],
+              positive: 1,
+              negative: 0,
+            },
+          ]),
+        ),
+      },
+      aiCitedReference: {
+        findMany: jest.fn(() =>
+          Promise.resolve([
+            {
+              id: 'cit-1',
+              channel: 'chatGpt',
+              query: 'asus zenbook',
+              link: 'https://asus.com',
+              domain: 'asus.com',
+              title: 'ASUS',
+              mediaType: 'retail',
+            },
+          ]),
+        ),
+      },
+      aiVisibilityMetric: {
+        findMany: jest.fn(() =>
+          Promise.resolve([
+            {
+              id: 'm-1',
+              channel: 'chatGpt',
+              dimension: 'keyword',
+              groupKey: 'asus zenbook',
+              brand: 'ASUS',
+              mentions: 3,
+              shareOfVoice: 0.75,
+              citations: 1,
+              exposure: null,
+            },
+          ]),
+        ),
+      },
+    };
+
+    const moduleRef = await overrideBackgroundWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
+      .overrideProvider(getQueueToken(KEYWORD_ANALYSIS_QUEUE))
+      .useValue({ add: jest.fn(), getJob: jest.fn() })
+      .overrideProvider(BULL_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(JOB_EVENTS_CONNECTION)
+      .useValue(new RedisMock())
+      .overrideProvider(JOB_QUEUE_EVENTS)
+      .useValue({ on: () => undefined, close: () => Promise.resolve() })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .overrideProvider(KeywordAnalysisProcessor)
+      .useValue({})
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    configureApp(app);
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const post = (body: object) =>
+    request(app.getHttpServer())
+      .post(`/api/v1/keyword-analyses/${ID}/query`)
+      .set('x-api-key', API_KEY)
+      .send(body);
+
+  it('GET /:id reports ai_search feature as ready (completed linked run)', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/keyword-analyses/${ID}`)
+      .set('x-api-key', API_KEY);
+    expect(res.status).toBe(200);
+    expect(
+      (res.body as { features?: Record<string, { status: string }> }).features?.ai_search,
+    ).toEqual({ status: 'ready' });
+  });
+
+  it('POST /query {view:ai_answers} → 200 real rows (not 409, not empty)', async () => {
+    const res = await post({ view: 'ai_answers' });
+    expect(res.status).toBe(200);
+    const body = res.body as { view: string; rows: Array<Record<string, unknown>> };
+    expect(body.view).toBe('ai_answers');
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ query: 'asus zenbook', brands: ['ASUS'] });
+  });
+
+  it('POST /query {view:brand_ai_visibility} → 200 real metric rows', async () => {
+    const res = await post({ view: 'brand_ai_visibility' });
+    expect(res.status).toBe(200);
+    const body = res.body as { rows: Array<Record<string, unknown>> };
+    expect(body.rows[0]).toMatchObject({ brand: 'ASUS', mentions: 3 });
+  });
+});
