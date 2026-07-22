@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiInsightModule } from './ai-insight/ai-insight.module';
+import { AiIntentSummaryModule } from './ai-intent-summary/ai-intent-summary.module';
 import { AiSearchModule } from './ai-search/ai-search.module';
 import { AiVisibilityModule } from './ai-visibility/ai-visibility.module';
 import { AuthModule } from './auth';
@@ -49,6 +50,7 @@ import { configNamespaces, validationSchema } from './config';
     TopicsModule,
     TrackingListModule,
     AiInsightModule,
+    AiIntentSummaryModule,
     JourneyModule,
     CustomClassifyModule,
     IdeationModule,

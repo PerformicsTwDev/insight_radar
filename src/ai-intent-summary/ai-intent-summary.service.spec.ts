@@ -96,6 +96,31 @@ describe('TC-67 (部分): AiIntentSummaryService (T12.1 / FR-31 / SERP-grounded)
     expect(parseChat).not.toHaveBeenCalled();
   });
 
+  it('AC-31.6 gate: a malformed capture (non-array blocks, no references) has no grounding → gate (defensive)', async () => {
+    const { service, parseChat } = build();
+    await expect(
+      // blocks arriving as malformed JSON (not an array) → treated as no SERP grounding, not fabricated.
+      service.summarize('kw', { blocks: 'not-an-array' as unknown as unknown[] }),
+    ).rejects.toBeInstanceOf(SerpNotCapturedError);
+    expect(parseChat).not.toHaveBeenCalled();
+  });
+
+  it('AC-31.4 happy path: a capture with blocks only (no references field) still summarizes (references→[])', async () => {
+    const { service, parseChat, get, set } = build();
+    parseChat.mockResolvedValue(ok('blocks-only summary'));
+
+    const blocksOnly: SerpCapture = { blocks: [{ text: 'organic-only serp' }] };
+    const out = await service.summarize('kw', blocksOnly);
+
+    expect(out).toEqual({ normalizedText: 'kw', summary: 'blocks-only summary' });
+    // serpHash / prompt fold references→[] so an absent references field is deterministic.
+    const key = expectedKey('kw', blocksOnly);
+    expect(get).toHaveBeenCalledWith(key);
+    expect(set).toHaveBeenCalledWith(key, out, 5184000000);
+    // the untrusted data region still carries the blocks + an empty references array.
+    expect(userContent(parseChat.mock.calls[0][0])).toContain('organic-only serp');
+  });
+
   it('AC-31.4 happy path: captured SERP → one grounded LLM completion → { normalizedText, summary }', async () => {
     const { service, parseChat } = build();
     parseChat.mockResolvedValue(ok('使用者想比較入門跑鞋…'));

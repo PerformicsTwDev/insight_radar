@@ -144,6 +144,24 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       expect(error?.message).toContain('CAPTURE_PAT_ENABLED');
     });
 
+    it('defaults the per-keyword AI intent-summary tunables (FR-31 SERP-grounded, T12.1)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv); // validEnv omits the AI_SUMMARY_* keys
+      expect(error).toBeUndefined();
+      expect(value.AI_SUMMARY_SCHEMA_VERSION).toBe('v1'); // 預設 → 不致 ai_intent_summary:undefined: namespace
+      expect(value.CACHE_TTL_AI_SUMMARY_MS).toBe(5184000000);
+      expect(value.AI_SUMMARY_MAX_TOKENS).toBe(800);
+    });
+
+    it('rejects a malformed AI_SUMMARY_SCHEMA_VERSION (no `:` injection into the cache namespace)', () => {
+      const { error } = validationSchema.validate(
+        { ...validEnv, AI_SUMMARY_SCHEMA_VERSION: 'v1:evil' },
+        { abortEarly: false },
+      );
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('AI_SUMMARY_SCHEMA_VERSION');
+    });
+
     it('fail-fasts when SESSION_SECRET is missing (M10 required secret, TC-63)', () => {
       const noSecret: Record<string, string> = { ...validEnv };
       delete noSecret.SESSION_SECRET;
