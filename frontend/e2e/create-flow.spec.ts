@@ -4,6 +4,7 @@ import {
   keywordsBody,
   stubAnalysisStatus,
   stubCreateAnalysis,
+  stubQuery,
   stubStreamsOffline,
   stubViews,
 } from './support/stubs';
@@ -21,6 +22,7 @@ const KEYWORDS_URL = new RegExp(`/api/v1/keyword-analyses/${ANALYSIS_ID}/keyword
 
 test('create an analysis → job progress → keywords grand table (TC-43)', async ({ page }) => {
   await stubViews(page);
+  await stubQuery(page);
   await stubStreamsOffline(page);
   await stubCreateAnalysis(page, ANALYSIS_ID);
 

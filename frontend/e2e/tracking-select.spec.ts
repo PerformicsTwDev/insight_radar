@@ -1,5 +1,11 @@
 import { expect, test, type Route } from '@playwright/test';
-import { keywordRow, keywordsBody, stubAnalysisStatus, stubViews } from './support/stubs';
+import {
+  keywordRow,
+  keywordsBody,
+  stubAnalysisStatus,
+  stubQuery,
+  stubViews,
+} from './support/stubs';
 
 /**
  * TC-47 results-page segment (e2e, FR-19) — the write-side bulk-add flow that T5.7
@@ -24,6 +30,7 @@ test('select results rows → bulk-create a tracking list → open its detail (T
   page,
 }) => {
   await stubViews(page);
+  await stubQuery(page);
   await stubAnalysisStatus(page, ANALYSIS_ID, { status: 'completed', features: {} });
   await page.route(KEYWORDS_URL, (route) =>
     route.fulfill({ json: keywordsBody([keywordRow('running shoes'), keywordRow('trail shoes')]) }),

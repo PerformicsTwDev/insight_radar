@@ -130,4 +130,22 @@ export const handlers = [
   // shape mirrors the backend `TrackingListSummary[]` contract (zod-validated in
   // `api/trackingLists.ts`).
   http.get('/api/v1/tracking-lists', () => HttpResponse.json([])),
+  // `POST :id/query` (T2.4, FR-5) — the view-router. The 搜尋詞總表 results page now
+  // embeds the 趨勢 card (TrendView, T7.4) which reads `{view:'trend'}` on mount, so an
+  // unstubbed results render must not trip `onUnhandledRequest: 'error'`. Default to an
+  // EMPTY-but-valid shape keyed off the requested `view` (trend → empty trend axis; else
+  // an empty table). Tests that assert on data override with `server.use(...)`. Response
+  // shapes mirror the backend view-router union (zod-validated in `api/query.ts`).
+  http.post('/api/v1/keyword-analyses/:id/query', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { view?: string };
+    if (body.view === 'trend') {
+      return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+    }
+    return HttpResponse.json({
+      view: body.view ?? 'keywords',
+      columns: [],
+      rows: [],
+      pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
+    });
+  }),
 ];
