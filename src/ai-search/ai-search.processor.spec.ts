@@ -51,6 +51,10 @@ interface BuildOpts {
   deleteError?: unknown;
   /** T15.5 分析 stage 降級數（needsReview>0 → run partial）；預設 0（無降級）。 */
   analysisNeedsReview?: number;
+  /** #683/M15-R1: captures a prior attempt already persisted for the job (reused on BullMQ retry, no re-charge). */
+  persistedCanonical?: AiSearchCanonical[];
+  /** #683/M15-R1: force analyzeAndPersist to reject (models a transient LLM/infra failure mid-analysis). */
+  analysisError?: Error;
 }
 function build(opts: BuildOpts = {}) {
   const fetchAiOverviews = jest.fn(() => Promise.resolve(opts.aiOverviews ?? []));
@@ -74,22 +78,28 @@ function build(opts: BuildOpts = {}) {
   const persistCanonical = jest.fn((_jobId: string, _owner: string | null, rows: unknown[]) =>
     opts.persistError ? Promise.reject(opts.persistError) : Promise.resolve((rows as []).length),
   );
+  const readCanonicalByJobId = jest.fn<Promise<AiSearchCanonical[]>, [string]>(() =>
+    Promise.resolve(opts.persistedCanonical ?? []),
+  );
   const captureRepo = {
     deleteByJobId,
     readRawExtensionCaptures,
     persistCanonical,
+    readCanonicalByJobId,
   } as unknown as AiSearchCaptureRepository;
 
   // T15.5 分析 stage stub：抓取 processor 只關心其回傳的 `needsReview`（→ partial 收斂）；分析編排/持久化
   // 由 ai-analysis.service.spec / ai-analysis-job.int-spec 獨立把關（不在此重測）。
   const analyzeAndPersist = jest.fn(
     (_input: { jobId: string; brandProfileId: string | null; captures: AiSearchCanonical[] }) =>
-      Promise.resolve({
-        answersCount: 0,
-        citedCount: 0,
-        metricsCount: 0,
-        needsReview: opts.analysisNeedsReview ?? 0,
-      }),
+      opts.analysisError
+        ? Promise.reject(opts.analysisError)
+        : Promise.resolve({
+            answersCount: 0,
+            citedCount: 0,
+            metricsCount: 0,
+            needsReview: opts.analysisNeedsReview ?? 0,
+          }),
   );
   const aiAnalysis = { analyzeAndPersist } as unknown as AiAnalysisService;
 
@@ -108,6 +118,7 @@ function build(opts: BuildOpts = {}) {
     deleteByJobId,
     readRawExtensionCaptures,
     persistCanonical,
+    readCanonicalByJobId,
     analyzeAndPersist,
   };
 }
@@ -349,6 +360,91 @@ describe('TC-77: AiSearchProcessor', () => {
       expect(result).toEqual({ status: 'completed', captureCount: 1 });
       expect(markStatus).toHaveBeenLastCalledWith('run-1', 'completed', { captureCount: 1 });
       expect(markStatus).not.toHaveBeenCalledWith('run-1', 'failed', expect.anything());
+    });
+
+    describe('BullMQ retry does not re-charge the paid SerpAPI pull (#683/M15-R1)', () => {
+      it('reuses persisted captures on a retry (attemptsMade>0): no re-fetch, no clean-slate, no re-persist', async () => {
+        const {
+          processor,
+          fetchAiOverviews,
+          deleteByJobId,
+          persistCanonical,
+          readCanonicalByJobId,
+        } = build({
+          persistedCanonical: [
+            serpCanonical('aiOverview', 'asus zenbook'),
+            serpCanonical('chatGpt', 'asus zenbook'),
+          ],
+        });
+        const { j } = makeJob(
+          { channels: ['aiOverview', 'chatGpt'] },
+          { attemptsMade: 1, attempts: 5 },
+        );
+
+        const result = await processor.process(j);
+
+        // The paid pull + destructive clean-slate + re-persist must all be skipped on a retry.
+        expect(fetchAiOverviews).not.toHaveBeenCalled();
+        expect(deleteByJobId).not.toHaveBeenCalled();
+        expect(persistCanonical).not.toHaveBeenCalled();
+        expect(readCanonicalByJobId).toHaveBeenCalledWith('run-1');
+        expect(result).toEqual({ status: 'completed', captureCount: 2 });
+      });
+
+      it('feeds the reused captures to the analysis stage (retry re-runs analysis only)', async () => {
+        const { processor, analyzeAndPersist } = build({
+          persistedCanonical: [serpCanonical('aiOverview', 'asus zenbook')],
+        });
+        const { j } = makeJob({ channels: ['aiOverview'] }, { attemptsMade: 2, attempts: 5 });
+
+        await processor.process(j);
+
+        const arg = analyzeAndPersist.mock.calls[0][0];
+        expect(arg.captures).toHaveLength(1);
+        expect(arg.captures[0].channel).toBe('aiOverview');
+        expect(arg.captures[0].source).toBe('serpapi');
+      });
+
+      it('falls back to a full fetch on a retry when nothing was persisted (prior attempt failed pre-persist)', async () => {
+        const { processor, fetchAiOverviews, deleteByJobId, persistCanonical } = build({
+          persistedCanonical: [], // prior attempt threw before persisting → nothing durable to reuse
+          aiOverviews: [
+            {
+              query: 'asus zenbook',
+              aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+              creditsUsed: 1,
+            },
+          ],
+        });
+        const { j } = makeJob({ channels: ['aiOverview'] }, { attemptsMade: 1, attempts: 5 });
+
+        const result = await processor.process(j);
+
+        expect(deleteByJobId).toHaveBeenCalledWith('run-1');
+        expect(fetchAiOverviews).toHaveBeenCalledTimes(1);
+        expect(persistCanonical).toHaveBeenCalledTimes(1);
+        expect(result.status).toBe('completed');
+      });
+
+      it('first attempt (attemptsMade=0) never consults persisted captures — always a fresh fetch', async () => {
+        const { processor, readCanonicalByJobId, fetchAiOverviews, deleteByJobId } = build({
+          persistedCanonical: [serpCanonical('aiOverview', 'stale')],
+          aiOverviews: [
+            {
+              query: 'asus zenbook',
+              aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+              creditsUsed: 1,
+            },
+          ],
+        });
+        const { j } = makeJob({ channels: ['aiOverview'] }, { attemptsMade: 0, attempts: 5 });
+
+        await processor.process(j);
+
+        expect(readCanonicalByJobId).not.toHaveBeenCalled();
+        expect(deleteByJobId).toHaveBeenCalledWith('run-1');
+        expect(fetchAiOverviews).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('completes even when job.updateProgress (SSE publish) fails — best-effort, non-blocking', async () => {

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { CaptureChannel, CaptureSource } from '../captures/dto/capture-ingest.dto';
-import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
+import type { AiReference, AiSearchCanonical } from '../captures/mapping/canonical.types';
 import { PrismaService } from '../prisma';
 
 /** 供 mapper 收斂的一筆 raw extension capture（自 `captures` append-only 層）。 */
@@ -57,6 +57,37 @@ export class AiSearchCaptureRepository {
       channel: row.channel as CaptureChannel,
       payload: row.payload,
       capturedAt: row.capturedAt,
+    }));
+  }
+
+  /**
+   * 讀回本 job 已落庫的合流 canonical（`ai_search_captures` by jobId → 重建 `AiSearchCanonical`）。供 processor 於
+   * **BullMQ 重試**時**重用**前一 attempt 已完成的 **PAID** SerpAPI pull 結果，而非重打供應商重扣 credit（#683/M15-R1；
+   * 抓取+落列在 analysis stage 之前，故 analysis 於非 final attempt throw → 整 job 重試時前次 pull 結果仍在庫）。以
+   * `capturedAt,id` 穩定排序（決定論）。`blocks`/`references` 由 JSONB 原樣重建（落列時即 canonical 投影，來回同形狀）。
+   */
+  async readCanonicalByJobId(jobId: string): Promise<AiSearchCanonical[]> {
+    const rows = await this.prisma.aiSearchCapture.findMany({
+      where: { jobId },
+      orderBy: [{ capturedAt: 'asc' }, { id: 'asc' }],
+      select: {
+        channel: true,
+        query: true,
+        source: true,
+        schemaVersion: true,
+        blocks: true,
+        references: true,
+        capturedAt: true,
+      },
+    });
+    return rows.map((row) => ({
+      source: row.source as CaptureSource,
+      channel: row.channel as CaptureChannel,
+      schemaVersion: row.schemaVersion,
+      query: row.query,
+      blocks: row.blocks as unknown[],
+      references: row.references as unknown as AiReference[],
+      capturedAt: row.capturedAt.toISOString(),
     }));
   }
 
