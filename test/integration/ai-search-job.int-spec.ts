@@ -223,6 +223,65 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
     expect(rows[0].source).toBe('serpapi');
   });
 
+  it('BullMQ retry after a transient failure BETWEEN the paid pull and persist does NOT re-charge the SerpAPI pull (#701/M15-R12)', async () => {
+    // Root cause (M15-R1 residual window, #701): the reuse-on-retry guard only spares the paid pull
+    // once persistCanonical lands. Any DB op BETWEEN the paid pull and persist (extension read /
+    // progress write) that throws transiently aborts pre-persist → the retry sees nothing durable
+    // (readCanonicalByJobId empty) → a full re-fetch → the SerpAPI pull is charged a second time.
+    const { runId } = await runRepo.createRun({
+      ownerId: null,
+      idempotencyKey: 'job-retry-window',
+      params: { schemaVersion: 'ai-search-v1' },
+    });
+    await seedExtensionCapture('chatGpt', 'asus zenbook');
+
+    let pullCount = 0;
+    const countingSerpAi: SerpAiProvider = {
+      fetchAiOverviews: (keywords: string[]) => {
+        pullCount += 1;
+        return Promise.resolve(
+          keywords.map((query) => ({ query, aiOverview: serpCanonical(query), creditsUsed: 1 })),
+        );
+      },
+      fetchAiModes: (keywords: string[]) =>
+        Promise.resolve(keywords.map((query) => ({ query, aiMode: null, creditsUsed: 0 }))),
+      fetchBingCopilot: (keywords: string[]) =>
+        Promise.resolve(keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }))),
+    };
+
+    // Real captureRepo; force the extension read (which sits between the paid pull and persist in the
+    // buggy order) to throw once on the first attempt, then fall through to the real implementation.
+    const readSpy = jest
+      .spyOn(captureRepo, 'readRawExtensionCaptures')
+      .mockRejectedValueOnce(new Error('transient DB error (mid-gather)'));
+
+    const processor = new AiSearchProcessor(countingSerpAi, runRepo, captureRepo, stubAnalysis, {
+      queueConcurrency: 3,
+      captureLookbackDays: 30,
+      captureScanLimit: 500,
+    });
+    const payload = {
+      runId,
+      channels: ['chatGpt', 'aiOverview'] as CaptureChannel[],
+      keywords: ['asus zenbook'],
+    };
+
+    // Attempt 1 (attemptsMade=0): aborts mid-gather (transient), non-final → BullMQ will retry.
+    await expect(processor.process(makeJob(payload, 0))).rejects.toThrow('transient DB error');
+    // Attempt 2 (attemptsMade=1): BullMQ retry re-runs process() from the top.
+    const result = await processor.process(makeJob(payload, 1));
+
+    expect(result.status).toBe('completed');
+    // The paid pull must have run exactly once across both attempts — no re-charge on retry.
+    expect(pullCount).toBe(1);
+    const rows = await prisma.aiSearchCapture.findMany({ where: { jobId: runId } });
+    expect(rows.map((r) => `${r.source}:${r.channel}`).sort()).toEqual([
+      'extension:chatGpt',
+      'serpapi:aiOverview',
+    ]);
+    readSpy.mockRestore();
+  });
+
   it('re-run is idempotent at the canonical layer (deleteByJobId clean slate → no duplicate rows)', async () => {
     const { runId } = await runRepo.createRun({
       ownerId: null,
