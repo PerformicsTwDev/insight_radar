@@ -48,11 +48,25 @@ arch); escalate the token/permission fix instead of committing an arm64 baseline
 project, TC-49 to TC-54). A **missing baseline is a hard red** (rule §2) — CI never
 auto-generates one; that is exclusively `visual-baseline.yml`'s job.
 
-## Baselines (T6.3 / M6): the seven view goldens (TC-49~54)
+## Baselines (T6.3 / M6, re-aligned to v4 at M7 / T7.6): the seven view goldens (TC-49~54)
 
 Real mockup-golden baselines are captured at **M6 / T6.3** from the design mockups
 ([`docs/_p/uiux/*.html`](../../../docs/_p/uiux/) — Search Insight v3/v4 and
-keyword-tracking v2). Each spec navigates a **routed** view (`/?analysisId=…&view=…`
+keyword-tracking v2).
+
+> **v4 basis (M7 / T7.6, FR-14 修訂).** The golden **basis is the v4 design**
+> (`docs/_p/uiux/Search Insight and AI Insight_v4.html`, per FR-14 修訂 2026-07-22).
+> As the M7 tasks re-aligned the UI, the affected `main`/region-scoped goldens were
+> regenerated (via `visual-baseline.yml`) to the v4 state: `home-create-form.png`
+> (T7.2 → T7.10 slim → T7.11 AI dropdown), `feature-gate.png` (T7.3 collapsed
+> left-menu → shorter `main`), `tracking-detail.png` (T7.9 — a no-analysis page hides
+> the dimension menu → wider chart). The **element-scoped** goldens
+> (`keywords-table.png` / `trend-chart.png` / `intent-treemap.png` /
+> `journey-funnel.png` / `filter-chips.png`) target a single stable element whose
+> render is unchanged by the v4 shell/home re-org, so they stayed valid. T7.6 pins the
+> v4 basis here + verifies all goldens green via the `e2e` visual check.
+
+Each spec navigates a **routed** view (`/?analysisId=…&view=…`
 or `/tracking/$listId`), drives it to its ready state with the **T6.4 route-stub
 helpers** (`../support/stubs.ts` + `./support.ts`), and screenshots one **stable,
 dynamic-region-free element** (no timestamps in-frame; `animations:'disabled'` +
