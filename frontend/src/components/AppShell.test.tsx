@@ -87,3 +87,43 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
     expect(onSelectView).toHaveBeenCalledWith('intent_distribution');
   });
 });
+
+/**
+ * TC-58〔nav 部分〕 — the v4 three-line top-tab state machine (T7.1, FR-1). Labels
+ * align to v4 (`Search Insight` / `AI Search Insight` / `Social Insight`);
+ * Search Insight is the active product area (`aria-current="page"`), while
+ * AI Search Insight and Social Insight are roadmap-disabled — clicking one surfaces
+ * an ephemeral 即將推出 notice (a11y live region) and NEVER navigates / 404s. The
+ * shell stays presentational (Design §2): the roadmap hint is internal state, no
+ * router dependency.
+ */
+describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
+  it('renders the three v4 top tabs, with Search Insight active', () => {
+    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    expect(screen.getByRole('navigation', { name: '主要分頁' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Search Insight' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('button', { name: 'AI Search Insight' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Social Insight' })).toBeInTheDocument();
+  });
+
+  it('AI Search Insight is a roadmap tab: not active, click surfaces 即將推出 without navigating', () => {
+    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    const ai = screen.getByRole('button', { name: 'AI Search Insight' });
+    expect(ai).not.toHaveAttribute('aria-current');
+    // no notice before interaction (not drawn empty)
+    expect(screen.queryByText('即將推出')).not.toBeInTheDocument();
+    fireEvent.click(ai);
+    expect(screen.getByRole('status')).toHaveTextContent('即將推出');
+  });
+
+  it('Social Insight is a roadmap tab and surfaces the same 即將推出 notice on click', () => {
+    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    const social = screen.getByRole('button', { name: 'Social Insight' });
+    expect(social).not.toHaveAttribute('aria-current');
+    fireEvent.click(social);
+    expect(screen.getByText('即將推出')).toBeInTheDocument();
+  });
+});
