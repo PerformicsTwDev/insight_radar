@@ -11,6 +11,14 @@ describe('config env schema (VITE_ · §14, fail-fast)', () => {
     expect(c.maxPageSize).toBe(100);
     expect(c.offsetMaxPage).toBe(40);
     expect(c.trackingDefaultRange).toBe('12M');
+    expect(c.aiChannels).toEqual(['AI Overview', 'AI Mode', 'Gemini', 'ChatGPT']);
+  });
+
+  it('parses VITE_AI_CHANNELS as a trimmed, order-preserving, non-empty CSV', () => {
+    expect(parseConfig({ VITE_AI_CHANNELS: 'ChatGPT, Gemini ,, ' }).aiChannels).toEqual([
+      'ChatGPT',
+      'Gemini',
+    ]);
   });
 
   it('parses & coerces provided values', () => {

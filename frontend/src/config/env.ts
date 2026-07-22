@@ -22,7 +22,17 @@ const EnvSchema = z.object({
   VITE_POLL_INTERVAL_MS: num(2000),
   VITE_VIRTUAL_ROW_THRESHOLD: num(100),
   VITE_TRACKING_DEFAULT_RANGE: z.enum(['6M', '12M', 'all']).default('12M'),
+  // AI Search 抓取渠道選項（FR-23，M8）：CSV of labels，enum 對映在 lib/aiSearchForm。
+  VITE_AI_CHANNELS: z.string().default('AI Overview,AI Mode,Gemini,ChatGPT'),
 });
+
+/** Split a CSV env value into trimmed, non-empty tokens (order-preserving). */
+function csv(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 /** 型別化 app config（駝峰）。 */
 export interface AppConfig {
@@ -38,6 +48,7 @@ export interface AppConfig {
   readonly pollIntervalMs: number;
   readonly virtualRowThreshold: number;
   readonly trackingDefaultRange: '6M' | '12M' | 'all';
+  readonly aiChannels: readonly string[];
 }
 
 /** 解析 + 驗證 config source（pure；`config` 以 `import.meta.env` 呼叫）。無效 → throw（fail-fast）。 */
@@ -61,6 +72,7 @@ export function parseConfig(source: Record<string, unknown>): AppConfig {
     pollIntervalMs: e.VITE_POLL_INTERVAL_MS,
     virtualRowThreshold: e.VITE_VIRTUAL_ROW_THRESHOLD,
     trackingDefaultRange: e.VITE_TRACKING_DEFAULT_RANGE,
+    aiChannels: csv(e.VITE_AI_CHANNELS),
   };
 }
 

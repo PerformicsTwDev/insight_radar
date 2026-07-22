@@ -3,13 +3,14 @@ import { useState } from 'react';
 import { createAiSearchAnalysis } from '../../api/aiSearchAnalyses';
 import { createBrandProfile } from '../../api/brandProfiles';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { config } from '../../config/env';
 import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import { appendDedupedSeeds } from '../../lib/aiIdeation';
 import {
-  AI_CHANNEL_OPTIONS,
   EXPLORE_MODE_OPTIONS,
   INITIAL_AI_SEARCH_FORM,
   aiSearchKeywords,
+  buildAiChannelOptions,
   isAiSearchSubmittable,
   missingAiSearchFields,
   toBrandProfilePayload,
@@ -35,6 +36,10 @@ const CHANNEL_ON = 'bg-brand/15 text-white ring-brand/50';
 const CHANNEL_OFF = 'text-white/70 ring-white/15 hover:ring-white/30';
 const PRIMARY_BTN =
   'rounded-lg bg-brand px-6 py-2.5 text-sm font-semibold text-bg-body enabled:hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40';
+
+// Offered 抓取渠道 driven by VITE_AI_CHANNELS (Design §14); config is static, so
+// resolve the options once at module load (label → contract-bound enum).
+const CHANNEL_OPTIONS = buildAiChannelOptions(config.aiChannels);
 
 export function AiSearchHome() {
   const navigate = useNavigate();
@@ -171,7 +176,7 @@ export function AiSearchHome() {
             抓取渠道<span className="ml-1 text-xs font-normal text-white/40">（複選）</span>
           </legend>
           <div className="flex flex-wrap gap-3">
-            {AI_CHANNEL_OPTIONS.map((option) => {
+            {CHANNEL_OPTIONS.map((option) => {
               const on = form.channels.includes(option.value);
               return (
                 <button

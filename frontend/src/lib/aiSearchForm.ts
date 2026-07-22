@@ -36,6 +36,27 @@ export const AI_CHANNEL_OPTIONS: readonly AiChannelOption[] = [
   { value: 'chatGpt', label: 'ChatGPT' },
 ];
 
+/** Fixed label → channel-enum bijection (the canonical 4 v4 channels above). */
+const AI_CHANNEL_BY_LABEL: ReadonlyMap<string, AiChannel> = new Map(
+  AI_CHANNEL_OPTIONS.map((o) => [o.label, o.value]),
+);
+
+/**
+ * Build the offered channel options from a configured label list (`VITE_AI_CHANNELS`,
+ * Design §14). Each label maps to its **contract-bound** enum via the fixed bijection,
+ * preserving config order; labels not in the bijection are dropped (a channel enum is
+ * bound to the backend contract, so an unknown label can't be offered). Passing the
+ * default label set yields all four in order. Pure — no IO.
+ */
+export function buildAiChannelOptions(labels: readonly string[]): AiChannelOption[] {
+  const options: AiChannelOption[] = [];
+  for (const label of labels) {
+    const value = AI_CHANNEL_BY_LABEL.get(label);
+    if (value) options.push({ value, label });
+  }
+  return options;
+}
+
 export interface ExploreModeOption {
   readonly value: ExploreMode;
   readonly label: string;

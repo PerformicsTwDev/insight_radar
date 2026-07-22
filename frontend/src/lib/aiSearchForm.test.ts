@@ -4,6 +4,7 @@ import {
   EXPLORE_MODE_OPTIONS,
   INITIAL_AI_SEARCH_FORM,
   aiSearchKeywords,
+  buildAiChannelOptions,
   isAiSearchSubmittable,
   missingAiSearchFields,
   toBrandProfilePayload,
@@ -52,6 +53,21 @@ describe('AI_CHANNEL_OPTIONS (v4 labels → extension-primary channel enum)', ()
   it('exposes the two AI-line explore modes (single-select pills)', () => {
     expect(EXPLORE_MODE_OPTIONS.map((o) => o.value)).toEqual(['brand', 'specified']);
     expect(EXPLORE_MODE_OPTIONS.map((o) => o.label)).toEqual(['品牌整體模式', '指定模式']);
+  });
+});
+
+describe('buildAiChannelOptions (VITE_AI_CHANNELS-driven option list)', () => {
+  it('maps configured labels to contract-bound enums in config order, dropping unknown labels', () => {
+    expect(buildAiChannelOptions(['ChatGPT', 'AI Overview', 'Nope'])).toEqual([
+      { value: 'chatGpt', label: 'ChatGPT' },
+      { value: 'googleSearch', label: 'AI Overview' },
+    ]);
+  });
+
+  it('returns all four options for the default label set', () => {
+    expect(buildAiChannelOptions(['AI Overview', 'AI Mode', 'Gemini', 'ChatGPT'])).toEqual([
+      ...AI_CHANNEL_OPTIONS,
+    ]);
   });
 });
 
