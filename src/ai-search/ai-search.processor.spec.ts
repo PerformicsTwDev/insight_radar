@@ -125,9 +125,15 @@ function build(opts: BuildOpts = {}) {
 
 function makeJob(
   over: Partial<AiSearchJobPayload> = {},
-  attempt: { attemptsMade?: number; attempts?: number } = {},
+  attempt: { attemptsMade?: number; attempts?: number; attemptsStarted?: number } = {},
 ): { j: Job<AiSearchJobPayload>; jobUpdate: jest.Mock } {
   const jobUpdate = jest.fn(() => Promise.resolve(undefined));
+  const attemptsMade = attempt.attemptsMade ?? 4;
+  // BullMQ redelivery model (M15-R14/#706): `attemptsStarted` (ats) is HINCRBY'd on **every** dequeue
+  // (moveToActive→prepareJobForProcessing.lua), so a formal throw-retry runs with ats = attemptsMade + 1
+  // (dequeue 1: ats 1/atm 0 → throw → atm 1 → dequeue 2: ats 2/atm 1 …). Default the helper to that
+  // faithful mapping so existing retry tests still model a formal retry; stalled/crash redelivery tests
+  // override ats explicitly (atm stays 0 while ats>1 — the case `attemptsMade` alone can't see).
   const j = {
     data: {
       runId: 'run-1',
@@ -139,7 +145,8 @@ function makeJob(
       ...over,
     },
     updateProgress: jobUpdate,
-    attemptsMade: attempt.attemptsMade ?? 4,
+    attemptsMade,
+    attemptsStarted: attempt.attemptsStarted ?? attemptsMade + 1,
     opts: { attempts: 'attempts' in attempt ? attempt.attempts : 5 },
   } as unknown as Job<AiSearchJobPayload>;
   return { j, jobUpdate };
@@ -437,13 +444,81 @@ describe('TC-77: AiSearchProcessor', () => {
             },
           ],
         });
-        const { j } = makeJob({ channels: ['aiOverview'] }, { attemptsMade: 0, attempts: 5 });
+        // Fresh job's first dequeue: ats=1, atm=0 → first-attempt branch.
+        const { j } = makeJob(
+          { channels: ['aiOverview'] },
+          { attemptsMade: 0, attemptsStarted: 1, attempts: 5 },
+        );
 
         await processor.process(j);
 
         expect(readCanonicalByJobId).not.toHaveBeenCalled();
         expect(deleteByJobId).toHaveBeenCalledWith('run-1');
         expect(fetchAiOverviews).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    // M15-R14/#706: close the stalled/crash recovery re-charge window. `attemptsMade` (atm) only bumps on a
+    // formal throw→backoff retry (retryJob.lua). A worker killed/OOM/evicted mid-`analyzeAndPersist` (after the
+    // PAID pull + persist) bypasses graceful shutdown → the BullMQ stalled checker requeues via
+    // moveStalledJobsToWait.lua, which bumps only the stalled counter (`stc`) — **atm stays 0**. Only
+    // `attemptsStarted` (ats, HINCRBY'd on every dequeue) reflects the redelivery. Keying reuse on atm alone
+    // (the bug) sends the redelivered job down the first-attempt branch → deleteByJobId wipes the already-paid
+    // rows + re-charges the SerpAPI pull. Reuse must key on `attemptsStarted>1` so a stalled/crash redelivery
+    // (atm=0, ats>1) reuses the persisted captures instead.
+    describe('stalled/crash redelivery does not re-charge the paid SerpAPI pull (#706/M15-R14)', () => {
+      it('reuses persisted captures on a stalled redelivery (attemptsStarted>1, attemptsMade=0): no re-fetch, no clean-slate wipe of paid rows', async () => {
+        const {
+          processor,
+          fetchAiOverviews,
+          deleteByJobId,
+          persistCanonical,
+          readCanonicalByJobId,
+        } = build({
+          persistedCanonical: [
+            serpCanonical('aiOverview', 'asus zenbook'),
+            serpCanonical('chatGpt', 'asus zenbook'),
+          ],
+        });
+        // Stalled/crash redelivery: dequeued a 2nd time (ats=2) but never formally retried (atm=0).
+        const { j } = makeJob(
+          { channels: ['aiOverview', 'chatGpt'] },
+          { attemptsMade: 0, attemptsStarted: 2, attempts: 5 },
+        );
+
+        const result = await processor.process(j);
+
+        // The paid pull + destructive clean-slate + re-persist must all be skipped on a redelivery,
+        // even though attemptsMade is still 0 (stalled recovery never bumped it).
+        expect(fetchAiOverviews).not.toHaveBeenCalled();
+        expect(deleteByJobId).not.toHaveBeenCalled();
+        expect(persistCanonical).not.toHaveBeenCalled();
+        expect(readCanonicalByJobId).toHaveBeenCalledWith('run-1');
+        expect(result).toEqual({ status: 'completed', captureCount: 2 });
+      });
+
+      it('falls back to a full fetch on a stalled redelivery when the prior delivery persisted nothing (crash pre-persist)', async () => {
+        const { processor, fetchAiOverviews, deleteByJobId, persistCanonical } = build({
+          persistedCanonical: [], // prior delivery was killed before persisting → nothing durable to reuse
+          aiOverviews: [
+            {
+              query: 'asus zenbook',
+              aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+              creditsUsed: 1,
+            },
+          ],
+        });
+        const { j } = makeJob(
+          { channels: ['aiOverview'] },
+          { attemptsMade: 0, attemptsStarted: 2, attempts: 5 },
+        );
+
+        const result = await processor.process(j);
+
+        expect(deleteByJobId).toHaveBeenCalledWith('run-1');
+        expect(fetchAiOverviews).toHaveBeenCalledTimes(1);
+        expect(persistCanonical).toHaveBeenCalledTimes(1);
+        expect(result.status).toBe('completed');
       });
     });
 
