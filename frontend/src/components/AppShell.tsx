@@ -1,13 +1,17 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { FALLBACK_REGISTRY, type ViewNavItem } from '../lib/viewRegistry';
 
 /**
  * App shell layout (T1.1) — presentational only, no router/API dependency.
- * Top-tab bar (only **Search** active; AI / Social rendered disabled per Design)
- * + a left dimension menu (T3.1: driven by `GET /views` metadata, passed in as
- * `dimensions`; the fetch/fallback lives in `useViews`) + a main content slot. All
- * colours come from the design tokens in `src/index.css` (Tailwind utilities /
- * `var(--color-*)`) — no hardcoded hex (single-source rule, Design §6 / FR-14).
+ * v4 three-line top-tab bar (T7.1, FR-1 / TC-58〔nav〕): `Search Insight` is the
+ * active product area; `AI Search Insight` / `Social Insight` are roadmap tabs
+ * (M8 T8.4 enables AI Search) — clicking a roadmap tab surfaces an ephemeral
+ * 即將推出 notice and never navigates / 404s (the hint is internal state, so the
+ * shell keeps zero router dependency). Plus a left dimension menu (T3.1: driven by
+ * `GET /views` metadata, passed in as `dimensions`; the fetch/fallback lives in
+ * `useViews`) + a main content slot. All colours come from the design tokens in
+ * `src/index.css` (Tailwind utilities / `var(--color-*)`) — no hardcoded hex
+ * (single-source rule, Design §6 / FR-14).
  */
 
 export interface AppShellProps {
@@ -33,12 +37,20 @@ export interface AppShellProps {
   readonly headerExtra?: ReactNode;
 }
 
-/** Top-level product areas. Only Search is active for the shell; the rest are disabled. */
+/**
+ * v4 top-level product areas (TC-58〔nav〕). `Search Insight` is active; the two
+ * `roadmap` tabs are not yet available (AI Search enables at M8 T8.4, Social is NG2)
+ * — clicking one shows a 即將推出 notice instead of navigating.
+ */
 const TABS = [
-  { id: 'search', label: '搜尋分析', active: true },
-  { id: 'ai', label: 'AI 洞察', active: false },
-  { id: 'social', label: '社群', active: false },
+  { id: 'search', label: 'Search Insight', roadmap: false },
+  { id: 'ai', label: 'AI Search Insight', roadmap: true },
+  { id: 'social', label: 'Social Insight', roadmap: true },
 ] as const;
+
+const TAB_ACTIVE =
+  'rounded-lg border border-brand/50 bg-brand/10 px-4 py-4 text-sm font-medium text-brand';
+const TAB_ROADMAP = 'px-4 py-4 text-sm text-white/40 hover:text-white/60';
 
 export function AppShell({
   children,
@@ -48,27 +60,36 @@ export function AppShell({
   onSelectView,
   headerExtra,
 }: AppShellProps) {
+  // Roadmap tabs (AI Search / Social) are not navigable yet: clicking one flips this
+  // to show an ephemeral 即將推出 notice — never a route change / 404 (TC-58〔nav〕).
+  const [roadmapHint, setRoadmapHint] = useState(false);
   return (
     <div className="min-h-screen bg-bg-body text-white">
       <header className="border-b border-border-topbar bg-bg-card">
         <div className="flex items-center gap-6 px-6">
           <h1 className="py-4 text-lg font-semibold text-brand">Insight Radar</h1>
-          <nav aria-label="主要分頁" className="flex gap-1">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                aria-current={tab.active ? 'page' : undefined}
-                disabled={!tab.active}
-                className={
-                  tab.active
-                    ? 'border-b-2 border-brand px-4 py-4 text-sm font-medium text-white'
-                    : 'cursor-not-allowed px-4 py-4 text-sm text-white/30'
-                }
-              >
-                {tab.label}
-              </button>
-            ))}
+          <nav aria-label="主要分頁" className="flex items-center gap-1">
+            {TABS.map((tab) =>
+              tab.roadmap ? (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setRoadmapHint(true)}
+                  className={TAB_ROADMAP}
+                >
+                  {tab.label}
+                </button>
+              ) : (
+                <button key={tab.id} type="button" aria-current="page" className={TAB_ACTIVE}>
+                  {tab.label}
+                </button>
+              ),
+            )}
+            {roadmapHint ? (
+              <span role="status" className="ml-2 text-xs text-white/50">
+                即將推出
+              </span>
+            ) : null}
           </nav>
           {headerExtra ? <div className="ml-auto">{headerExtra}</div> : null}
         </div>
