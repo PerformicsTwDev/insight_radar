@@ -8,9 +8,9 @@ import type { JobStatus } from '@prisma/client';
  * - `serp`：SERP 抓取（FR-15，M7 落地）——目前尚未實作 compute。
  * - `topics`：意圖主題分群（FR-17/18，M8 落地）——目前尚未實作 compute。
  * - `journey`：購買歷程分類（FR-33，M12/T12.6）——狀態由 `JourneyRun` 推導（於 job slice 接線；此前 not_generated）。
- * - `ai_search`：AI Search 分析（FR-41 抓取 + FR-42/43 分析，M15/T15.6）——AI view（`ai_answers`/`ai_cited_*`/
- *   `*_ai_visibility`(+`_summary`)）依賴之。**目前一律 `not_generated`**（同 serp/topics「compute 未接線」）：
- *   `AiSearchRun` 為獨立 top-level job，其 owner-scoped 連結 + view `build` 讀 T15.5 落庫屬後續 slice（#678）。
+ * - `ai_search`：AI Search 分析（FR-41 抓取 + FR-42/43 分析，M15）——AI view（`ai_answers`/`ai_cited_*`/
+ *   `*_ai_visibility`(+`_summary`)）依賴之。**由該 analysis 最新 linked `AiSearchRun.status` 動態推導**
+ *   （`aiSearchFeatureStatus`，owner-scoped，T15.8a/#678 G1）；view `build` 實讀 T15.5 落庫屬後續 slice（G2）。
  */
 export const FEATURE_KEYS = ['keyword_metrics', 'serp', 'topics', 'journey', 'ai_search'] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
@@ -70,9 +70,19 @@ export function journeyFeatureStatus(runStatus: string | undefined): FeatureStat
  * completed/partial→`ready`（T15.5 已落 `ai_answers`/`ai_visibility_metrics`、資料已物化）；queued/running→`running`；
  * failed→`failed`；無 run / canceled→`not_generated`。鏡射 `journeyFeatureStatus`（「有物化結果即 ready」判準一致）。
  */
-export function aiSearchFeatureStatus(_runStatus: string | undefined): FeatureStatus {
-  // T15.8a RED 空殼：尚未映射 run 狀態；真正推導於 green（#678 G1）。
-  return 'not_generated';
+export function aiSearchFeatureStatus(runStatus: string | undefined): FeatureStatus {
+  switch (runStatus) {
+    case 'completed':
+    case 'partial':
+      return 'ready';
+    case 'queued':
+    case 'running':
+      return 'running';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'not_generated'; // undefined（無 linked run）/ canceled
+  }
 }
 
 /** computeFeatures 的可選外部狀態（由呼叫端查各 job/durable 資料帶入；省略→保守預設）。 */
@@ -84,8 +94,9 @@ export interface FeatureExtras {
 }
 
 /**
- * 聚合各 feature 對外狀態（AC-14.7 / AC-33.6 / AC-44.2）。`serp`/`topics`/`ai_search` 之 compute 尚未接線
- * （M7/M8/#678）→ 一律 `not_generated`；`journey` 由 `extras.journeyStatus`（最新 JourneyRun）推導（T12.6）。
+ * 聚合各 feature 對外狀態（AC-14.7 / AC-33.6 / AC-44.2）。`serp`/`topics` 之 compute 尚未接線（M7/M8）→ 一律
+ * `not_generated`；`journey` 由 `extras.journeyStatus`（最新 JourneyRun）推導（T12.6）；`ai_search` 由
+ * `extras.aiSearchStatus`（該 analysis 最新 linked `AiSearchRun`，owner-scoped）推導（T15.8a/#678 G1）。
  */
 export function computeFeatures(
   analysis: AnalysisFeatureInput,
@@ -96,6 +107,6 @@ export function computeFeatures(
     serp: { status: 'not_generated' },
     topics: { status: 'not_generated' },
     journey: { status: journeyFeatureStatus(extras.journeyStatus) },
-    ai_search: { status: 'not_generated' },
+    ai_search: { status: aiSearchFeatureStatus(extras.aiSearchStatus) },
   };
 }

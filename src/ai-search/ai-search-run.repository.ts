@@ -70,6 +70,8 @@ export class AiSearchRunRepository {
       const run = await this.prisma.aiSearchRun.create({
         data: {
           ownerId: input.ownerId,
+          // T15.8a（#678 G1）：Option A additive link（null=standalone）；於 create（created=true）落，reset 保留。
+          keywordAnalysisId: input.keywordAnalysisId ?? null,
           status: 'queued',
           params: input.params,
           progress: input.progress ?? {},
@@ -111,9 +113,11 @@ export class AiSearchRunRepository {
    * T15.8a（#678 G1）：取 keyword-analysis 的 owner 投影（供 service 層 owner-verify `analysisId` 連結，S8）。
    * 未知 → null（service 以 `assertOwnedRow` 收斂未知/越權為同一 404，不洩漏存在性）。
    */
-  findAnalysisOwner(_analysisId: string): Promise<{ ownerId: string | null } | null> {
-    // T15.8a RED 空殼：真正查詢於 green。
-    return Promise.resolve(null);
+  findAnalysisOwner(analysisId: string): Promise<{ ownerId: string | null } | null> {
+    return this.prisma.keywordAnalysis.findUnique({
+      where: { id: analysisId },
+      select: { ownerId: true },
+    });
   }
 
   /** 取某 run（GET / SSE；無→null）。owner 過濾由 service 層施加（S8）。 */

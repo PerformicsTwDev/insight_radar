@@ -121,7 +121,7 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
   it('links a provided analysisId (persists keywordAnalysisId) after owner-verify (T15.8a, #678 G1)', async () => {
     idempotencyRow = null; // fresh → create path
     analysisRow = { ownerId: null }; // known analysis; apiKey actor can access
-    const analysisId = '55555555-5555-5555-5555-555555555555';
+    const analysisId = '5b5c5d5e-1111-4111-8111-111111111111'; // valid RFC-4122 v4
     await post({ ...validBody, analysisId }).expect(202);
     expect(analysisFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: analysisId } }),
@@ -139,7 +139,7 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
   it('404 when linking an unknown analysisId (owner-verify, no enqueue)', async () => {
     idempotencyRow = null;
     analysisRow = null; // unknown analysis → assertOwnedRow throws 404
-    await post({ ...validBody, analysisId: '55555555-5555-5555-5555-555555555555' }).expect(404);
+    await post({ ...validBody, analysisId: '5b5c5d5e-1111-4111-8111-111111111111' }).expect(404);
     expect(runCreate).not.toHaveBeenCalled();
     expect(queueAdd).not.toHaveBeenCalled();
   });

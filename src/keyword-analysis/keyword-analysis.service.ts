@@ -349,9 +349,16 @@ export class KeywordAnalysisService {
       orderBy: { createdAt: 'desc' },
       select: { status: true },
     });
+    // ai_search feature 由最新 linked AiSearchRun 推導（AC-44.2/T15.8a #678 G1）；**owner-scoped**（Option A link
+    // 下 shared analysis 可能被他 session 掛 run → `ownerWhere(actor)` 過濾，只見自己 + 共享，S8）；無 run → not_generated。
+    const aiSearchRun = await this.prisma.aiSearchRun.findFirst({
+      where: { keywordAnalysisId: analysisId, ...ownerWhere(actor) },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    });
     const features = computeFeatures(
       { status: row.status, resultSnapshotId: row.resultSnapshotId },
-      { journeyStatus: journeyRun?.status },
+      { journeyStatus: journeyRun?.status, aiSearchStatus: aiSearchRun?.status },
     );
 
     return { status: row.status, progress, result, features };

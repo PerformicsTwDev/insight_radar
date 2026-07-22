@@ -39,8 +39,8 @@ describe('computeFeatures (T6.8)', () => {
     expect(features.topics).toEqual({ status: 'not_generated' });
   });
 
-  it('ai_search is not_generated (AI Search compute not wired, M15/T15.6/#678)', () => {
-    // AI view（ai_answers/ai_cited_*/*_ai_visibility）依賴之 → gated placeholder（AC-44.2）；接線前恆 not_generated。
+  it('ai_search is not_generated when there is no linked AiSearchRun (T15.8a / #678 G1)', () => {
+    // 無 linked run（extras.aiSearchStatus 省略）→ not_generated（AC-44.2）；有 run → 見下方 derives 測試。
     const features = computeFeatures({ status: 'completed', resultSnapshotId: 'snap-1' });
     expect(features.ai_search).toEqual({ status: 'not_generated' });
   });

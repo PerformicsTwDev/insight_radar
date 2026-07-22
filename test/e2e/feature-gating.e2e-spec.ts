@@ -63,8 +63,9 @@ describe('view feature-gating (e2e, TC-53)', () => {
       snapshotRow: {
         findMany: jest.fn(() => Promise.resolve([{ data: srow({ normalizedText: 'a' }) }])),
       },
-      // getStatus 讀最新 JourneyRun 以推導 journey feature（T12.6/AC-33.6）；無 run → not_generated。
+      // getStatus 讀最新 JourneyRun / linked AiSearchRun 以推導 journey / ai_search feature；無 run → not_generated。
       journeyRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
+      aiSearchRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
     };
 
     const moduleRef = await overrideBackgroundWorkers(

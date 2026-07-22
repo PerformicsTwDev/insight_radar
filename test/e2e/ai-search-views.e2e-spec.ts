@@ -94,6 +94,7 @@ describe('AI Search views registration + gating (e2e, TC-80)', () => {
         findMany: jest.fn(() => Promise.resolve([{ data: srow({ normalizedText: 'a' }) }])),
       },
       journeyRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
+      aiSearchRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
     };
 
     const moduleRef = await overrideBackgroundWorkers(
