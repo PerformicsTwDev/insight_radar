@@ -204,18 +204,10 @@ export const validationSchema = Joi.object({
   // —— AI Search 分析（M15，FR-42~44/NFR-19；Design §14；**分析層**版本，與抓取層 AI_SEARCH_SCHEMA_VERSION 分工）——
   // 可見度指標/分析快取 namespace 版本（bump 整批失效，落 ai_answers/ai_cited_references/ai_visibility_metrics 每列標記）；
   // 限 `v\d+`（擋 `:` 注入額外 cache key 段、fail-fast 擋拼錯），同 INTENT/TOPIC_SCHEMA_VERSION。
+  // **唯一** invalidation lever（M15-R6/#688）：同入 AI Search run idempotency key（M15-R5），bump 對已完成 run 亦強制
+  // 重跑分析。早期三線 per-prompt 版本（BRAND_EXTRACT/SENTIMENT/MEDIA_CLASSIFY_PROMPT_VERSION）production 零消費、
+  // 屬 documented no-op 已移除（連同 .env.example/RUNBOOK/Design §14 條目）。
   AI_VISIBILITY_SCHEMA_VERSION: Joi.string()
-    .pattern(/^v\d+$/)
-    .default('v1'),
-  // 品牌抽取/情緒/引用媒體分類 prompt 版本（自 brand_intent_radar 搬移，快取 namespace，S17/S19）；bump 整批失效；限 `v\d+`。
-  // prompt-versions.ts 現以 `process.env.X ?? 'v1'` 取值——此處補 fail-fast 驗證且**守恆**該 `v1` 預設行為（不改行為，NFR-5）。
-  BRAND_EXTRACT_PROMPT_VERSION: Joi.string()
-    .pattern(/^v\d+$/)
-    .default('v1'),
-  SENTIMENT_PROMPT_VERSION: Joi.string()
-    .pattern(/^v\d+$/)
-    .default('v1'),
-  MEDIA_CLASSIFY_PROMPT_VERSION: Joi.string()
     .pattern(/^v\d+$/)
     .default('v1'),
 

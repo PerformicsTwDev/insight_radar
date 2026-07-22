@@ -17,7 +17,14 @@ import type { AiSearchRunParams, AiSearchStatusResponse } from './ai-search-run.
 export const AI_SEARCH_RUN_CONFIG = Symbol('AI_SEARCH_RUN_CONFIG');
 
 export interface AiSearchRunConfig {
+  /** 抓取層版本（`AI_SEARCH_SCHEMA_VERSION`）——入 idempotency key。 */
   schemaVersion: string;
+  /**
+   * 分析層版本（`AI_VISIBILITY_SCHEMA_VERSION`）——同入 idempotency key（M15-R5/#687）。T15.5 in-job 分析
+   * 用它 tag `ai_answers`/`ai_cited_references`/`ai_visibility_metrics` 落列；漏此欄則 bump 分析版本 + 同輸入
+   * POST 會命中既有 completed run（不 reset）→ 分析永不重跑、rows 停留舊版本。
+   */
+  analysisSchemaVersion: string;
   jobAttempts: number;
   jobBackoffMs: number;
   jobBackoffJitter: number;
@@ -45,7 +52,12 @@ export class AiSearchRunService {
   ): Promise<{ jobId: string }> {
     // owner 歸屬（FR-27/AC-27.1）：session→actor.id、apiKey→null（機器資源）。idempotency 依此分範圍（跨租戶不撞）。
     const ownerId = ownerIdOf(actor);
-    const params: AiSearchRunParams = { schemaVersion: this.config.schemaVersion };
+    // 兩層版本皆入 params → idempotency key（M15-R5/#687）：bump 抓取層或分析層版本即產生新 key → 新 run，
+    // 使分析階段重跑並以新版本 tag 落列（否則命中既有 completed run，分析永不重跑）。
+    const params: AiSearchRunParams = {
+      schemaVersion: this.config.schemaVersion,
+      analysisSchemaVersion: this.config.analysisSchemaVersion,
+    };
     const brandProfileId = dto.brandProfileId ?? null;
     // 正規化 + 去重 keywords 於**同一單點**（`canonicalizeAiSearchKeywords`，共用 `normalizeText`）：idempotency key
     // 與 job payload 必須用同一組字，否則 payload 夾帶 raw keywords → processor 對正規化後相同的字重複 SerpAPI

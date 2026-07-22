@@ -2,7 +2,10 @@ import type { CaptureChannel } from '../captures/dto/capture-ingest.dto';
 import { computeAiSearchIdempotencyKey } from './ai-search-idempotency';
 import { AI_SEARCH_SCHEMA_VERSION, type AiSearchRunParams } from './ai-search-run.types';
 
-const PARAMS: AiSearchRunParams = { schemaVersion: AI_SEARCH_SCHEMA_VERSION };
+const PARAMS: AiSearchRunParams = {
+  schemaVersion: AI_SEARCH_SCHEMA_VERSION,
+  analysisSchemaVersion: 'v1',
+};
 const CH: CaptureChannel[] = ['chatGpt', 'googleAiMode'];
 
 /** TC-77 部分（T14.6 · FR-41/AC-41.1）：AI Search idempotency key（owner + 語意輸入 canonical）。 */
@@ -48,9 +51,41 @@ describe('TC-77: computeAiSearchIdempotencyKey', () => {
     expect(withBrand).not.toBe(without);
   });
 
-  it('differs when the schemaVersion is bumped', () => {
-    const v1 = computeAiSearchIdempotencyKey(['a'], CH, null, { schemaVersion: 'v1' }, null);
-    const v2 = computeAiSearchIdempotencyKey(['a'], CH, null, { schemaVersion: 'v2' }, null);
+  it('differs when the fetch-layer schemaVersion is bumped', () => {
+    const v1 = computeAiSearchIdempotencyKey(
+      ['a'],
+      CH,
+      null,
+      { schemaVersion: 'v1', analysisSchemaVersion: 'v1' },
+      null,
+    );
+    const v2 = computeAiSearchIdempotencyKey(
+      ['a'],
+      CH,
+      null,
+      { schemaVersion: 'v2', analysisSchemaVersion: 'v1' },
+      null,
+    );
+    expect(v1).not.toBe(v2);
+  });
+
+  it('differs when the analysis-layer schemaVersion is bumped (M15-R5, #687)', () => {
+    // AI_VISIBILITY_SCHEMA_VERSION tags the analysis rows; bumping it must force a new run so the
+    // in-job analysis re-runs and re-tags — omitting it (the old bug) hit the completed run forever.
+    const v1 = computeAiSearchIdempotencyKey(
+      ['a'],
+      CH,
+      null,
+      { schemaVersion: 'x', analysisSchemaVersion: 'v1' },
+      null,
+    );
+    const v2 = computeAiSearchIdempotencyKey(
+      ['a'],
+      CH,
+      null,
+      { schemaVersion: 'x', analysisSchemaVersion: 'v2' },
+      null,
+    );
     expect(v1).not.toBe(v2);
   });
 });

@@ -312,42 +312,36 @@ describe('env validation schema (TC-19 fail-fast)', () => {
       },
     );
 
-    // —— T15.7：M15 AI Search 分析層版本 env（AI_VISIBILITY_SCHEMA_VERSION + 三線 prompt 版本）——
-    // 對齊既有版本 env 慣例（限 `v\d+`、預設 `v1`、擋 `:` 注入 cache namespace，同 INTENT/TOPIC_SCHEMA_VERSION）。
-    // prompt-versions.ts 現以 `process.env.X ?? 'v1'` 取值——Joi 於此補上 fail-fast 驗證，且**守恆**該預設行為
-    // （不改行為，僅收斂 allowUnknown 的靜默放行 + 版本 pin，NFR-5/NFR-19；Design §14）。
-    const M15_VERSION_KEYS = [
-      'AI_VISIBILITY_SCHEMA_VERSION',
-      'BRAND_EXTRACT_PROMPT_VERSION',
-      'SENTIMENT_PROMPT_VERSION',
-      'MEDIA_CLASSIFY_PROMPT_VERSION',
-    ] as const;
+    // —— T15.7 / M15-R6(#688)：M15 AI Search 分析層版本 env——**唯一** lever `AI_VISIBILITY_SCHEMA_VERSION`
+    // （限 `v\d+`、預設 `v1`、擋 `:` 注入 cache namespace，同 INTENT/TOPIC_SCHEMA_VERSION）。原三線 per-prompt
+    // 版本 production 零消費（documented no-op）已移除——不再暴露於 schema。
+    const M15_VERSION_KEYS = ['AI_VISIBILITY_SCHEMA_VERSION'] as const;
 
-    it('defaults the M15 AI visibility schema + prompt versions to v1 (守恆 prompt-versions.ts 預設)', () => {
-      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
-      const value = validatedValue(validEnv); // validEnv omits all four M15 version keys
-      expect(error).toBeUndefined();
-      expect(value.AI_VISIBILITY_SCHEMA_VERSION).toBe('v1');
-      expect(value.BRAND_EXTRACT_PROMPT_VERSION).toBe('v1');
-      expect(value.SENTIMENT_PROMPT_VERSION).toBe('v1');
-      expect(value.MEDIA_CLASSIFY_PROMPT_VERSION).toBe('v1');
+    it('does not expose the removed dead per-line prompt-version levers (M15-R6, #688)', () => {
+      // brandExtract/sentiment/mediaClassify prompt versions had zero production consumers (only
+      // aiVisibilitySchemaVersion() is wired) yet were documented as an active "bump→整批失效" lever in
+      // Joi/.env.example/RUNBOOK — a documented no-op / ops trap. The sole invalidation lever is
+      // AI_VISIBILITY_SCHEMA_VERSION (which R5 makes effective even for completed runs).
+      const keys = Object.keys((validationSchema.describe().keys ?? {}) as Record<string, unknown>);
+      expect(keys).not.toContain('BRAND_EXTRACT_PROMPT_VERSION');
+      expect(keys).not.toContain('SENTIMENT_PROMPT_VERSION');
+      expect(keys).not.toContain('MEDIA_CLASSIFY_PROMPT_VERSION');
+      expect(keys).toContain('AI_VISIBILITY_SCHEMA_VERSION');
     });
 
-    it('accepts valid `v\\d+` overrides for the M15 versions (bump → 下游快取整批失效)', () => {
-      const env = {
-        ...validEnv,
-        AI_VISIBILITY_SCHEMA_VERSION: 'v2',
-        BRAND_EXTRACT_PROMPT_VERSION: 'v3',
-        SENTIMENT_PROMPT_VERSION: 'v4',
-        MEDIA_CLASSIFY_PROMPT_VERSION: 'v5',
-      };
+    it('defaults AI_VISIBILITY_SCHEMA_VERSION to v1 (守恆 aiVisibilitySchemaVersion 預設)', () => {
+      const { error } = validationSchema.validate(validEnv, { abortEarly: false });
+      const value = validatedValue(validEnv); // validEnv omits the M15 version key
+      expect(error).toBeUndefined();
+      expect(value.AI_VISIBILITY_SCHEMA_VERSION).toBe('v1');
+    });
+
+    it('accepts a valid `v\\d+` AI_VISIBILITY_SCHEMA_VERSION override (bump → 下游整批失效 + 強制新 run)', () => {
+      const env = { ...validEnv, AI_VISIBILITY_SCHEMA_VERSION: 'v2' };
       const { error } = validationSchema.validate(env, { abortEarly: false });
       const value = validatedValue(env);
       expect(error).toBeUndefined();
       expect(value.AI_VISIBILITY_SCHEMA_VERSION).toBe('v2');
-      expect(value.BRAND_EXTRACT_PROMPT_VERSION).toBe('v3');
-      expect(value.SENTIMENT_PROMPT_VERSION).toBe('v4');
-      expect(value.MEDIA_CLASSIFY_PROMPT_VERSION).toBe('v5');
     });
 
     it.each(M15_VERSION_KEYS)(
