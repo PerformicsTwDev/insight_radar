@@ -152,13 +152,13 @@ export class AiSearchProcessor
     keywords: string[],
     channels: CaptureChannel[],
   ): Promise<{ merged: AiSearchCanonical[]; captureCount: number }> {
-    if (job.attemptsMade > 0) {
+    if (job.attemptsStarted > 1) {
       const persisted = await this.captureRepo.readCanonicalByJobId(runId);
       if (persisted.length > 0) {
-        // 重用前次 attempt 已落庫的合流（含 PAID serpapi 列）→ 直接進 analysis，零外部呼叫、零重扣（#683）。
+        // 重用前次 delivery 已落庫的合流（含 PAID serpapi 列）→ 直接進 analysis，零外部呼叫、零重扣（#683/#706）。
         return { merged: persisted, captureCount: persisted.length };
       }
-      // 前次 attempt 落列前即失敗（無 durable 列）→ 落至完整 fetch（re-charge 不可免，但該情境本無可省之結果）。
+      // 前次 delivery 落列前即失敗/被 kill（無 durable 列）→ 落至完整 fetch（re-charge 不可免，但該情境本無可省之結果）。
     }
 
     // clean slate：重入列/retry 時清舊合流列，避免重複落列（idempotent re-run）。
