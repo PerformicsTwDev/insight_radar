@@ -37,6 +37,12 @@ export function RootLayout() {
       // that misleading error; surface it only once an `analysisId` is present.
       degraded={degraded && analysisId !== undefined}
       onSelectView={onSelectView}
+      // Results context (T7.9, AC-1.3): the left dimension menu shows only while an
+      // analysis is in view. On the input / cold screen it is hidden entirely.
+      hasAnalysisContext={analysisId !== undefined}
+      // Search Insight tab → back to the input screen: clear the analysis context (and
+      // per-view URL state) so a fresh analysis can be started (T7.9).
+      onNavigateHome={() => void navigate({ to: '/', search: {} })}
       headerExtra={
         <div className="flex items-center gap-2">
           <Link
