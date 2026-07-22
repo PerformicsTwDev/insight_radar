@@ -152,20 +152,18 @@ export class SnapshotQueryService {
       return run?.id ?? '';
     }
     if (AI_SEARCH_VIEW_NAMES.has(view)) {
-      // AI Search view 的資料版本＝最新 completed/partial linked `AiSearchRun.id`（比照 journey/custom 動態 view，
-      // Design §18.4 ⑤）：bump `AI_*_SCHEMA_VERSION`（→ 新 run）後 `(snapshotId, view, filters)` 相同亦得新版本、
-      // 不回舊 insight（60 天 TTL）。partial 亦落庫（某渠道 async 到達）→ 與 gate 的 ready 集一致。
-      // **owner-scoped**（M15-R11）：`...ownerWhere(actor)` 與 data path `findLatestLinkedRun(ownerWhere(actor))`
-      // 同一 owner 單點（S8）→ per-owner run.id → cache key 分家、不跨租戶命中；apiKey→`{}`→全域最新（AC-27.5）。
-      const run = await this.prisma.aiSearchRun.findFirst({
-        where: {
-          keywordAnalysisId: analysisId,
-          status: { in: ['completed', 'partial'] },
-          ...ownerWhere(actor),
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
+      // AI Search view 的資料版本＝**與 gate/data path 同一** `findLatestLinkedRun`（最新 linked `AiSearchRun`、
+      // **任何 status**、owner-scoped）之 `id`（Design §18.4④/§18.7 S25.1，M15-R13）。bump `AI_*_SCHEMA_VERSION`
+      // （→ 新 run）後 `(snapshotId, view, filters)` 相同亦得新版本、不回舊 insight（60 天 TTL）。
+      // **不得自加 `status∈{completed,partial}` filter**（M15-R13 一致性補正）：AI-search idempotency key 排除
+      // analysisId → 一 analysis 可累積多 linked run；若解「最新 completed/partial」而非「最新 linked（任何 status）」，
+      // 則**最新非-ready run（running/failed）遮蔽較舊 completed run** 時，dataVersion 會退回舊 completed run.id →
+      // cache key 不變 → `generate()` cache short-circuit（早於 `query()`/gate）HIT 回舊 insight（200），但 `/query`
+      // 已用最新非-ready run 正確 409 → 跨端點不一致、繞過 gate（違 AC-32.2/AC-44.2）。統一後：最新非-ready run →
+      // dataVersion＝該 run.id（cache 未曾為其落 insight）→ miss → 走 query → 409（與 `/query` 一致）。
+      // **owner-scoped**（M15-R11）：`ownerWhere(actor)` 與 {@link queryAiSearchView}→`findLatestLinkedRun` 同一
+      // owner 單點（S8）→ per-owner run.id → cache key 分家、不跨租戶命中；apiKey→`{}`→全域最新（AC-27.5）。
+      const run = await this.aiViewRepo.findLatestLinkedRun(analysisId, ownerWhere(actor));
       return run?.id ?? '';
     }
     return '';
