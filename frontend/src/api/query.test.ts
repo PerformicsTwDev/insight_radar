@@ -159,4 +159,17 @@ describe('TC-34 · postQuery (request body + view-shape union parsing)', () => {
       expect(result.error).toBeUndefined();
     }
   });
+
+  it('an unstubbed :id/query hits the shared default handler — empty trend / empty table (T7.4)', async () => {
+    // No `server.use` override → the default handler (src/api/msw/handlers.ts) responds so
+    // the 搜尋詞總表 embedded 趨勢 card (T7.4) renders deterministically: `trend` → an empty
+    // trend axis; any other view → an empty table.
+    const trend = await postQuery(ID, { view: 'trend' });
+    expect(trend.ok).toBe(true);
+    if (trend.ok && trend.view.kind === 'trend') expect(trend.view.axis).toEqual([]);
+
+    const table = await postQuery(ID, { view: 'intent_distribution' });
+    expect(table.ok).toBe(true);
+    if (table.ok && table.view.kind === 'table') expect(table.view.rows).toEqual([]);
+  });
 });

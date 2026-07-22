@@ -137,12 +137,12 @@ export const handlers = [
   // an empty table). Tests that assert on data override with `server.use(...)`. Response
   // shapes mirror the backend view-router union (zod-validated in `api/query.ts`).
   http.post('/api/v1/keyword-analyses/:id/query', async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as { view?: string };
-    if (body.view === 'trend') {
+    const { view } = (await request.json()) as { view: string };
+    if (view === 'trend') {
       return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
     }
     return HttpResponse.json({
-      view: body.view ?? 'keywords',
+      view,
       columns: [],
       rows: [],
       pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
