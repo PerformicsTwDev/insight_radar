@@ -216,7 +216,6 @@ export function AiSearchHome() {
           Mirrors HomeRoute; only shown in 指定模式 where 搜尋詞 seeds apply. */}
       {specified ? (
         <AiIdeationCard
-          seeds={parseSeeds(form.seedsRaw)}
           onGenerated={(keywords) =>
             setForm((f) => ({
               ...f,
