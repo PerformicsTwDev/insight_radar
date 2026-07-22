@@ -65,10 +65,22 @@ export function journeyFeatureStatus(runStatus: string | undefined): FeatureStat
   }
 }
 
+/**
+ * 由最新 linked `AiSearchRun.status` 推導 `ai_search` feature 狀態（T15.8a，#678 G1，AC-44.2/S25）：
+ * completed/partial→`ready`（T15.5 已落 `ai_answers`/`ai_visibility_metrics`、資料已物化）；queued/running→`running`；
+ * failed→`failed`；無 run / canceled→`not_generated`。鏡射 `journeyFeatureStatus`（「有物化結果即 ready」判準一致）。
+ */
+export function aiSearchFeatureStatus(_runStatus: string | undefined): FeatureStatus {
+  // T15.8a RED 空殼：尚未映射 run 狀態；真正推導於 green（#678 G1）。
+  return 'not_generated';
+}
+
 /** computeFeatures 的可選外部狀態（由呼叫端查各 job/durable 資料帶入；省略→保守預設）。 */
 export interface FeatureExtras {
   /** 最新 `JourneyRun.status`（AC-33.6）；省略 → journey 視為 `not_generated`（view 被 gate）。 */
   journeyStatus?: string;
+  /** 最新 linked `AiSearchRun.status`（AC-44.2/S25）；省略 → ai_search 視為 `not_generated`。 */
+  aiSearchStatus?: string;
 }
 
 /**

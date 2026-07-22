@@ -9,6 +9,8 @@ export interface CreateAiSearchRunInput {
   idempotencyKey: string;
   params: Prisma.InputJsonValue;
   progress?: Prisma.InputJsonValue;
+  /** T15.8a（#678 G1）：Option A additive link → keyword-analysis（null=standalone）；於 create（created=true）落。 */
+  keywordAnalysisId?: string | null;
 }
 
 /** createRun 結果：`created=false` 代表 idempotency 命中既有 run（不重跑）。 */
@@ -103,6 +105,15 @@ export class AiSearchRunRepository {
   /** 更新進度（SSE / GET 回報）。 */
   async updateProgress(runId: string, progress: Prisma.InputJsonValue): Promise<void> {
     await this.prisma.aiSearchRun.update({ where: { id: runId }, data: { progress } });
+  }
+
+  /**
+   * T15.8a（#678 G1）：取 keyword-analysis 的 owner 投影（供 service 層 owner-verify `analysisId` 連結，S8）。
+   * 未知 → null（service 以 `assertOwnedRow` 收斂未知/越權為同一 404，不洩漏存在性）。
+   */
+  findAnalysisOwner(_analysisId: string): Promise<{ ownerId: string | null } | null> {
+    // T15.8a RED 空殼：真正查詢於 green。
+    return Promise.resolve(null);
   }
 
   /** 取某 run（GET / SSE；無→null）。owner 過濾由 service 層施加（S8）。 */

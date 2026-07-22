@@ -31,6 +31,8 @@ interface BuildOpts {
   enqueueError?: Error;
   run?: AiSearchRunView | null;
   config?: Partial<AiSearchRunConfig>;
+  /** T15.8a：owner-verify 用——`findAnalysisOwner(analysisId)` 的回傳（`{ownerId}` 或 null=未知）。 */
+  analysisOwner?: { ownerId: string | null } | null;
 }
 function build(opts: BuildOpts = {}) {
   const queueAdd = jest.fn((_name: string, _data: unknown, _opts: unknown) =>
@@ -51,11 +53,28 @@ function build(opts: BuildOpts = {}) {
   );
   const findById = jest.fn(() => Promise.resolve(opts.run ?? null));
   const markStatus = jest.fn(() => Promise.resolve());
-  const repo = { createRun, findById, markStatus } as unknown as AiSearchRunRepository;
+  const findAnalysisOwner = jest.fn(() => Promise.resolve(opts.analysisOwner ?? null));
+  const repo = {
+    createRun,
+    findById,
+    markStatus,
+    findAnalysisOwner,
+  } as unknown as AiSearchRunRepository;
 
   const service = new AiSearchRunService(queue, repo, { ...CONFIG, ...opts.config });
-  return { service, queueAdd, queueGetJob, removeStale, createRun, findById, markStatus };
+  return {
+    service,
+    queueAdd,
+    queueGetJob,
+    removeStale,
+    createRun,
+    findById,
+    markStatus,
+    findAnalysisOwner,
+  };
 }
+
+const ANALYSIS_ID = '44444444-4444-4444-4444-444444444444';
 
 /** TC-77 (T14.6 · FR-41/AC-41.1): AiSearchRunService — enqueue-only + idempotency + owner scope. */
 describe('TC-77: AiSearchRunService', () => {
@@ -182,5 +201,51 @@ describe('TC-77: AiSearchRunService', () => {
     });
     expect(await build({ run }).service.getRunRef('run-1', SESSION_B)).toBeNull();
     expect(await build({ run: null }).service.getRunRef('run-x', API)).toBeNull();
+  });
+
+  // T15.8a（#678 G1）：Option A additive link → keyword-analysis（owner-verify、created 才落、不入 idempotency key）。
+  it('links analysisId to the run (persists keywordAnalysisId) after owner-verify', async () => {
+    const { service, createRun, findAnalysisOwner } = build({
+      created: true,
+      analysisOwner: { ownerId: 'user-A' }, // owned by SESSION_A
+    });
+    await service.create({ ...DTO, analysisId: ANALYSIS_ID }, SESSION_A);
+    expect(findAnalysisOwner).toHaveBeenCalledWith(ANALYSIS_ID);
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ keywordAnalysisId: ANALYSIS_ID }),
+    );
+  });
+
+  it('links to a shared (null-owner) analysis for a session actor', async () => {
+    const { service, createRun } = build({ created: true, analysisOwner: { ownerId: null } });
+    await service.create({ ...DTO, analysisId: ANALYSIS_ID }, SESSION_A);
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ keywordAnalysisId: ANALYSIS_ID }),
+    );
+  });
+
+  it('does not link (keywordAnalysisId=null) when analysisId is omitted — standalone, backward compatible (FR-41)', async () => {
+    const { service, createRun, findAnalysisOwner } = build({ created: true });
+    await service.create(DTO, API);
+    expect(findAnalysisOwner).not.toHaveBeenCalled(); // no analysis lookup on the standalone path
+    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ keywordAnalysisId: null }));
+  });
+
+  it('rejects linking an analysis the session actor does not own → 404 (no existence leak, S8)', async () => {
+    const { service, createRun } = build({
+      created: true,
+      analysisOwner: { ownerId: 'user-A' }, // owned by A, actor is B
+    });
+    await expect(
+      service.create({ ...DTO, analysisId: ANALYSIS_ID }, SESSION_B),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(createRun).not.toHaveBeenCalled(); // fail fast, no run created
+  });
+
+  it('rejects linking an unknown analysis → 404', async () => {
+    const { service } = build({ created: true, analysisOwner: null });
+    await expect(
+      service.create({ ...DTO, analysisId: ANALYSIS_ID }, SESSION_A),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

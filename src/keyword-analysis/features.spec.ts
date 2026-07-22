@@ -1,4 +1,4 @@
-import { computeFeatures } from './features';
+import { aiSearchFeatureStatus, computeFeatures } from './features';
 
 /** T6.8（FR-14 · AC-14.7）：feature 狀態推導。keyword_metrics 由 snapshot/job 狀態推導；serp/topics 尚未實作 → not_generated。 */
 describe('computeFeatures (T6.8)', () => {
@@ -56,5 +56,33 @@ describe('computeFeatures (T6.8)', () => {
     expect(derive('completed')).toBe('ready');
     expect(derive('partial')).toBe('ready');
     expect(derive('failed')).toBe('failed');
+  });
+
+  it('ai_search derives from the latest linked AiSearchRun status (T15.8a / #678 G1 / AC-44.2)', () => {
+    // #678 G1: ai_search was permanently hard-coded not_generated → 9 AI views always 409. It must now
+    // derive from the analysis's latest linked AiSearchRun.status (Option A link), mirroring journey.
+    const ready = { status: 'completed' as const, resultSnapshotId: 'snap-1' };
+    const derive = (aiSearchStatus?: string) =>
+      computeFeatures(ready, { aiSearchStatus }).ai_search.status;
+    expect(derive(undefined)).toBe('not_generated'); // 無 linked run
+    expect(derive('canceled')).toBe('not_generated');
+    expect(derive('queued')).toBe('running');
+    expect(derive('running')).toBe('running');
+    expect(derive('completed')).toBe('ready'); // T15.5 已落 ai_answers/ai_visibility_metrics
+    expect(derive('partial')).toBe('ready');
+    expect(derive('failed')).toBe('failed');
+  });
+});
+
+/** T15.8a（#678 G1 / AC-44.2 / S25）：`aiSearchFeatureStatus` 純函式——鏡射 `journeyFeatureStatus`。 */
+describe('aiSearchFeatureStatus (T15.8a / #678 G1)', () => {
+  it('maps AiSearchRun.status → feature status (completed/partial→ready, queued/running→running, failed→failed, none/canceled→not_generated)', () => {
+    expect(aiSearchFeatureStatus('completed')).toBe('ready');
+    expect(aiSearchFeatureStatus('partial')).toBe('ready');
+    expect(aiSearchFeatureStatus('queued')).toBe('running');
+    expect(aiSearchFeatureStatus('running')).toBe('running');
+    expect(aiSearchFeatureStatus('failed')).toBe('failed');
+    expect(aiSearchFeatureStatus('canceled')).toBe('not_generated');
+    expect(aiSearchFeatureStatus(undefined)).toBe('not_generated');
   });
 });
