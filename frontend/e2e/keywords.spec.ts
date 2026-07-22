@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { keywordRow, keywordsBody, stubAnalysisStatus, stubViews } from './support/stubs';
+import {
+  keywordRow,
+  keywordsBody,
+  stubAnalysisStatus,
+  stubQuery,
+  stubViews,
+} from './support/stubs';
 
 /**
  * TC-44 (e2e, FR-6/7/13) — the 搜尋詞總表 filter → paginate → copy flow against the
@@ -15,6 +21,7 @@ const DASHBOARD = `/?analysisId=${ANALYSIS_ID}&view=keywords`;
 /** Keywords stub that mirrors filter (`intent`) + pagination (`page`) into the row set. */
 async function stubKeywords(page: import('@playwright/test').Page): Promise<void> {
   await stubViews(page);
+  await stubQuery(page);
   await stubAnalysisStatus(page, ANALYSIS_ID, { status: 'completed', features: {} });
   await page.route(KEYWORDS_URL, (route) => {
     const q = new URL(route.request().url()).searchParams;

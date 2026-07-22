@@ -44,7 +44,7 @@ export function ViewContent({ analysisId, view, features }: ViewContentProps): R
       // restores its 分類表 — not the empty create-state (FR-1 / AC-1.2, #647).
       return <CustomClassifyView analysisId={analysisId} initialCid={resolution.cid} />;
     case 'default':
-      return <KeywordsView analysisId={analysisId} />;
+      return <KeywordsView analysisId={analysisId} features={features} />;
     case 'known':
       return <KnownView view={resolution.view} analysisId={analysisId} features={features} />;
   }
@@ -66,7 +66,7 @@ function KnownView({
 }): ReactElement {
   switch (view) {
     case 'keywords':
-      return <KeywordsView analysisId={analysisId} />;
+      return <KeywordsView analysisId={analysisId} features={features} />;
     case 'trend':
       return <TrendView analysisId={analysisId} />;
     case 'intent_topics':

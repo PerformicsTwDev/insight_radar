@@ -76,6 +76,29 @@ export async function stubViews(
 }
 
 /**
+ * `POST :id/query` — the view-router. The 搜尋詞總表 results page embeds the 趨勢 card
+ * (TrendView, T7.4) which reads `{view:'trend'}` on mount; stub it to an empty-but-valid
+ * shape (mirrors the msw default) so the preview render is deterministic — no failed
+ * request behind the table. Per-spec overrides can register a more specific route first.
+ */
+export async function stubQuery(page: Page): Promise<void> {
+  await page.route(new RegExp(`${V1}/keyword-analyses/[^/]+/query(\\?|$)`), (route: Route) => {
+    const view = (route.request().postDataJSON() as { view?: string } | null)?.view;
+    if (view === 'trend') {
+      return route.fulfill({ json: { view: 'trend', axis: [], total: [], series: [] } });
+    }
+    return route.fulfill({
+      json: {
+        view: view ?? 'keywords',
+        columns: [],
+        rows: [],
+        pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
+      },
+    });
+  });
+}
+
+/**
  * Abort every analysis SSE stream (`:id/stream`, `:id/topics/stream`). `useJobTracking`
  * reacts to the connection error by falling back to its `GET :id` poll — a deterministic,
  * fast transport for the preview (a real event-stream is impractical to hand-fulfill).

@@ -108,7 +108,9 @@ describe('KeywordsView · keywords table data wiring', () => {
       ),
     );
     renderKeywords();
-    expect(await screen.findByText(/沒有符合|沒有搜尋詞|尚無/)).toBeInTheDocument();
+    // Specific to the keywords empty state — the co-mounted 趨勢 card (T7.4) has its own
+    // "尚無趨勢資料" empty text, so a broad /尚無/ would now over-match.
+    expect(await screen.findByText('沒有符合條件的搜尋詞。')).toBeInTheDocument();
   });
 
   it('shows an error + retry when the keywords request fails, and recovers on retry', async () => {
@@ -190,5 +192,29 @@ describe('KeywordsView · TSV copy (FR-13) + per-row selection (FR-19) mount', (
         analysisId: ANALYSIS_ID,
       },
     ]);
+  });
+});
+
+describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
+  it('lays out filter bar + 趨勢 card + table + collapsible AI 洞察 panel', async () => {
+    server.use(
+      http.get(KEYWORDS_ROUTE, () =>
+        HttpResponse.json({
+          data: [row('running shoes')],
+          meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
+    renderKeywords();
+
+    // Core results grid (with its ✦ AI column + sparklines).
+    expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
+    // Filter bar (FR-6).
+    expect(screen.getByRole('group', { name: '篩選' })).toBeInTheDocument();
+    // 趨勢 card at the top of the results page (T7.3/T7.4).
+    expect(screen.getByRole('region', { name: '搜尋趨勢' })).toBeInTheDocument();
+    // Right-side AI 洞察 panel — present, collapsible, collapsed by default (expand affordance).
+    expect(screen.getByRole('complementary', { name: 'AI 洞察側欄' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '展開 AI 洞察側欄' })).toBeInTheDocument();
   });
 });

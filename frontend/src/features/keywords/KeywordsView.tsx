@@ -8,6 +8,8 @@ import { deserializeFiltersFromUrl } from '../../lib/filterSpec';
 import { keywordsToTsv } from '../../lib/keywordsTsv';
 import { selectionKey } from '../../lib/selection';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { AiInsightSidebar } from '../insight/AiInsightSidebar';
+import { TrendView } from '../trend/TrendView';
 import { BulkSelectBar } from '../tracking/BulkSelectBar';
 import { KeywordsFilters } from './filters/KeywordsFilters';
 import { KeywordsPagination } from './KeywordsPagination';
@@ -29,7 +31,14 @@ import { KeywordsTable, type KeywordsTableSelection } from './KeywordsTable';
  * reopen carry it, Design §5) — a picked keyword must know its list-layer-fixed context;
  * without it the table stays selection-free rather than seeding an empty context.
  */
-export function KeywordsView({ analysisId }: { analysisId: string }): ReactElement {
+export function KeywordsView({
+  analysisId,
+  features,
+}: {
+  analysisId: string;
+  /** The `GET :id` features map (opaque) — gates the AI 洞察面板 (T7.4). */
+  readonly features?: unknown;
+}): ReactElement {
   const search = useSearch({
     strict: false,
     select: (s) => ({
@@ -88,23 +97,46 @@ export function KeywordsView({ analysisId }: { analysisId: string }): ReactEleme
   const result = query.data;
   const rows = result?.ok ? result.rows : [];
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      {/* Filter bar (FR-6) + 複製表格 (FR-13). */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <KeywordsFilters />
         {rows.length > 0 ? <CopyTsvButton getTsv={() => keywordsToTsv(rows)} /> : null}
       </div>
-      {query.isPending ? (
-        <LoadingState label="載入搜尋詞…" />
-      ) : !result || !result.ok ? (
-        <ErrorState message="無法載入搜尋詞，請稍後再試。" onRetry={() => void query.refetch()} />
-      ) : result.rows.length === 0 ? (
-        <EmptyState message="沒有符合條件的搜尋詞。" />
-      ) : (
-        <>
-          <KeywordsTable rows={result.rows} analysisId={analysisId} selection={selection} />
-          <KeywordsPagination meta={result.meta} />
-        </>
-      )}
+
+      {/* v4: 趨勢圖卡置於總表頁頂（非獨立左選單維度，T7.3/T7.4）。TrendView/TrendChart 自帶
+          卡片外框（`region 搜尋趨勢`）+ 載入/錯誤/空態，故此處直接掛、不重複包卡。 */}
+      <TrendView analysisId={analysisId} />
+
+      {/* 表（✦ AI 欄 + sparklines）+ 右側可收合 AI 洞察面板（T7.4；預設收合、展開才生成）。 */}
+      <div className="flex gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {query.isPending ? (
+            <LoadingState label="載入搜尋詞…" />
+          ) : !result || !result.ok ? (
+            <ErrorState
+              message="無法載入搜尋詞，請稍後再試。"
+              onRetry={() => void query.refetch()}
+            />
+          ) : result.rows.length === 0 ? (
+            <EmptyState message="沒有符合條件的搜尋詞。" />
+          ) : (
+            <>
+              <KeywordsTable rows={result.rows} analysisId={analysisId} selection={selection} />
+              <KeywordsPagination meta={result.meta} />
+            </>
+          )}
+        </div>
+        <AiInsightSidebar
+          analysisId={analysisId}
+          view="keywords"
+          filters={filters}
+          requiresFeature="keyword_metrics"
+          features={features}
+          defaultCollapsed
+        />
+      </div>
+
       {/* Floating bulk bar (renders null when nothing is selected) — the write side of FR-19. */}
       <BulkSelectBar />
     </div>
