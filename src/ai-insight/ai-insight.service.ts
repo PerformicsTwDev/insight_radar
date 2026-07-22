@@ -65,7 +65,13 @@ export class AiInsightService {
 
     // dynamic view 資料版本（M12-R3）：dynamic/gated view 的底層 per-run 資料重跑後 (snapshotId,view,filters) 不變、
     // 需另以 dataVersion（最新 completed run id）綁 key；static view 回 ''（免 DB round-trip、key 不變）。
-    const dataVersion = await this.snapshotQuery.resolveViewDataVersion(analysisId, request.view);
+    // actor 一併傳入：AI-search 分支的 dataVersion 必 owner-scoped，避免跨租戶 cache short-circuit（M15-R11，
+    // S25.1/AC-32.2）——與下方 owner-scoped data path（`query`→`queryAiSearchView`）同一 owner 單點。
+    const dataVersion = await this.snapshotQuery.resolveViewDataVersion(
+      analysisId,
+      request.view,
+      actor,
+    );
 
     const key = this.cacheKey(snapshotId, request.view, request.filters, dataVersion);
     const cached = await this.cache.get<AiInsight>(key);

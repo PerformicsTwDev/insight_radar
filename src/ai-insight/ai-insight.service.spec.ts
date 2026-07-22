@@ -38,7 +38,7 @@ function build(configOverride: Partial<AiInsightConfig> = {}): {
   parseChat: jest.Mock<Promise<ParseChatResult<AiInsightPayload>>, [ParseChatParams]>;
   resolveReadySnapshotId: jest.Mock;
   query: jest.Mock;
-  resolveViewDataVersion: jest.Mock<Promise<string>, [string, string]>;
+  resolveViewDataVersion: jest.Mock<Promise<string>, [string, string, AuthenticatedUser]>;
   get: jest.Mock<Promise<unknown>, [string]>;
   set: jest.Mock;
 } {
@@ -47,7 +47,9 @@ function build(configOverride: Partial<AiInsightConfig> = {}): {
 
   const resolveReadySnapshotId = jest.fn().mockResolvedValue('snap-1');
   const query = jest.fn().mockResolvedValue(AGGREGATE);
-  const resolveViewDataVersion = jest.fn<Promise<string>, [string, string]>().mockResolvedValue('');
+  const resolveViewDataVersion = jest
+    .fn<Promise<string>, [string, string, AuthenticatedUser]>()
+    .mockResolvedValue('');
   const snapshotQuery = {
     resolveReadySnapshotId,
     query,
@@ -210,7 +212,8 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
 
     await service.generate('an-1', { view: 'keywords', filters: { volumeMin: 10 } }, ACTOR);
 
-    expect(resolveViewDataVersion).toHaveBeenCalledWith('an-1', 'keywords');
+    // actor 一併傳入 → AI-search 分支 owner-scope dataVersion（M15-R11，S25.1/AC-32.2）。
+    expect(resolveViewDataVersion).toHaveBeenCalledWith('an-1', 'keywords', ACTOR);
     const hash = sha256Hex(canonicalStringify({ volumeMin: 10 }));
     expect(get.mock.calls[0][0]).toBe(`ai_insight:v1:gpt-4o-mini:snap-1:keywords:${hash}`);
   });
@@ -222,7 +225,7 @@ describe('AiInsightService (T12.3 / FR-32 / TC-68 部分)', () => {
 
     await service.generate('an-1', { view: 'custom:cid-1', filters: { volumeMin: 10 } }, ACTOR);
 
-    expect(resolveViewDataVersion).toHaveBeenCalledWith('an-1', 'custom:cid-1');
+    expect(resolveViewDataVersion).toHaveBeenCalledWith('an-1', 'custom:cid-1', ACTOR);
     const hash = sha256Hex(canonicalStringify({ volumeMin: 10 }));
     const expectedKey = `ai_insight:v1:gpt-4o-mini:snap-1:custom:cid-1:${hash}:run-abc`;
     expect(get).toHaveBeenCalledWith(expectedKey);

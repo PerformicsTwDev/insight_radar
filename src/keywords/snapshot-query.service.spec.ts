@@ -409,10 +409,13 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
     }
 
     const CID_UUID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const SESSION_ACTOR: AuthenticatedUser = { kind: 'session', id: 'user-1', email: 'u@x.com' };
 
     it('custom:{cid} → latest COMPLETED CustomClassifyRun.id, owner-scoped by keywordAnalysisId', async () => {
       const { service, ccrFindFirst } = buildVersion({ customRun: { id: 'run-c' } });
-      expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`)).toBe('run-c');
+      expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`, API_ACTOR)).toBe(
+        'run-c',
+      );
       expect(ccrFindFirst).toHaveBeenCalledWith({
         where: { classificationId: CID_UUID, keywordAnalysisId: 'an-1', status: 'completed' },
         orderBy: { createdAt: 'desc' },
@@ -422,14 +425,17 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
 
     it('custom:{non-uuid cid} → "" WITHOUT hitting Prisma (no P2023 → 500; M12-R3 blocker fix)', async () => {
       const { service, ccrFindFirst } = buildVersion({ customRun: { id: 'run-c' } });
-      expect(await service.resolveViewDataVersion('an-1', 'custom:not-a-uuid')).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', 'custom:not-a-uuid', API_ACTOR)).toBe('');
       expect(ccrFindFirst).not.toHaveBeenCalled(); // guarded before the @db.Uuid query
     });
 
-    it('journey / journey_funnel → latest COMPLETED/PARTIAL JourneyRun.id', async () => {
+    it('journey / journey_funnel → latest COMPLETED/PARTIAL JourneyRun.id (owner-agnostic: JourneyRun has no ownerId)', async () => {
       const { service, jrFindFirst } = buildVersion({ journeyRun: { id: 'run-j' } });
-      expect(await service.resolveViewDataVersion('an-1', 'journey')).toBe('run-j');
-      expect(await service.resolveViewDataVersion('an-1', 'journey_funnel')).toBe('run-j');
+      // journey run 模型無 ownerId → owner-agnostic；session actor 亦不加 owner filter（data path 同 owner-agnostic）。
+      expect(await service.resolveViewDataVersion('an-1', 'journey', SESSION_ACTOR)).toBe('run-j');
+      expect(await service.resolveViewDataVersion('an-1', 'journey_funnel', SESSION_ACTOR)).toBe(
+        'run-j',
+      );
       expect(jrFindFirst).toHaveBeenCalledWith({
         where: { keywordAnalysisId: 'an-1', status: { in: ['completed', 'partial'] } },
         orderBy: { createdAt: 'desc' },
@@ -437,10 +443,13 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       });
     });
 
-    it('AI Search view → latest COMPLETED/PARTIAL linked AiSearchRun.id (#678 G2 dataVersion)', async () => {
+    it('AI Search view (apiKey) → GLOBAL latest COMPLETED/PARTIAL linked AiSearchRun.id (AC-27.5)', async () => {
       const { service, airFindFirst } = buildVersion({ aiRun: { id: 'run-ai' } });
-      expect(await service.resolveViewDataVersion('an-1', 'ai_answers')).toBe('run-ai');
-      expect(await service.resolveViewDataVersion('an-1', 'brand_ai_visibility')).toBe('run-ai');
+      // apiKey → ownerWhere = {} → 全域最新（機器 actor 不隔離，維持 M9 前語意）。
+      expect(await service.resolveViewDataVersion('an-1', 'ai_answers', API_ACTOR)).toBe('run-ai');
+      expect(await service.resolveViewDataVersion('an-1', 'brand_ai_visibility', API_ACTOR)).toBe(
+        'run-ai',
+      );
       expect(airFindFirst).toHaveBeenCalledWith({
         where: { keywordAnalysisId: 'an-1', status: { in: ['completed', 'partial'] } },
         orderBy: { createdAt: 'desc' },
@@ -448,17 +457,36 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       });
     });
 
+    it('AI Search view (session) → OWNER-SCOPED latest run (M15-R11: prevents cross-owner cache leak)', async () => {
+      const { service, airFindFirst } = buildVersion({ aiRun: { id: 'run-ai' } });
+      // session → dataVersion 解析必 owner-scoped（`...ownerWhere(actor)`）→ per-owner run.id → cache key 分家。
+      expect(await service.resolveViewDataVersion('an-1', 'ai_answers', SESSION_ACTOR)).toBe(
+        'run-ai',
+      );
+      expect(airFindFirst).toHaveBeenCalledWith({
+        where: {
+          keywordAnalysisId: 'an-1',
+          status: { in: ['completed', 'partial'] },
+          OR: [{ ownerId: 'user-1' }, { ownerId: null }],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+    });
+
     it('returns "" when a dynamic view has no completed run yet (valid cid, null run)', async () => {
       const { service, ccrFindFirst } = buildVersion(); // both findFirst → null
-      expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`)).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`, API_ACTOR)).toBe(
+        '',
+      );
       expect(ccrFindFirst).toHaveBeenCalled(); // valid UUID → query ran, returned null
-      expect(await service.resolveViewDataVersion('an-1', 'journey')).toBe('');
-      expect(await service.resolveViewDataVersion('an-1', 'ai_answers')).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', 'journey', API_ACTOR)).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', 'ai_answers', API_ACTOR)).toBe('');
     });
 
     it('returns "" for a static view without any DB round-trip', async () => {
       const { service, ccrFindFirst, jrFindFirst, airFindFirst } = buildVersion();
-      expect(await service.resolveViewDataVersion('an-1', 'keywords')).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', 'keywords', API_ACTOR)).toBe('');
       expect(ccrFindFirst).not.toHaveBeenCalled();
       expect(jrFindFirst).not.toHaveBeenCalled();
       expect(airFindFirst).not.toHaveBeenCalled();
