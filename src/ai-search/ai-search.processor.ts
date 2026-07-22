@@ -137,6 +137,13 @@ export class AiSearchProcessor
    * - **BullMQ 重試（`attemptsMade > 0`）**：前一 attempt 已完成 PAID pull 並落列（在 throw 的 analysis 之前）→ **重用**
    *   已落庫合流、**不重打供應商、不 clean-slate、不重落列**（無重扣、無重複列）。前一 attempt 若在落列前就 throw
    *   （pull/persist 基礎設施錯）→ 無可重用列 → fall through 走完整 fetch（該情境無 durable 結果可省）。
+   *
+   * **PAID pull 緊接 persist（M15-R12/#701，補 M15-R1 殘餘窗）**：reuse-on-retry guard 只在 `persistCanonical` 落列後才免
+   * 重扣，故 PAID pull 與 persist 之間**不得**夾任何會 throw 的 op（否則非 final attempt 於此 throw → 無 durable 列 →
+   * 重試 fall-through 重打供應商重扣）。因此：(a) extension 收斂（DB 讀）**移到 pull 之前**——若其 transient throw，pull
+   * 尚未發生 → 乾淨中止、零扣抵、重試僅重抓一次；(b) pull 與 persist 之間僅餘 cosmetic 進度 tick，改 best-effort（吞瞬時
+   * DB 錯 + log，比照 INV-3 的 'done' tick #578）**絕不** throw 進 catch 逼出重扣。剩餘唯一重扣窗＝`persistCanonical`
+   * 本身 throw（無 durable 列可省，屬不可免、各修法皆同的 accepted trade-off）。
    */
   private async gatherCaptures(
     job: Job<AiSearchJobPayload>,
@@ -158,14 +165,16 @@ export class AiSearchProcessor
     await this.captureRepo.deleteByJobId(runId);
 
     const merged: AiSearchCanonical[] = [];
-    // 1. SerpAPI pull（reserved；關閉時 provider 回 null → 該渠道缺 → partial，零外部呼叫）。
-    merged.push(...(await this.pullSerpapi(serpapiChannelsOf(channels), keywords)));
-
+    // 1. extension push（經 `/captures` 已落 raw）：讀 owner 範圍內指定渠道 → 收斂 + 依 query 集合流。**先於** PAID
+    //    pull（M15-R12/#701）——此 DB 讀 transient throw 發生在 pull 之前 → 乾淨中止、零扣抵。
     await this.reportProgress(job, runId, 'collecting', 60);
-    // 2. extension push（經 `/captures` 已落 raw）：讀 owner 範圍內指定渠道 → 收斂 + 依 query 集合流。
     merged.push(...(await this.collectExtension(ownerId, extensionChannelsOf(channels), keywords)));
 
-    await this.reportProgress(job, runId, 'persisting', 85);
+    // 2. SerpAPI PAID pull（reserved；關閉時 provider 回 null → 該渠道缺 → partial，零外部呼叫）。**緊接** persist：
+    //    以下僅一個 best-effort 進度 tick，pull 與 persist 之間無會 throw 的 op（M15-R12/#701）。
+    merged.push(...(await this.pullSerpapi(serpapiChannelsOf(channels), keywords)));
+
+    await this.reportProgressBestEffort(job, runId, 'persisting', 85);
     const captureCount = await this.captureRepo.persistCanonical(runId, ownerId, merged);
     return { merged, captureCount };
   }
