@@ -9,18 +9,19 @@ import {
 } from '@tanstack/react-router';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
+import { beforeEach } from 'vitest';
 import { server } from '../../api/msw/server';
+import { config } from '../../config/env';
 import { deserialize } from '../../lib/urlState';
+import { useAnalysisSettingsStore } from '../../stores/analysisSettingsStore';
 import { HomeRoute } from './HomeRoute';
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
 /**
  * Mount HomeRoute inside a memory-history TanStack Router (root owns the same
- * `deserialize` search codec as the app) + a TanStack Query provider (the T1.3
- * job-tracking panel needs one once an analysisId is present), so
- * `router.state.location.search` reflects real navigation. Returns the router
- * for post-submit URL assertions.
+ * `deserialize` search codec as the app) + a TanStack Query provider, so
+ * `router.state.location.search` reflects real navigation. Returns the router.
  */
 function renderHome() {
   const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
@@ -48,29 +49,25 @@ function renderHome() {
   return router;
 }
 
-/** v4: geo/language/network/includeAdult live behind the ⚙ 進階選項 toggle (T7.2). */
-function openAdvanced() {
-  fireEvent.click(screen.getByRole('button', { name: '進階選項' }));
-}
+// geo/language now come from the persisted settings store (T7.9/T7.10) — reset to the
+// config defaults (TW / zh-TW) before each test.
+beforeEach(() => {
+  localStorage.clear();
+  useAnalysisSettingsStore.setState({ geo: config.defaultGeo, language: config.defaultLanguage });
+});
 
-describe('TC-13 · HomeRoute create-analysis form (validation + inline field errors)', () => {
-  it('disables the CTA until seeds + geo + language are all filled (geo/language behind ⚙)', async () => {
+describe('TC-13 · HomeRoute create-analysis form (seeds gate + inline errors)', () => {
+  it('disables the CTA until seeds are filled (geo/language come from settings)', async () => {
     renderHome();
     const cta = await screen.findByRole('button', { name: '開始分析' });
     expect(cta).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('輸入搜尋詞'), { target: { value: 'running shoes' } });
-    expect(cta).toBeDisabled(); // geo + language still empty (collapsed but still required)
-
-    openAdvanced();
-    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
-    expect(cta).toBeDisabled(); // language still empty
-
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
+    // geo/language default TW/zh-TW from settings → seeds alone enables the CTA.
     expect(cta).toBeEnabled();
   });
 
-  it('renders inline per-field errors from a 400 ErrorResponse.fields body', async () => {
+  it('renders an inline seeds error from a 400 ErrorResponse.fields body', async () => {
     server.use(
       http.post('/api/v1/keyword-analyses', () =>
         HttpResponse.json(
@@ -78,7 +75,7 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
             statusCode: 400,
             code: 'VALIDATION',
             message: 'Validation failed',
-            fields: { geo: ['地區為必填'], seeds: ['至少一個種子字'], language: ['語言格式錯誤'] },
+            fields: { seeds: ['至少一個種子字'] },
             path: '/api/v1/keyword-analyses',
             timestamp: '2026-07-14T00:00:00.000Z',
           },
@@ -89,16 +86,10 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
     renderHome();
 
     fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'x' } });
-    openAdvanced();
-    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'ZZ' } });
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'bad' } });
     fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
-    expect(await screen.findByText('地區為必填')).toBeInTheDocument();
-    expect(screen.getByText('至少一個種子字')).toBeInTheDocument();
-    // language 欄亦有 field error → aria-invalid 分支（inline 錯誤三欄皆走到）。
-    expect(screen.getByText('語言格式錯誤')).toBeInTheDocument();
-    expect(screen.getByLabelText('語言 (language)')).toHaveAttribute('aria-invalid', 'true');
+    expect(await screen.findByText('至少一個種子字')).toBeInTheDocument();
+    expect(screen.getByLabelText('輸入搜尋詞')).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('does not POST when the form is submitted while invalid (guard)', async () => {
@@ -110,9 +101,7 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
       }),
     );
     renderHome();
-    // 空 seeds/geo/language → 不可送出；直接 submit form（模擬 Enter/程式化送出，繞過 disabled 按鈕）。
     fireEvent.submit(await screen.findByRole('form', { name: '建立分析' }));
-    // Flush inside act so the background 從追蹤清單繼續 read (`useTrackingLists`, default []) settles.
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
@@ -120,17 +109,14 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
   });
 });
 
-describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', () => {
-  it('submits the typed body (v4 default mode = exact) and navigates on 202', async () => {
+describe('TC-32 · HomeRoute submit (POST 202 with settings geo/lang + fixed network/adult)', () => {
+  it('submits with default settings geo/lang, fixed network=partners + includeAdult=true, mode=exact', async () => {
     let received: unknown;
     server.use(
       http.post('/api/v1/keyword-analyses', async ({ request }) => {
         received = await request.json();
         return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
       }),
-      // The create flow now navigates into the AnalysisDashboard (T6.0), which reads
-      // the authoritative `GET :id` snapshot for readiness — a still-running one keeps
-      // the job-tracking progress panel.
       http.get('/api/v1/keyword-analyses/:id', () => HttpResponse.json({ status: 'running' })),
     );
     const router = renderHome();
@@ -138,52 +124,40 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), {
       target: { value: 'running shoes\ntrail shoes' },
     });
-    openAdvanced();
-    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
     fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     await waitFor(() => {
-      // The analysis (geo, language) context rides along in the URL (Design §5) so the
-      // ready 搜尋詞總表 can seed list-layer-fixed tracking selections (FR-19).
       expect(router.state.location.search).toEqual({
         analysisId: ANALYSIS_ID,
         geo: 'TW',
         language: 'zh-TW',
       });
     });
-    expect(received).toMatchObject({
+    expect(received).toEqual({
       seeds: ['running shoes', 'trail shoes'],
       geo: 'TW',
       language: 'zh-TW',
-      mode: 'exact', // v4 default 探索模式 = 指定模式 (exact)
+      mode: 'exact', // v4 default 探索模式
+      network: 'GOOGLE_SEARCH_AND_PARTNERS', // fixed (FR-2 修訂 c)
+      includeAdult: true, // fixed
     });
-    // After navigation the home route swaps the form for the analysis dashboard;
-    // a still-running snapshot shows the job-tracking progress panel.
     expect(await screen.findByText('分析進行中')).toBeInTheDocument();
   });
 
-  it('wires the explore-mode pill + network + includeAdult into the body', async () => {
+  it('adopts the changed settings geo/language and the explore-mode pill into the body', async () => {
+    useAnalysisSettingsStore.setState({ geo: 'US', language: 'en' });
     let received: unknown;
     server.use(
       http.post('/api/v1/keyword-analyses', async ({ request }) => {
         received = await request.json();
         return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
       }),
-      // Post-navigation dashboard readiness probe (see above).
       http.get('/api/v1/keyword-analyses/:id', () => HttpResponse.json({ status: 'running' })),
     );
     renderHome();
 
     fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
-    fireEvent.click(screen.getByRole('button', { name: '拓展模式' })); // exact (default) → expand
-    openAdvanced();
-    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'US' } });
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'en' } });
-    fireEvent.change(screen.getByLabelText('搜尋網路 (network)'), {
-      target: { value: 'GOOGLE_SEARCH_AND_PARTNERS' },
-    });
-    fireEvent.click(screen.getByLabelText('包含成人內容 (includeAdult)'));
+    fireEvent.click(screen.getByRole('button', { name: '拓展模式' })); // exact → expand
     fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     await waitFor(() => {
@@ -207,144 +181,43 @@ describe('TC-32 · HomeRoute submit (POST 202 → navigate with analysisId)', ()
     renderHome();
 
     fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
-    openAdvanced();
-    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'TW' } });
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
     fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
 
     expect(await screen.findByText('建立分析失敗，請稍後再試。')).toBeInTheDocument();
-    // Non-terminal failure: still on the form (no navigation), CTA re-enabled.
     expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled();
   });
 });
 
-describe('TC-57 · Home v4 (探索模式 pills + ⚙ 進階 collapsible + Import roadmap chips)', () => {
-  it('defaults 探索模式 to 指定模式 (exact) and toggles to 拓展模式 (expand) with helper copy', async () => {
+describe('TC-73 · Home v4 slim (no gear / no advanced inputs / no Import)', () => {
+  it('renders neither the ⚙ 進階選項 gear, the geo/language/network/includeAdult inputs, nor Import chips', async () => {
+    renderHome();
+    await screen.findByLabelText('輸入搜尋詞');
+
+    expect(screen.queryByRole('button', { name: '進階選項' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('地區 (geo)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('語言 (language)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('搜尋網路 (network)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('包含成人內容 (includeAdult)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import From GAD' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import From GSC' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the explore-mode pills (default 指定模式, toggles to 拓展模式)', async () => {
     renderHome();
     const exact = await screen.findByRole('button', { name: '指定模式' });
     expect(exact).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '拓展模式' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-    expect(screen.getByText(/精準分析上方輸入的搜尋詞/)).toBeInTheDocument();
-
     fireEvent.click(screen.getByRole('button', { name: '拓展模式' }));
     expect(screen.getByRole('button', { name: '拓展模式' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    expect(screen.getByText(/擴充相關關鍵字/)).toBeInTheDocument();
-  });
-
-  it('hides the Google Ads params behind the ⚙ 進階選項 toggle (collapsed by default)', async () => {
-    renderHome();
-    await screen.findByLabelText('輸入搜尋詞');
-    expect(screen.queryByLabelText('地區 (geo)')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('語言 (language)')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('搜尋網路 (network)')).not.toBeInTheDocument();
-
-    openAdvanced();
-    expect(screen.getByLabelText('地區 (geo)')).toBeInTheDocument();
-    expect(screen.getByLabelText('語言 (language)')).toBeInTheDocument();
-    expect(screen.getByLabelText('搜尋網路 (network)')).toBeInTheDocument();
-  });
-
-  it('keeps geo/language required while collapsed: CTA disabled with a ⚙-pointing hint', async () => {
-    renderHome();
-    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
-    expect(screen.getByRole('button', { name: '開始分析' })).toBeDisabled();
-    // Hint names the missing required fields and points at the collapsed advanced section.
-    expect(screen.getByText(/進階選項/)).toBeInTheDocument();
-  });
-
-  it('renders Import From GAD/GSC as roadmap chips: click shows 即將推出 and fires NO request', async () => {
-    let posted = false;
-    server.use(
-      http.post('/api/v1/keyword-analyses', () => {
-        posted = true;
-        return HttpResponse.json({ analysisId: ANALYSIS_ID }, { status: 202 });
-      }),
-    );
-    renderHome();
-    await screen.findByLabelText('輸入搜尋詞');
-    expect(screen.queryByText('即將推出')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Import From GAD' }));
-    expect(screen.getByRole('status')).toHaveTextContent('即將推出');
-    fireEvent.click(screen.getByRole('button', { name: 'Import From GSC' }));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(posted).toBe(false); // roadmap chips never hit the backend
-  });
-
-  it('auto-expands the advanced section when a 400 targets a collapsed field (geo)', async () => {
-    server.use(
-      http.post('/api/v1/keyword-analyses', () =>
-        HttpResponse.json(
-          {
-            statusCode: 400,
-            code: 'VALIDATION',
-            message: 'Validation failed',
-            fields: { geo: ['地區為必填'] },
-            path: '/api/v1/keyword-analyses',
-            timestamp: '2026-07-14T00:00:00.000Z',
-          },
-          { status: 400 },
-        ),
-      ),
-    );
-    renderHome();
-
-    fireEvent.change(await screen.findByLabelText('輸入搜尋詞'), { target: { value: 'shoes' } });
-    openAdvanced();
-    fireEvent.change(screen.getByLabelText('地區 (geo)'), { target: { value: 'ZZ' } });
-    fireEvent.change(screen.getByLabelText('語言 (language)'), { target: { value: 'zh-TW' } });
-    openAdvanced(); // collapse again — the field stays filled (state persists) but hidden
-    expect(screen.queryByLabelText('地區 (geo)')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '開始分析' }));
-
-    // The 400 targets the collapsed geo field → the section auto-expands so the error shows.
-    expect(await screen.findByText('地區為必填')).toBeInTheDocument();
-    expect(screen.getByLabelText('地區 (geo)')).toBeInTheDocument();
   });
 });
 
-describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
-  it('generates from the existing seeds and appends de-duplicated, without creating an analysis', async () => {
-    let received: unknown;
-    server.use(
-      http.post('/api/v1/ai-ideation', async ({ request }) => {
-        received = await request.json();
-        return HttpResponse.json(
-          { keywords: ['trail shoes', 'Running Shoes', 'marathon'] },
-          { status: 200 },
-        );
-      }),
-    );
-    const router = renderHome();
-
-    const seeds = await screen.findByLabelText<HTMLTextAreaElement>('輸入搜尋詞');
-    fireEvent.change(seeds, { target: { value: 'running shoes' } });
-    fireEvent.click(screen.getByRole('button', { name: '送出' }));
-
-    // "Running Shoes" de-dupes against the existing "running shoes" (C7); the two
-    // genuinely-new keywords append in order.
-    await waitFor(() => expect(seeds.value).toBe('running shoes\ntrail shoes\nmarathon'));
-
-    // The request seeds are the form's EXISTING seeds (FR-20 / AC-20.1 「現有 seeds」).
-    expect(received).toEqual({ template: 'long-tail', seeds: ['running shoes'] });
-
-    // 不自動建立分析：URL 無 analysisId、仍在建立表單。
-    expect(router.state.location.search).not.toHaveProperty('analysisId');
-    expect(screen.getByRole('button', { name: '開始分析' })).toBeInTheDocument();
-  });
-});
-
-describe('TC-71 · Home wiring — 從追蹤清單繼續 loads seeds + geo/language', () => {
+describe('TC-71 · Home wiring — 從追蹤清單繼續 loads seeds + adopts geo/language', () => {
   const CREATED = '2026-07-01T00:00:00.000Z';
 
-  it('繼續 a list → its members become seeds (C7) and its geo/language prefill the advanced options', async () => {
+  it('繼續 a list → its members become seeds (C7) and its geo/language become the settings', async () => {
     server.use(
       http.get('/api/v1/tracking-lists', () =>
         HttpResponse.json([
@@ -387,13 +260,11 @@ describe('TC-71 · Home wiring — 從追蹤清單繼續 loads seeds + geo/langu
     const seeds = await screen.findByLabelText<HTMLTextAreaElement>('輸入搜尋詞');
     fireEvent.click(await screen.findByRole('button', { name: '從「競品觀察清單」繼續' }));
 
-    // Members flow into the seeds textarea (order preserved, C7-deduped by the host).
     await waitFor(() => expect(seeds.value).toBe('dyson 吸塵器\n小米吸塵器'));
 
-    // The list-fixed geo/language prefill the advanced options (auto-expanded), so the
-    // CTA is enabled without the user touching the ⚙ toggle (AC-2.3).
-    expect(screen.getByLabelText<HTMLInputElement>('地區 (geo)').value).toBe('US');
-    expect(screen.getByLabelText<HTMLInputElement>('語言 (language)').value).toBe('en');
+    // The list-fixed geo/language are adopted into the persisted settings (T7.10).
+    expect(useAnalysisSettingsStore.getState().geo).toBe('US');
+    expect(useAnalysisSettingsStore.getState().language).toBe('en');
     expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled();
   });
 
@@ -416,5 +287,31 @@ describe('TC-71 · Home wiring — 從追蹤清單繼續 loads seeds + geo/langu
 
     fireEvent.click(await screen.findByRole('button', { name: /查看更多/ }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/tracking'));
+  });
+});
+
+describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
+  it('generates from the existing seeds and appends de-duplicated, without creating an analysis', async () => {
+    let received: unknown;
+    server.use(
+      http.post('/api/v1/ai-ideation', async ({ request }) => {
+        received = await request.json();
+        return HttpResponse.json(
+          { keywords: ['trail shoes', 'Running Shoes', 'marathon'] },
+          { status: 200 },
+        );
+      }),
+    );
+    const router = renderHome();
+
+    const seeds = await screen.findByLabelText<HTMLTextAreaElement>('輸入搜尋詞');
+    fireEvent.change(seeds, { target: { value: 'running shoes' } });
+    fireEvent.click(screen.getByRole('button', { name: '送出' }));
+
+    await waitFor(() => expect(seeds.value).toBe('running shoes\ntrail shoes\nmarathon'));
+
+    expect(received).toEqual({ template: 'long-tail', seeds: ['running shoes'] });
+    expect(router.state.location.search).not.toHaveProperty('analysisId');
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeInTheDocument();
   });
 });
