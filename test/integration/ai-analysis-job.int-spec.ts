@@ -205,4 +205,53 @@ describe('AiAnalysisService (integration · Testcontainers, TC-78 部分)', () =
     expect(goodMetric).toHaveLength(1);
     expect(goodMetric[0].mentions).toBe(1);
   });
+
+  // M15-R8/#689：原子 replaceForJob（delete + 三 createMany 單一 $transaction）——persist 期基礎設施錯 → 整批
+  // rollback，delete 與 creates 全有或全無，不再「刪了卻沒寫」的跨表撕裂 / 資料流失（INV-6 idempotent re-run）。
+  it('R8：persist 期失敗 → 整批 rollback、無跨表撕裂（前次列完好）', async () => {
+    const repo = new AiAnalysisRepository(prisma);
+    const jobId = randomUUID();
+    const rows = {
+      answers: [
+        {
+          channel: 'chatGpt',
+          query: 'q',
+          answerText: 'a',
+          brands: ['ASUS'],
+          positive: 1,
+          negative: 0,
+        },
+      ],
+      cited: [
+        {
+          channel: 'chatGpt',
+          query: 'q',
+          link: 'https://asus.com',
+          domain: 'asus.com',
+          title: null,
+          mediaType: 'retail',
+        },
+      ],
+      metrics: [
+        {
+          channel: 'chatGpt',
+          dimension: 'keyword',
+          groupKey: 'q',
+          brand: 'ASUS',
+          mentions: 1,
+          shareOfVoice: 1,
+          citations: 0,
+          exposure: null,
+        },
+      ],
+    };
+    // 首次成功 replace → 三表各落 1 列（前次 run 的 durable 結果）。
+    await repo.replaceForJob(jobId, null, 'v1', rows);
+    // 二次以非法 ownerId（uuid cast 失敗，模擬 persist 期基礎設施錯）→ 整個 $transaction 應 rollback。
+    await expect(repo.replaceForJob(jobId, 'not-a-uuid', 'v1', rows)).rejects.toBeDefined();
+    // 前次列完好：delete 與 create 同一 txn 一起 rollback → 非「刪了卻沒寫」的撕裂（非原子時三表會被清空）。
+    expect(await prisma.aiAnswer.count({ where: { jobId } })).toBe(1);
+    expect(await prisma.aiCitedReference.count({ where: { jobId } })).toBe(1);
+    expect(await prisma.aiVisibilityMetric.count({ where: { jobId } })).toBe(1);
+  });
 });

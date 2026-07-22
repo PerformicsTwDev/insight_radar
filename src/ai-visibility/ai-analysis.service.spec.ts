@@ -2,14 +2,15 @@ import type { BrandAliasInput } from '../brand-profile/brand-match';
 import type { AiSearchCanonical } from '../captures/mapping/canonical.types';
 import type { PrismaService } from '../prisma';
 import { AiAnalysisService } from './ai-analysis.service';
-import type { AiAnswerRow, AiCitedReferenceRow, AiVisibilityMetricRow } from './ai-analysis.types';
+import type { AiAnalysisRows } from './ai-analysis.types';
 import type { BrandTextBlock } from './brand-extraction.postprocess';
 import type { MediaReference } from './media-classifier.postprocess';
 import type { SentimentTextBlock } from './sentiment.postprocess';
 
 /**
  * TC-78 部分 (T15.5 · FR-42/AC-42.5)：AiAnalysisService 編排單元測試（三線 service + repo + prisma 皆 mock；
- * `buildAiVisibility` 用真純函式）。守：per-capture 聚合 + scope 分組 + partial 收斂 + 品牌載入分支 + block 攤平。
+ * `buildAiVisibility` 用真純函式）。守：per-capture 聚合 + scope 分組 + partial 收斂 + 品牌載入分支 + block 攤平
+ * + **per-line guard（M15-R3）** + **list block 可讀化（M15-R4）** + **原子 replaceForJob 持久化（M15-R8）**。
  */
 
 const BRAND_ROW = {
@@ -25,10 +26,7 @@ interface Mocks {
   extractBrandsOutcome: jest.Mock;
   analyzeSentimentOutcome: jest.Mock;
   classifyMediaOutcome: jest.Mock;
-  deleteByJobId: jest.Mock;
-  persistAnswers: jest.Mock;
-  persistCitedReferences: jest.Mock;
-  persistMetrics: jest.Mock;
+  replaceForJob: jest.Mock;
   findFirst: jest.Mock;
 }
 
@@ -52,13 +50,13 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
       results: refs.map((r) => ({ id: r.id, type: 'news' })),
       needsReview: [],
     })),
-    deleteByJobId: jest.fn(() => Promise.resolve()),
-    persistAnswers: jest.fn((_j, _o, _s, rows: AiAnswerRow[]) => Promise.resolve(rows.length)),
-    persistCitedReferences: jest.fn((_j, _o, _s, rows: AiCitedReferenceRow[]) =>
-      Promise.resolve(rows.length),
-    ),
-    persistMetrics: jest.fn((_j, _o, _s, rows: AiVisibilityMetricRow[]) =>
-      Promise.resolve(rows.length),
+    // 原子持久化：回三表落列筆數（＝各陣列長度，鏡射真 repo 對 fresh job 的 createMany count）。
+    replaceForJob: jest.fn((_j, _o, _s, rows: AiAnalysisRows) =>
+      Promise.resolve({
+        answersCount: rows.answers.length,
+        citedCount: rows.cited.length,
+        metricsCount: rows.metrics.length,
+      }),
     ),
     findFirst: jest.fn(() => Promise.resolve(BRAND_ROW)),
     ...over,
@@ -67,12 +65,7 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
     { extractBrandsOutcome: m.extractBrandsOutcome },
     { analyzeSentimentOutcome: m.analyzeSentimentOutcome },
     { classifyMediaOutcome: m.classifyMediaOutcome },
-    {
-      deleteByJobId: m.deleteByJobId,
-      persistAnswers: m.persistAnswers,
-      persistCitedReferences: m.persistCitedReferences,
-      persistMetrics: m.persistMetrics,
-    },
+    { replaceForJob: m.replaceForJob },
     { brandProfile: { findFirst: m.findFirst } } as unknown as PrismaService,
     { schemaVersion: 'v9' },
   );
@@ -83,6 +76,11 @@ function build(over: Partial<Mocks> = {}): { service: AiAnalysisService; m: Mock
 function argOf<T>(mock: jest.Mock, call: number, arg: number): T {
   const calls = mock.mock.calls as unknown[][];
   return calls[call][arg] as T;
+}
+
+/** 讀 replaceForJob 首呼叫落下的三表 rows（answers/cited/metrics）。 */
+function rowsOf(m: Mocks): AiAnalysisRows {
+  return argOf<AiAnalysisRows>(m.replaceForJob, 0, 3);
 }
 
 function cap(over: Partial<AiSearchCanonical> = {}): AiSearchCanonical {
@@ -101,13 +99,16 @@ function cap(over: Partial<AiSearchCanonical> = {}): AiSearchCanonical {
 const base = { jobId: 'job-1', ownerId: null as string | null, brandProfileId: 'bp-1' };
 
 describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
-  it('空 captures → 只清 slate、回零、不呼叫任何分析線或持久化', async () => {
+  it('空 captures → 只清 slate（原子 replace 空列）、回零、不呼叫任何分析線', async () => {
     const { service, m } = build();
     const result = await service.analyzeAndPersist({ ...base, captures: [] });
     expect(result).toEqual({ answersCount: 0, citedCount: 0, metricsCount: 0, needsReview: 0 });
-    expect(m.deleteByJobId).toHaveBeenCalledWith('job-1');
+    expect(m.replaceForJob).toHaveBeenCalledWith('job-1', null, 'v9', {
+      answers: [],
+      cited: [],
+      metrics: [],
+    });
     expect(m.extractBrandsOutcome).not.toHaveBeenCalled();
-    expect(m.persistAnswers).not.toHaveBeenCalled();
   });
 
   it('captures → 三線分析 → 指標落庫（華碩→ASUS 正規化 + 不去重、citations 命中、per-brand 列）', async () => {
@@ -119,11 +120,10 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     expect(result.needsReview).toBe(0);
     expect(result.answersCount).toBe(1);
 
-    const answers = argOf<AiAnswerRow[]>(m.persistAnswers, 0, 3);
+    const { answers, metrics } = rowsOf(m);
     expect(answers[0].brands).toEqual(['ASUS', 'ASUS']); // 華碩→ASUS，不去重＝露出次數
     expect(answers[0].positive).toBe(1);
 
-    const metrics = argOf<AiVisibilityMetricRow[]>(m.persistMetrics, 0, 3);
     const asus = metrics.find((row) => row.brand === 'ASUS');
     expect(asus).toMatchObject({
       dimension: 'keyword',
@@ -135,13 +135,14 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     expect(acer).toMatchObject({ mentions: 0, shareOfVoice: 0 }); // 競品零提及、分母>0 → 真實 0
   });
 
-  it('media 分類落 ai_cited_references（domain 正規化、schemaVersion 帶入）', async () => {
+  it('media 分類落 ai_cited_references（domain 正規化、原子 replace 帶 schemaVersion）', async () => {
     const { service, m } = build();
     await service.analyzeAndPersist({ ...base, captures: [cap()] });
-    expect(m.persistCitedReferences).toHaveBeenCalledWith(
-      'job-1',
-      null,
-      'v9',
+    // 原子持久化：job/owner/schemaVersion + cited 列一併進單一 replaceForJob。
+    expect(argOf<string>(m.replaceForJob, 0, 0)).toBe('job-1');
+    expect(argOf<string | null>(m.replaceForJob, 0, 1)).toBeNull();
+    expect(argOf<string>(m.replaceForJob, 0, 2)).toBe('v9');
+    expect(rowsOf(m).cited).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           domain: 'asus.com',
@@ -158,13 +159,12 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
       ...base,
       captures: [cap({ blocks: ['ASUS one'] }), cap({ blocks: ['ASUS two'] })],
     });
-    const metrics = argOf<AiVisibilityMetricRow[]>(m.persistMetrics, 0, 3);
-    const asus = metrics.filter((row) => row.brand === 'ASUS');
+    const asus = rowsOf(m).metrics.filter((row) => row.brand === 'ASUS');
     expect(asus).toHaveLength(1); // 單一 scope（非兩列）
     expect(asus[0].mentions).toBe(2); // 兩 capture 各 1 → 加總
   });
 
-  it('無 brandProfileId → 空品牌集：仍落 answers（原字保留）、指標 0 列（buildAiVisibility 無品牌）、不查 DB、不判情緒', async () => {
+  it('無 brandProfileId → 空品牌集：仍落 answers（原字保留）、指標 0 列、不查 DB、不判情緒', async () => {
     const { service, m } = build();
     const result = await service.analyzeAndPersist({
       jobId: 'j',
@@ -176,8 +176,7 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     expect(m.analyzeSentimentOutcome).not.toHaveBeenCalled(); // 無本品牌 → 略過情緒
     expect(result.metricsCount).toBe(0);
     expect(result.answersCount).toBe(1);
-    const answers = argOf<AiAnswerRow[]>(m.persistAnswers, 0, 3);
-    expect(answers[0].positive).toBe(0); // 未判情緒 → 預設 0
+    expect(rowsOf(m).answers[0].positive).toBe(0); // 未判情緒 → 預設 0
   });
 
   it('brandProfileId 但查無（owner 不符/已刪）→ 視同空品牌集（不硬崩，AC-40.3）', async () => {
@@ -206,7 +205,7 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
     expect('ownerId' in arg.where).toBe(false);
   });
 
-  it('某線降級 → job-level needsReview 收斂（三線相加）', async () => {
+  it('某線降級（每 item fallback）→ job-level needsReview 收斂（三線相加）', async () => {
     const { service } = build({
       extractBrandsOutcome: jest.fn((blocks: BrandTextBlock[]) => ({
         results: blocks.map((b) => ({ id: b.id, brands: [] })),
@@ -230,7 +229,8 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
           blocks: [
             { text: 'ASUS obj' },
             { text: 123, content: 'from content' }, // text 非字串 → 續找 content
-            { html: 'x' }, // 無已知文字欄 → JSON.stringify
+            { html: 'x' }, // 無已知文字欄（schema strip 後空）→ JSON.stringify
+            { snippet: 42 }, // snippet 非字串 → aiTextBlockSchema 驗證失敗 → 續 fallback → JSON.stringify
             42,
             true,
             10n,
@@ -244,6 +244,7 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
       'ASUS obj',
       'from content',
       '{"html":"x"}',
+      '{"snippet":42}',
       '42',
       'true',
       '10',
@@ -258,9 +259,97 @@ describe('TC-78: AiAnalysisService orchestration (T15.5)', () => {
       classifyMediaOutcome: jest.fn(() => ({ results: [], needsReview: [] })), // 無 media 結果 → get() undefined
     });
     await service.analyzeAndPersist({ ...base, captures: [cap()] });
-    const answers = argOf<AiAnswerRow[]>(m.persistAnswers, 0, 3);
+    const { answers, cited } = rowsOf(m);
     expect(answers[0].brands).toEqual([]); // brandById.get(id) undefined → []
-    const cited = argOf<AiCitedReferenceRow[]>(m.persistCitedReferences, 0, 3);
     expect(cited[0].mediaType).toBe('other'); // 缺分類 → other fallback
+  });
+
+  // ── M15-R3 (#685, INV-6)：某線 non-content_filter 基礎設施錯 throw → per-line guard，不丟他線、run 降 partial。 ──
+  it('R3：情緒線 throw（Azure 500 類基礎設施錯）→ per-line guard：不整體 throw、他線保留、needsReview>0', async () => {
+    const { service, m } = build({
+      analyzeSentimentOutcome: jest.fn(() => Promise.reject(new Error('azure 500 boom'))),
+    });
+    // 現況（unguarded await）：整個 analyzeAndPersist reject → 下方斷言全數落空（red）。
+    const result = await service.analyzeAndPersist({
+      ...base,
+      captures: [cap({ blocks: ['ASUS is great'] })],
+    });
+    expect(result.needsReview).toBeGreaterThan(0); // 情緒線失敗收斂 → job-level partial
+    expect(result.answersCount).toBe(1); // 仍持久化（不整批失敗，不丟他線）
+    const { answers } = rowsOf(m);
+    expect(answers[0].brands).toEqual(['ASUS']); // 品牌線結果保留（未被情緒線的錯污染）
+    expect(answers[0].positive).toBe(0); // 情緒線降級 → 預設 0
+    expect(answers[0].negative).toBe(0);
+  });
+
+  it('R3：品牌線 throw → 情緒/媒體線保留、needsReview>0、不整體 throw', async () => {
+    const { service, m } = build({
+      extractBrandsOutcome: jest.fn(() => Promise.reject(new Error('azure timeout'))),
+    });
+    const result = await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    expect(result.needsReview).toBeGreaterThan(0);
+    const { answers, cited } = rowsOf(m);
+    expect(answers[0].brands).toEqual([]); // 品牌線降級 → 空（不污染他線）
+    expect(answers[0].positive).toBe(1); // 情緒線仍運作
+    expect(cited[0].mediaType).toBe('news'); // 媒體線仍運作
+  });
+
+  it('R3：媒體線 throw → 品牌/情緒線保留、needsReview>0', async () => {
+    const { service, m } = build({
+      classifyMediaOutcome: jest.fn(() => Promise.reject(new Error('azure 503'))),
+    });
+    const result = await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    expect(result.needsReview).toBeGreaterThan(0);
+    const { answers, cited } = rowsOf(m);
+    expect(answers[0].brands).toEqual(['ASUS']); // 品牌線保留
+    expect(cited[0].mediaType).toBe('other'); // 媒體線降級 → other fallback（不污染他線）
+  });
+
+  // ── M15-R4 (#686)：AI-Overview list block（無 top-level snippet）→ 遞迴串接 snippet，非 JSON blob。 ──
+  it('R4：list block → 遞迴取子項 snippet 串接為可讀文字（餵 LLM + 落 answerText）、非 {"type":"list"...}', async () => {
+    const { service, m } = build();
+    await service.analyzeAndPersist({
+      ...base,
+      captures: [
+        cap({
+          blocks: [
+            {
+              type: 'list',
+              list: [
+                { snippet: 'ASUS ZenBook' },
+                { reference_indexes: [0] }, // 無 snippet/list → 攤平為空 → 跳過（不留空行）
+                { snippet: 'Acer Swift', list: [{ snippet: 'thin and light' }] },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+    const sent = argOf<BrandTextBlock[]>(m.extractBrandsOutcome, 0, 0);
+    expect(sent[0].text).toBe('ASUS ZenBook\nAcer Swift\nthin and light'); // 遞迴串接
+    expect(sent[0].text).not.toContain('{'); // 非 JSON blob
+    expect(rowsOf(m).answers[0].answerText).toBe('ASUS ZenBook\nAcer Swift\nthin and light');
+  });
+
+  it('R4：heading/paragraph block（有 top-level snippet）→ 取 snippet（不受 list 分支影響）', async () => {
+    const { service, m } = build();
+    await service.analyzeAndPersist({
+      ...base,
+      captures: [cap({ blocks: [{ type: 'paragraph', snippet: 'ASUS is a top brand' }] })],
+    });
+    expect(argOf<BrandTextBlock[]>(m.extractBrandsOutcome, 0, 0)[0].text).toBe(
+      'ASUS is a top brand',
+    );
+  });
+
+  // ── M15-R8 (#689)：持久化經單一原子 replaceForJob（delete+creates 一致），非分散 persist。 ──
+  it('R8：持久化經單一 replaceForJob（原子 delete+creates）——非三個分散 persist 呼叫', async () => {
+    const { service, m } = build();
+    await service.analyzeAndPersist({ ...base, captures: [cap()] });
+    expect(m.replaceForJob).toHaveBeenCalledTimes(1);
+    const rows = rowsOf(m);
+    expect(rows.answers).toHaveLength(1);
+    expect(rows.cited).toHaveLength(1);
+    expect(rows.metrics.length).toBeGreaterThan(0);
   });
 });
