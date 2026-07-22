@@ -45,4 +45,14 @@ export class CreateAiSearchAnalysisDto {
   @IsOptional()
   @IsUUID()
   brandProfileId?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'keyword-analysis 連結（T15.8a #678 G1，Option A additive optional）；帶入時該 analysis 的 `ai_search` ' +
+      'feature 由本 run 狀態推導。未帶＝standalone（不連結、保留 M14/FR-41 行為）。owner-verify：越權/未知→404',
+  })
+  @IsOptional()
+  @IsUUID()
+  analysisId?: string;
 }

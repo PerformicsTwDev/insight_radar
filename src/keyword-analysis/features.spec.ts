@@ -1,4 +1,4 @@
-import { computeFeatures } from './features';
+import { aiSearchFeatureStatus, computeFeatures } from './features';
 
 /** T6.8（FR-14 · AC-14.7）：feature 狀態推導。keyword_metrics 由 snapshot/job 狀態推導；serp/topics 尚未實作 → not_generated。 */
 describe('computeFeatures (T6.8)', () => {
@@ -39,8 +39,8 @@ describe('computeFeatures (T6.8)', () => {
     expect(features.topics).toEqual({ status: 'not_generated' });
   });
 
-  it('ai_search is not_generated (AI Search compute not wired, M15/T15.6/#678)', () => {
-    // AI view（ai_answers/ai_cited_*/*_ai_visibility）依賴之 → gated placeholder（AC-44.2）；接線前恆 not_generated。
+  it('ai_search is not_generated when there is no linked AiSearchRun (T15.8a / #678 G1)', () => {
+    // 無 linked run（extras.aiSearchStatus 省略）→ not_generated（AC-44.2）；有 run → 見下方 derives 測試。
     const features = computeFeatures({ status: 'completed', resultSnapshotId: 'snap-1' });
     expect(features.ai_search).toEqual({ status: 'not_generated' });
   });
@@ -56,5 +56,33 @@ describe('computeFeatures (T6.8)', () => {
     expect(derive('completed')).toBe('ready');
     expect(derive('partial')).toBe('ready');
     expect(derive('failed')).toBe('failed');
+  });
+
+  it('ai_search derives from the latest linked AiSearchRun status (T15.8a / #678 G1 / AC-44.2)', () => {
+    // #678 G1: ai_search was permanently hard-coded not_generated → 9 AI views always 409. It must now
+    // derive from the analysis's latest linked AiSearchRun.status (Option A link), mirroring journey.
+    const ready = { status: 'completed' as const, resultSnapshotId: 'snap-1' };
+    const derive = (aiSearchStatus?: string) =>
+      computeFeatures(ready, { aiSearchStatus }).ai_search.status;
+    expect(derive(undefined)).toBe('not_generated'); // 無 linked run
+    expect(derive('canceled')).toBe('not_generated');
+    expect(derive('queued')).toBe('running');
+    expect(derive('running')).toBe('running');
+    expect(derive('completed')).toBe('ready'); // T15.5 已落 ai_answers/ai_visibility_metrics
+    expect(derive('partial')).toBe('ready');
+    expect(derive('failed')).toBe('failed');
+  });
+});
+
+/** T15.8a（#678 G1 / AC-44.2 / S25）：`aiSearchFeatureStatus` 純函式——鏡射 `journeyFeatureStatus`。 */
+describe('aiSearchFeatureStatus (T15.8a / #678 G1)', () => {
+  it('maps AiSearchRun.status → feature status (completed/partial→ready, queued/running→running, failed→failed, none/canceled→not_generated)', () => {
+    expect(aiSearchFeatureStatus('completed')).toBe('ready');
+    expect(aiSearchFeatureStatus('partial')).toBe('ready');
+    expect(aiSearchFeatureStatus('queued')).toBe('running');
+    expect(aiSearchFeatureStatus('running')).toBe('running');
+    expect(aiSearchFeatureStatus('failed')).toBe('failed');
+    expect(aiSearchFeatureStatus('canceled')).toBe('not_generated');
+    expect(aiSearchFeatureStatus(undefined)).toBe('not_generated');
   });
 });

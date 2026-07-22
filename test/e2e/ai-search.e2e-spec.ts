@@ -26,7 +26,8 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
   let app: INestApplication<App>;
   let queueAdd: jest.Mock;
   let runFindUnique: jest.Mock;
-  let runCreate: jest.Mock;
+  let runCreate: jest.Mock<Promise<{ id: string }>, [{ data: Record<string, unknown> }]>;
+  let analysisFindUnique: jest.Mock; // T15.8a: findAnalysisOwner (owner-verify the linked analysis)
   let serpFetchAiOverviews: jest.Mock;
   let serpFetchAiModes: jest.Mock;
   let serpFetchBingCopilot: jest.Mock;
@@ -34,6 +35,7 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
   /** idempotency lookup (where.idempotencyKey) vs by-id lookup (where.id) share prisma.aiSearchRun.findUnique. */
   let idempotencyRow: unknown; // createRun's findUnique({where:{idempotencyKey}})
   let byIdRow: unknown; // findById's findUnique({where:{id}})
+  let analysisRow: unknown; // keywordAnalysis.findUnique for the analysisId owner-verify (null = unknown)
 
   beforeAll(async () => {
     queueAdd = jest.fn().mockResolvedValue({ id: 'run-1' });
@@ -43,6 +45,7 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
     runFindUnique = jest.fn((args: { where: Record<string, unknown> }) =>
       Promise.resolve('idempotencyKey' in args.where ? idempotencyRow : byIdRow),
     );
+    analysisFindUnique = jest.fn(() => Promise.resolve(analysisRow ?? null));
     serpFetchAiOverviews = jest.fn().mockResolvedValue([]);
     serpFetchAiModes = jest.fn().mockResolvedValue([]);
     serpFetchBingCopilot = jest.fn().mockResolvedValue([]);
@@ -67,6 +70,7 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
       .overrideProvider(PrismaService)
       .useValue({
         aiSearchRun: { findUnique: runFindUnique, create: runCreate, update: jest.fn() },
+        keywordAnalysis: { findUnique: analysisFindUnique },
       })
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
@@ -85,6 +89,7 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
     jest.clearAllMocks();
     idempotencyRow = null;
     byIdRow = null;
+    analysisRow = null;
   });
 
   const post = (body: object) =>
@@ -111,6 +116,36 @@ describe('POST/GET/SSE /ai-search-analyses (e2e, TC-77)', () => {
     const res = await post(validBody).expect(202);
     expect(res.body).toEqual({ jobId: 'run-1' });
     expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it('links a provided analysisId (persists keywordAnalysisId) after owner-verify (T15.8a, #678 G1)', async () => {
+    idempotencyRow = null; // fresh → create path
+    analysisRow = { ownerId: null }; // known analysis; apiKey actor can access
+    const analysisId = '5b5c5d5e-1111-4111-8111-111111111111'; // valid RFC-4122 v4
+    await post({ ...validBody, analysisId }).expect(202);
+    expect(analysisFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: analysisId } }),
+    );
+    expect(runCreate.mock.calls[0][0].data.keywordAnalysisId).toBe(analysisId);
+  });
+
+  it('does not link (keywordAnalysisId null) when analysisId is omitted — standalone (FR-41 backward compat)', async () => {
+    idempotencyRow = null;
+    await post(validBody).expect(202);
+    expect(analysisFindUnique).not.toHaveBeenCalled();
+    expect(runCreate.mock.calls[0][0].data.keywordAnalysisId).toBeNull();
+  });
+
+  it('404 when linking an unknown analysisId (owner-verify, no enqueue)', async () => {
+    idempotencyRow = null;
+    analysisRow = null; // unknown analysis → assertOwnedRow throws 404
+    await post({ ...validBody, analysisId: '5b5c5d5e-1111-4111-8111-111111111111' }).expect(404);
+    expect(runCreate).not.toHaveBeenCalled();
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it('400 for a non-UUID analysisId (DTO validation)', async () => {
+    await post({ ...validBody, analysisId: 'not-a-uuid' }).expect(400);
   });
 
   it('400 for empty keywords', async () => {

@@ -422,6 +422,9 @@ model AiSearchCapture {
 model AiSearchRun {
   id             String   @id @default(uuid()) @db.Uuid
   ownerId        String?  @map("owner_id") @db.Uuid // FR-27：資源歸屬（nullable、不回填）
+  // T15.8a（#678 G1，Option A additive link）：nullable 連結至 keyword-analysis（standalone M14 用法=null、不破 FR-41）；
+  // keyword-analysis 的 `ai_search` feature 由該 analysis 最新 linked run 狀態推導（`aiSearchFeatureStatus`，Design §18.4/S25）。
+  keywordAnalysisId String? @map("keyword_analysis_id") @db.Uuid
   status         String // queued|running|completed|partial|failed|canceled
   params         Json // { schemaVersion }
   progress       Json
@@ -430,6 +433,7 @@ model AiSearchRun {
   error          String?
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
+  @@index([keywordAnalysisId]) // owner-scoped 查最新 linked run（feature 推導）
   @@map("ai_search_runs")
 }
 

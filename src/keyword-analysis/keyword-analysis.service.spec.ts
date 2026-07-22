@@ -98,6 +98,11 @@ class FakePrisma {
   journeyRun = {
     findFirst: jest.fn(() => Promise.resolve(null)),
   };
+
+  // ai_search feature 推導（AC-44.2/T15.8a）：getStatus 查最新 linked AiSearchRun（owner-scoped）；預設無 run。
+  aiSearchRun = {
+    findFirst: jest.fn((_args?: unknown) => Promise.resolve<{ status: string } | null>(null)),
+  };
 }
 
 const QUEUE_CONFIG = {
@@ -554,6 +559,29 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     const res = await service.getStatus('id-1', API_ACTOR);
 
     expect(res.progress).toEqual({ phase: 'queued', percent: 0 });
+  });
+
+  it('derives ai_search from the latest linked AiSearchRun (owner-scoped) (T15.8a / #678 G1 / AC-44.2)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'completed',
+      resultSnapshotId: 'snap-1',
+      resultSnapshot: { id: 'snap-1', keywordCount: 5 },
+    });
+    // analysis has a completed linked AiSearchRun → ai_search feature = ready (T15.5 已落庫).
+    prisma.aiSearchRun.findFirst.mockResolvedValueOnce({ status: 'completed' });
+
+    const res = await service.getStatus('id-1', API_ACTOR);
+
+    expect(res.features.ai_search.status).toBe('ready');
+    // owner-scoped, latest-first, by keywordAnalysisId (apiKey actor → no owner filter, exact where).
+    expect(prisma.aiSearchRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { keywordAnalysisId: 'id-1' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
   });
 });
 

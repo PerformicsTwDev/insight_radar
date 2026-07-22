@@ -52,6 +52,14 @@ export class AiSearchRunService {
   ): Promise<{ jobId: string }> {
     // owner 歸屬（FR-27/AC-27.1）：session→actor.id、apiKey→null（機器資源）。idempotency 依此分範圍（跨租戶不撞）。
     const ownerId = ownerIdOf(actor);
+    // T15.8a（#678 G1，Option A additive link）：帶 analysisId → **先 owner-verify**（S8 唯一單點；未知/越權→
+    // 同一 404 不洩漏存在性）後落 `keywordAnalysisId`；未帶＝standalone（null）＝保留 M14/FR-41 行為。**不入
+    // idempotency key**（抓取/分析工作與掛哪個 analysis 無關）；link 於 run 具體化（created=true）時由 repo 落。
+    const keywordAnalysisId = dto.analysisId ?? null;
+    if (dto.analysisId) {
+      const analysis = await this.repo.findAnalysisOwner(dto.analysisId);
+      assertOwnedRow(analysis, actor, `Analysis ${dto.analysisId} not found`);
+    }
     // 兩層版本皆入 params → idempotency key（M15-R5/#687）：bump 抓取層或分析層版本即產生新 key → 新 run，
     // 使分析階段重跑並以新版本 tag 落列（否則命中既有 completed run，分析永不重跑）。
     const params: AiSearchRunParams = {
@@ -75,6 +83,7 @@ export class AiSearchRunService {
       ownerId,
       idempotencyKey,
       params: params as unknown as Prisma.InputJsonValue,
+      keywordAnalysisId,
     });
 
     // idempotency 命中（created=false）→ 既有 run，不重複 enqueue（AC-41.1）。

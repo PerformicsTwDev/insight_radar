@@ -72,6 +72,8 @@ describe('POST/GET/SSE /keyword-analyses/:id/journey (e2e, TC-69)', () => {
           ),
           delete: jest.fn(),
         },
+        // getStatus 亦讀最新 linked AiSearchRun 推導 ai_search feature（T15.8a）；此檔無 AI Search → null。
+        aiSearchRun: { findFirst: jest.fn().mockResolvedValue(null) },
       })
       .overrideProvider(KeywordAnalysisProcessor)
       .useValue({})
