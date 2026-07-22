@@ -12,8 +12,10 @@ export interface LinkedAiRunRef {
 
 /**
  * AI Search 讀取層持久查詢（T15.8b，#678 G2；FR-44/AC-44.1~44.3）。SnapshotQueryService 注入此 repo 讀 T15.5
- * 落庫（`ai_answers`/`ai_cited_references`/`ai_visibility_metrics`），keyed by 最新 completed/partial linked
- * `AiSearchRun.id`（owner-scoped，S8/S25）。**只讀**——落庫由 T15.5 `AiAnalysisRepository`（分析 job）負責。
+ * 落庫（`ai_answers`/`ai_cited_references`/`ai_visibility_metrics`），keyed by **最新 linked `AiSearchRun.id`
+ * （任何 status、與 gate/data path 同一 `findLatestLinkedRun` 解析，M15-R13/#704——**不得**加 `status∈{completed,partial}`
+ * filter，否則新非-ready run 遮蔽舊 completed run→cache/gate 發散、回舊 insight）**（owner-scoped，S8/S25）。
+ * **只讀**——落庫由 T15.5 `AiAnalysisRepository`（分析 job）負責。
  */
 @Injectable()
 export class AiViewRepository {

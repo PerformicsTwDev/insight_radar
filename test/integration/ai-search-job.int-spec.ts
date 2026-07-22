@@ -50,7 +50,14 @@ function serpCanonical(query: string): AiSearchCanonical {
   };
 }
 
-function makeJob(over: Partial<AiSearchJobPayload>, attemptsMade = 0): Job<AiSearchJobPayload> {
+function makeJob(
+  over: Partial<AiSearchJobPayload>,
+  attemptsMade = 0,
+  // BullMQ bumps `attemptsStarted` (ats) on every dequeue; a formal throw-retry runs with ats = atm + 1.
+  // Default to that faithful mapping so retry tests model a formal retry; the stalled/crash redelivery
+  // test overrides ats explicitly (atm stays 0 while ats>1). See M15-R14/#706.
+  attemptsStarted = attemptsMade + 1,
+): Job<AiSearchJobPayload> {
   return {
     data: {
       runId: over.runId ?? randomUUID(),
@@ -63,6 +70,7 @@ function makeJob(over: Partial<AiSearchJobPayload>, attemptsMade = 0): Job<AiSea
     },
     updateProgress: () => Promise.resolve(undefined),
     attemptsMade,
+    attemptsStarted,
     opts: { attempts: 5 },
   } as unknown as Job<AiSearchJobPayload>;
 }
@@ -280,6 +288,85 @@ describe('AiSearchProcessor merge (integration · Testcontainers, TC-77 部分)'
       'serpapi:aiOverview',
     ]);
     readSpy.mockRestore();
+  });
+
+  it('stalled/crash redelivery after persist reuses persisted captures — does NOT re-charge the paid SerpAPI pull (#706/M15-R14)', async () => {
+    // Root cause (#706): reuse-on-retry keyed on `attemptsMade`, which BullMQ only bumps on a formal
+    // throw→backoff retry (retryJob.lua). A worker killed/OOM/evicted mid-`analyzeAndPersist` (AFTER the
+    // PAID pull + persist) bypasses graceful shutdown; the stalled checker requeues via
+    // moveStalledJobsToWait.lua, bumping only the stalled counter — attemptsMade stays 0 while
+    // attemptsStarted (bumped on every dequeue) becomes 2. Keying reuse on attemptsMade sends this
+    // redelivered job down the first-attempt branch → deleteByJobId wipes the paid rows + re-charges the
+    // pull, blowing SERPAPI_AI_CREDITS_BUDGET (NFR-18). The redelivery must reuse the durable captures.
+    const { runId } = await runRepo.createRun({
+      ownerId: null,
+      idempotencyKey: 'job-stalled-recharge',
+      params: { schemaVersion: 'ai-search-v1' },
+    });
+
+    let pullCount = 0;
+    const countingSerpAi: SerpAiProvider = {
+      fetchAiOverviews: (keywords: string[]) => {
+        pullCount += 1;
+        return Promise.resolve(
+          keywords.map((query) => ({ query, aiOverview: serpCanonical(query), creditsUsed: 1 })),
+        );
+      },
+      fetchAiModes: (keywords: string[]) =>
+        Promise.resolve(keywords.map((query) => ({ query, aiMode: null, creditsUsed: 0 }))),
+      fetchBingCopilot: (keywords: string[]) =>
+        Promise.resolve(keywords.map((query) => ({ query, copilot: null, creditsUsed: 0 }))),
+    };
+
+    // Delivery 1 persists the paid captures, then the analysis stage is interrupted (models the worker
+    // being killed AFTER persist). The interruption throws here only to end delivery 1 with durable rows
+    // already committed — it does NOT drive delivery 2's attempt counters (a SIGKILL/stall never reaches
+    // BullMQ as a throw, so attemptsMade is never incremented).
+    let analyzeCalls = 0;
+    const crashingAnalysis = {
+      analyzeAndPersist: () => {
+        analyzeCalls += 1;
+        if (analyzeCalls === 1) {
+          return Promise.reject(new Error('worker killed mid-analysis (post-persist)'));
+        }
+        return Promise.resolve({ answersCount: 0, citedCount: 0, metricsCount: 0, needsReview: 0 });
+      },
+    } as unknown as AiAnalysisService;
+
+    const processor = new AiSearchProcessor(
+      countingSerpAi,
+      runRepo,
+      captureRepo,
+      crashingAnalysis,
+      {
+        queueConcurrency: 3,
+        captureLookbackDays: 30,
+        captureScanLimit: 500,
+      },
+    );
+    const payload = {
+      runId,
+      channels: ['aiOverview'] as CaptureChannel[],
+      keywords: ['asus zenbook'],
+    };
+
+    // Delivery 1 (fresh: atm=0, ats=1): paid pull + persist land, then analysis is interrupted.
+    await expect(processor.process(makeJob(payload, 0, 1))).rejects.toThrow('worker killed');
+    expect(pullCount).toBe(1);
+    const afterFirst = await prisma.aiSearchCapture.findMany({ where: { jobId: runId } });
+    expect(afterFirst).toHaveLength(1);
+
+    // Delivery 2 = STALLED redelivery: attemptsMade is STILL 0 (never formally retried), attemptsStarted=2.
+    const result = await processor.process(makeJob(payload, 0, 2));
+
+    expect(result.status).toBe('completed');
+    expect(analyzeCalls).toBe(2);
+    // The paid pull must have run exactly once across both deliveries — the stalled redelivery reuses the
+    // durable captures rather than wiping + re-charging (which the attemptsMade-only guard would do).
+    expect(pullCount).toBe(1);
+    const rows = await prisma.aiSearchCapture.findMany({ where: { jobId: runId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe('serpapi');
   });
 
   it('re-run is idempotent at the canonical layer (deleteByJobId clean slate → no duplicate rows)', async () => {
