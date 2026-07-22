@@ -94,8 +94,12 @@ export function sortRows<T extends SortableRow>(
   });
 }
 
-/** cursor = base64url(JSON({ nt }))；集中編碼，避免各處自組。 */
-function encodeCursor(normalizedText: string): string {
+/**
+ * cursor = base64url(JSON({ nt }))；集中編碼，避免各處自組。`nt` 為該序中每列的**穩定唯一鍵**
+ * （keyword 讀取層＝`normalizedText`；動態 AI 讀取層＝該列 DB `id`，語意同「唯一 tie-break 鍵」——
+ * 共用同一 opaque 編碼，避免各處自組 base64）。
+ */
+export function encodeCursor(normalizedText: string): string {
   return Buffer.from(JSON.stringify({ nt: normalizedText }), 'utf8').toString('base64url');
 }
 
@@ -103,7 +107,7 @@ function encodeCursor(normalizedText: string): string {
  * 解 cursor 的 `nt`。**不可解析**（非 base64url / 非合法 JSON / 無 `nt`）→ 回 `null`，由 caller 視為
  * 「未知位置」（空尾頁）——cursor 為 opaque，畸形值不得讓讀取 hot path 拋 500。嚴格 400 驗證屬 T5.4。
  */
-function decodeCursor(cursor: string): string | null {
+export function decodeCursor(cursor: string): string | null {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
       nt?: unknown;

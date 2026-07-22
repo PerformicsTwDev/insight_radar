@@ -2,11 +2,24 @@ import { NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/authenticated-user';
 import type { SnapshotRowData } from '../keyword-analysis/result-snapshot.checksum';
 import type { PrismaService } from '../prisma';
+import type { AiViewRepository } from './ai-view.repository';
+import { FeatureNotReadyException } from './feature-not-ready.exception';
 import { NotReadyException } from './not-ready.exception';
 import type { QueryViewService } from './query-view.service';
 import { SnapshotQueryService } from './snapshot-query.service';
 
 const CONFIG = { maxPageSize: 200, aggMaxBuckets: 200, aggMaxGroups: 1000 };
+
+/** AI view repo 存根：既有（keywords/journey/custom）測試不觸 AI 路徑，回空 run/列（不被呼叫）。 */
+function aiRepoStub(over: Partial<AiViewRepository> = {}): AiViewRepository {
+  return {
+    findLatestLinkedRun: jest.fn().mockResolvedValue(null),
+    findAnswers: jest.fn().mockResolvedValue([]),
+    findCited: jest.fn().mockResolvedValue([]),
+    findMetrics: jest.fn().mockResolvedValue([]),
+    ...over,
+  } as unknown as AiViewRepository;
+}
 
 /** 機器 actor（x-api-key）：不套 owner 過濾——這些既有測試驗讀取層行為（非 owner），用機器身分。 */
 const API_ACTOR: AuthenticatedUser = { kind: 'apiKey' };
@@ -46,7 +59,7 @@ function build(
   // assertExecutable：M6-R6，query() 於 loadRows 前呼叫做 unknown-view/feature gate。
   const viewService = { query: viewQuery, assertExecutable } as unknown as QueryViewService;
   return {
-    service: new SnapshotQueryService(prisma, viewService, CONFIG),
+    service: new SnapshotQueryService(prisma, viewService, aiRepoStub(), CONFIG),
     viewQuery,
     findMany,
     assertExecutable,
@@ -215,7 +228,7 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
         queryWithView,
       } as unknown as QueryViewService;
       return {
-        service: new SnapshotQueryService(prisma, viewService, CONFIG),
+        service: new SnapshotQueryService(prisma, viewService, aiRepoStub(), CONFIG),
         queryWithView,
         ccFindUnique,
         kcaFindMany,
@@ -276,18 +289,123 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
     });
   });
 
+  describe('AI Search views (#678 G2 · gate flip + load path)', () => {
+    const AN = 'an-ai';
+    function buildAi(
+      over: {
+        run?: { id: string; status: string } | null;
+        answers?: unknown[];
+        cited?: unknown[];
+        metrics?: unknown[];
+        assertExecutable?: jest.Mock;
+      } = {},
+    ) {
+      const kaFindUnique = jest.fn().mockResolvedValue({
+        status: 'completed',
+        resultSnapshotId: 'snap-1',
+        ownerId: null,
+      });
+      const prisma = { keywordAnalysis: { findUnique: kaFindUnique } } as unknown as PrismaService;
+      const findLatestLinkedRun = jest
+        .fn()
+        .mockResolvedValue('run' in over ? over.run : { id: 'run-ai', status: 'completed' });
+      const findAnswers = jest.fn().mockResolvedValue(over.answers ?? []);
+      const findCited = jest.fn().mockResolvedValue(over.cited ?? []);
+      const findMetrics = jest.fn().mockResolvedValue(over.metrics ?? []);
+      const aiRepo = aiRepoStub({ findLatestLinkedRun, findAnswers, findCited, findMetrics });
+      const queryWithView = jest.fn(
+        (rows: unknown, _r: unknown, _l: unknown, view: { name: string }) => ({
+          view: view.name,
+          rows,
+        }),
+      );
+      const assertExecutable = over.assertExecutable ?? jest.fn((name: string) => ({ name }));
+      const viewService = {
+        query: jest.fn(),
+        assertExecutable,
+        queryWithView,
+      } as unknown as QueryViewService;
+      return {
+        service: new SnapshotQueryService(prisma, viewService, aiRepo, CONFIG),
+        findLatestLinkedRun,
+        findAnswers,
+        findCited,
+        findMetrics,
+        queryWithView,
+        assertExecutable,
+      };
+    }
+
+    it('resolves latest linked run (owner-scoped), gates, loads ai_answers, queries via queryWithView', async () => {
+      const { service, findLatestLinkedRun, findAnswers, queryWithView } = buildAi({
+        answers: [{ id: 'a1' }],
+      });
+      await service.query(AN, { view: 'ai_answers' }, API_ACTOR);
+      expect(findLatestLinkedRun).toHaveBeenCalledWith(AN, {}); // apiKey → ownerWhere = {}
+      expect(findAnswers).toHaveBeenCalledWith('run-ai');
+      const rowsArg = queryWithView.mock.calls[0][0] as unknown[];
+      expect(rowsArg).toEqual([{ id: 'a1' }]);
+    });
+
+    it('loads ai_cited_references for cited-media/cited-pages views', async () => {
+      const { service, findCited } = buildAi({ cited: [{ id: 'c1' }] });
+      await service.query(AN, { view: 'ai_cited_pages' }, API_ACTOR);
+      expect(findCited).toHaveBeenCalledWith('run-ai');
+    });
+
+    it('loads ai_visibility_metrics filtered by the view dimension', async () => {
+      const { service, findMetrics } = buildAi({ metrics: [{ id: 'm1' }] });
+      await service.query(AN, { view: 'intent_ai_visibility' }, API_ACTOR);
+      expect(findMetrics).toHaveBeenCalledWith('run-ai', 'intent');
+    });
+
+    it('gates 409 (assertExecutable throws for a not-ready feature) — no data loaded', async () => {
+      const gate = jest.fn(() => {
+        throw new FeatureNotReadyException('ai_search', 'not_generated');
+      });
+      const { service, findAnswers } = buildAi({ run: null, assertExecutable: gate });
+      await expect(service.query(AN, { view: 'ai_answers' }, API_ACTOR)).rejects.toBeInstanceOf(
+        FeatureNotReadyException,
+      );
+      expect(findAnswers).not.toHaveBeenCalled();
+    });
+
+    it('defensive guard: feature-gate passes but no run resolved → 409 (never loads)', async () => {
+      // 理論不可達（ready ⟹ run 非 null）；以 non-throwing assertExecutable + null run 觸發防禦分支。
+      const { service, findAnswers } = buildAi({
+        run: null,
+        assertExecutable: jest.fn((name: string) => ({ name })),
+      });
+      await expect(service.query(AN, { view: 'ai_answers' }, API_ACTOR)).rejects.toBeInstanceOf(
+        FeatureNotReadyException,
+      );
+      expect(findAnswers).not.toHaveBeenCalled();
+    });
+  });
+
   describe('resolveViewDataVersion (M12-R3 · AI-insight cache data version)', () => {
     function buildVersion(
-      over: { customRun?: { id: string } | null; journeyRun?: { id: string } | null } = {},
+      over: {
+        customRun?: { id: string } | null;
+        journeyRun?: { id: string } | null;
+        aiRun?: { id: string } | null;
+      } = {},
     ) {
       const ccrFindFirst = jest.fn().mockResolvedValue(over.customRun ?? null);
       const jrFindFirst = jest.fn().mockResolvedValue(over.journeyRun ?? null);
+      const airFindFirst = jest.fn().mockResolvedValue(over.aiRun ?? null);
       const prisma = {
         customClassifyRun: { findFirst: ccrFindFirst },
         journeyRun: { findFirst: jrFindFirst },
+        aiSearchRun: { findFirst: airFindFirst },
       } as unknown as PrismaService;
-      const service = new SnapshotQueryService(prisma, {} as unknown as QueryViewService, CONFIG);
-      return { service, ccrFindFirst, jrFindFirst };
+      const service = new SnapshotQueryService(
+        prisma,
+        {} as unknown as QueryViewService,
+        aiRepoStub(),
+        CONFIG,
+      );
+      return { service, ccrFindFirst, jrFindFirst, airFindFirst };
     }
 
     const CID_UUID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -319,18 +437,31 @@ describe('SnapshotQueryService (T5.5 / FR-14)', () => {
       });
     });
 
+    it('AI Search view → latest COMPLETED/PARTIAL linked AiSearchRun.id (#678 G2 dataVersion)', async () => {
+      const { service, airFindFirst } = buildVersion({ aiRun: { id: 'run-ai' } });
+      expect(await service.resolveViewDataVersion('an-1', 'ai_answers')).toBe('run-ai');
+      expect(await service.resolveViewDataVersion('an-1', 'brand_ai_visibility')).toBe('run-ai');
+      expect(airFindFirst).toHaveBeenCalledWith({
+        where: { keywordAnalysisId: 'an-1', status: { in: ['completed', 'partial'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+    });
+
     it('returns "" when a dynamic view has no completed run yet (valid cid, null run)', async () => {
       const { service, ccrFindFirst } = buildVersion(); // both findFirst → null
       expect(await service.resolveViewDataVersion('an-1', `custom:${CID_UUID}`)).toBe('');
       expect(ccrFindFirst).toHaveBeenCalled(); // valid UUID → query ran, returned null
       expect(await service.resolveViewDataVersion('an-1', 'journey')).toBe('');
+      expect(await service.resolveViewDataVersion('an-1', 'ai_answers')).toBe('');
     });
 
     it('returns "" for a static view without any DB round-trip', async () => {
-      const { service, ccrFindFirst, jrFindFirst } = buildVersion();
+      const { service, ccrFindFirst, jrFindFirst, airFindFirst } = buildVersion();
       expect(await service.resolveViewDataVersion('an-1', 'keywords')).toBe('');
       expect(ccrFindFirst).not.toHaveBeenCalled();
       expect(jrFindFirst).not.toHaveBeenCalled();
+      expect(airFindFirst).not.toHaveBeenCalled();
     });
   });
 });

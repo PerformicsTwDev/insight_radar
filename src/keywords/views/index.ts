@@ -18,7 +18,7 @@ export { cpcHistogramView } from './cpc-histogram.view';
 export { serpQuestionsView, intentTopicsView } from './placeholder-view';
 export { journeyView } from './journey.view';
 export { journeyFunnelView } from './journey-funnel.view';
-export { AI_SEARCH_VIEWS } from './ai-search-views';
+export { AI_SEARCH_VIEWS, AI_SEARCH_VIEW_NAMES, AI_VIEW_SOURCE } from './ai-search-views';
 // 動態 view 工廠（`custom:{cid}`，T12.9）：**不**入 BUILTIN_VIEWS（per-cid、由 SnapshotQueryService 動態解析）。
 export { customView } from './custom.view';
 
