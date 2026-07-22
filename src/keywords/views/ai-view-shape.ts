@@ -54,18 +54,11 @@ export interface AiMetricReadRow {
   exposure: number | null;
 }
 
-/** 安全轉字串（避免 `no-base-to-string`）：string 原樣、number/boolean `String()`、null/undefined→''、其餘 JSON。 */
-function asText(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-  return value === null || value === undefined ? '' : JSON.stringify(value);
-}
-
-/** 排序可比較值：number 原樣、null/undefined→null（置尾）、其餘（string/array/object）→穩定字串序。 */
+/**
+ * 排序可比較值：number 原樣、null/undefined→null（置尾）、string 原樣、其餘（array/object，如 `brands`）→穩定
+ * JSON 字串序（避免 `no-base-to-string`——不對 object 隱式 `String()`）。keyed 欄（id/mediaType）另以 `as string`
+ * 直取（DB 保證 string），不經此。
+ */
 function asComparable(value: unknown): number | string | null {
   if (typeof value === 'number') {
     return value;
@@ -73,7 +66,10 @@ function asComparable(value: unknown): number | string | null {
   if (value === null || value === undefined) {
     return null;
   }
-  return asText(value);
+  if (typeof value === 'string') {
+    return value;
+  }
+  return JSON.stringify(value);
 }
 
 /** 以統一 `FilterSpec` 過濾（複用 `buildPredicate`；`q` 作用於 `textOf` 取的主要文字欄）。 */
@@ -117,17 +113,19 @@ function sortRows<T>(
       if (typeof av === 'number' && typeof bv === 'number') {
         cmp = av - bv;
       } else {
-        const as = asText(av);
-        const bs = asText(bv);
+        // av/bv 為 number|string（asComparable 收斂）——String() 對兩者皆有意義（非 object，no-base-to-string 安全）。
+        const as = String(av);
+        const bs = String(bv);
         cmp = as < bs ? -1 : as > bs ? 1 : 0;
       }
       if (cmp !== 0) {
         return cmp * sign;
       }
     }
+    // tie-break：以穩定唯一鍵（DB id / mediaType）asc——每列 key 唯一 → 全序確定、翻頁不漂移（相等不會發生）。
     const ak = keyOf(a);
     const bk = keyOf(b);
-    return ak < bk ? -1 : ak > bk ? 1 : 0;
+    return ak < bk ? -1 : 1;
   });
 }
 
@@ -174,8 +172,10 @@ function buildTable<T>(
 ): TableViewResult {
   const byKey = new Map(columns.map((c) => [c.key, c]));
   const rec = (row: T): Record<string, unknown> => row as Record<string, unknown>;
-  const keyOf = (row: T): string => asText(rec(row)[keyField]);
-  const textOf = (row: T): string => asText(rec(row)[textField]);
+  // keyField（id / mediaType）、textField（query / groupKey / mediaType）皆 DB 保證 string → `as string` 直取
+  // （不經 String()，no-base-to-string 安全；契約：AI 讀取層列由 repo 投影，該兩欄恆為 string）。
+  const keyOf = (row: T): string => rec(row)[keyField] as string;
+  const textOf = (row: T): string => rec(row)[textField] as string;
   const filtered = filterByText(rows, request.filters ?? {}, textOf);
   const sort0 = request.sort?.[0];
   const sorted = sort0 ? sortRows(filtered, sort0.field, sort0.direction, keyOf) : filtered;
@@ -240,10 +240,11 @@ export function buildCitedMediaTable(
   for (const row of rows) {
     counts.set(row.mediaType, (counts.get(row.mediaType) ?? 0) + 1);
   }
+  // `counts` 由非空 rows 導出 → 進 map 時 `total > 0` 恆真（空 rows→counts 空→map 不執行、無除零）。
   const aggregated = [...counts.entries()].map(([mediaType, count]) => ({
     mediaType,
     count,
-    share: total > 0 ? count / total : 0,
+    share: count / total,
   }));
   return buildTable(
     viewName,
