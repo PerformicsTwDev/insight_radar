@@ -5,6 +5,7 @@ import { appendDedupedSeeds } from '../../lib/aiIdeation';
 import { checkValidity, mapFieldErrors, parseSeeds } from '../../lib/createAnalysisForm';
 import { AnalysisDashboard } from '../dashboard/AnalysisDashboard';
 import { AiIdeationCard } from './AiIdeationCard';
+import { TrackingContinueSection } from './TrackingContinueSection';
 
 /**
  * Create-analysis home form — v4 keyword-pool layout (T7.2, FR-2 / TC-57; re-align
@@ -132,6 +133,18 @@ export function HomeRoute() {
       <h2 id="home-heading" className="sr-only">
         關鍵字分析
       </h2>
+
+      {/* 從追蹤清單繼續 (T7.7): hidden when the owner has no lists / the read fails. Continuing
+          loads that list's members as seeds (C7-deduped) + prefills its geo/language (AC-2.3). */}
+      <TrackingContinueSection
+        onContinue={(loadedSeeds, listGeo, listLanguage) => {
+          setSeedsRaw((prev) => appendDedupedSeeds(parseSeeds(prev), loadedSeeds).join('\n'));
+          setGeo(listGeo);
+          setLanguage(listLanguage);
+          setAdvancedOpen(true); // reveal the prefilled geo/language
+        }}
+        onSeeMore={() => void navigate({ to: '/tracking' })}
+      />
 
       {/* Keyword-pool card: 輸入搜尋詞 + ⚙ advanced + Import roadmap chips + inline AI 發想. */}
       <div className="rounded-2xl bg-bg-card p-6 shadow-lg ring-1 ring-white/10">

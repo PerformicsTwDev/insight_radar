@@ -7,7 +7,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../api/msw/server';
 import { deserialize } from '../../lib/urlState';
@@ -29,8 +29,14 @@ function renderHome() {
     path: '/',
     component: HomeRoute,
   });
+  // Stub /tracking so the 從追蹤清單繼續「查看更多」 navigation (T7.7) resolves in tests.
+  const trackingRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/tracking',
+    component: () => <div>追蹤清單頁</div>,
+  });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute]),
+    routeTree: rootRoute.addChildren([indexRoute, trackingRoute]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -106,7 +112,10 @@ describe('TC-13 · HomeRoute create-analysis form (validation + inline field err
     renderHome();
     // 空 seeds/geo/language → 不可送出；直接 submit form（模擬 Enter/程式化送出，繞過 disabled 按鈕）。
     fireEvent.submit(await screen.findByRole('form', { name: '建立分析' }));
-    await new Promise((r) => setTimeout(r, 0));
+    // Flush inside act so the background 從追蹤清單繼續 read (`useTrackingLists`, default []) settles.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(called).toBe(false); // handleSubmit 的 !isSubmittable 早退（不打後端）
   });
 });
@@ -329,5 +338,83 @@ describe('TC-31 · AI ideation append into seeds (no auto-create)', () => {
     // 不自動建立分析：URL 無 analysisId、仍在建立表單。
     expect(router.state.location.search).not.toHaveProperty('analysisId');
     expect(screen.getByRole('button', { name: '開始分析' })).toBeInTheDocument();
+  });
+});
+
+describe('TC-71 · Home wiring — 從追蹤清單繼續 loads seeds + geo/language', () => {
+  const CREATED = '2026-07-01T00:00:00.000Z';
+
+  it('繼續 a list → its members become seeds (C7) and its geo/language prefill the advanced options', async () => {
+    server.use(
+      http.get('/api/v1/tracking-lists', () =>
+        HttpResponse.json([
+          {
+            listId: 'a',
+            name: '競品觀察清單',
+            geo: 'US',
+            language: 'en',
+            createdAt: CREATED,
+            memberCount: 2,
+          },
+        ]),
+      ),
+      http.get('/api/v1/tracking-lists/a', () =>
+        HttpResponse.json({
+          listId: 'a',
+          name: '競品觀察清單',
+          geo: 'US',
+          language: 'en',
+          createdAt: CREATED,
+          members: [
+            {
+              normalizedText: 'dyson 吸塵器',
+              text: 'dyson 吸塵器',
+              addedAt: CREATED,
+              lastCheckedAt: null,
+            },
+            {
+              normalizedText: '小米吸塵器',
+              text: '小米吸塵器',
+              addedAt: CREATED,
+              lastCheckedAt: null,
+            },
+          ],
+        }),
+      ),
+    );
+    renderHome();
+
+    const seeds = await screen.findByLabelText<HTMLTextAreaElement>('輸入搜尋詞');
+    fireEvent.click(await screen.findByRole('button', { name: '從「競品觀察清單」繼續' }));
+
+    // Members flow into the seeds textarea (order preserved, C7-deduped by the host).
+    await waitFor(() => expect(seeds.value).toBe('dyson 吸塵器\n小米吸塵器'));
+
+    // The list-fixed geo/language prefill the advanced options (auto-expanded), so the
+    // CTA is enabled without the user touching the ⚙ toggle (AC-2.3).
+    expect(screen.getByLabelText<HTMLInputElement>('地區 (geo)').value).toBe('US');
+    expect(screen.getByLabelText<HTMLInputElement>('語言 (language)').value).toBe('en');
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled();
+  });
+
+  it('查看更多 navigates to the tracking-list page (/tracking)', async () => {
+    server.use(
+      http.get('/api/v1/tracking-lists', () =>
+        HttpResponse.json(
+          Array.from({ length: 4 }, (_, i) => ({
+            listId: `l${i}`,
+            name: `清單${i}`,
+            geo: 'TW',
+            language: 'zh-TW',
+            createdAt: CREATED,
+            memberCount: 3,
+          })),
+        ),
+      ),
+    );
+    const router = renderHome();
+
+    fireEvent.click(await screen.findByRole('button', { name: /查看更多/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/tracking'));
   });
 });

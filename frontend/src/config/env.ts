@@ -22,6 +22,7 @@ const EnvSchema = z.object({
   VITE_POLL_INTERVAL_MS: num(2000),
   VITE_VIRTUAL_ROW_THRESHOLD: num(100),
   VITE_TRACKING_DEFAULT_RANGE: z.enum(['6M', '12M', 'all']).default('12M'),
+  VITE_TRACKING_CONTINUE_TOP_N: num(3), // home「從追蹤清單繼續」預設顯示的卡片數（T7.7）
   // AI Search 抓取渠道選項（FR-23，M8）：CSV of labels，enum 對映在 lib/aiSearchForm。
   VITE_AI_CHANNELS: z.string().default('AI Overview,AI Mode,Gemini,ChatGPT'),
 });
@@ -48,6 +49,7 @@ export interface AppConfig {
   readonly pollIntervalMs: number;
   readonly virtualRowThreshold: number;
   readonly trackingDefaultRange: '6M' | '12M' | 'all';
+  readonly trackingContinueTopN: number;
   readonly aiChannels: readonly string[];
 }
 
@@ -72,6 +74,7 @@ export function parseConfig(source: Record<string, unknown>): AppConfig {
     pollIntervalMs: e.VITE_POLL_INTERVAL_MS,
     virtualRowThreshold: e.VITE_VIRTUAL_ROW_THRESHOLD,
     trackingDefaultRange: e.VITE_TRACKING_DEFAULT_RANGE,
+    trackingContinueTopN: e.VITE_TRACKING_CONTINUE_TOP_N,
     aiChannels: csv(e.VITE_AI_CHANNELS),
   };
 }

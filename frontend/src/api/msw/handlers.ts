@@ -122,4 +122,12 @@ export const handlers = [
       ],
     }),
   ),
+  // `GET /tracking-lists` (T5.7/T7.7, FR-19) — the home「從追蹤清單繼續」section reads
+  // it on mount (via `useTrackingLists`). Default to an EMPTY list so an unstubbed
+  // render keeps the section hidden (AC-2.3: no lists → section hidden, not drawn
+  // empty) rather than tripping `onUnhandledRequest: 'error'`. Tests that need lists
+  // override with `server.use(...)`. openapi types the body as `never` (#392), so the
+  // shape mirrors the backend `TrackingListSummary[]` contract (zod-validated in
+  // `api/trackingLists.ts`).
+  http.get('/api/v1/tracking-lists', () => HttpResponse.json([])),
 ];
