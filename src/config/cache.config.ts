@@ -20,6 +20,16 @@ export interface CacheConfig {
   /** table-grain view 洞察的有界代表樣本上限（top-N by volume；env `AI_INSIGHT_MAX_ROWS`，預設 200，M12-R2）。 */
   aiInsightMaxRows: number;
   /**
+   * per-keyword AI 意圖摘要（FR-31 SERP-grounded）快取 namespace 版本（key
+   * `ai_intent_summary:v{ver}:{dep}:sha256(nt+serpHash)` 的 `v{ver}` 段；env `AI_SUMMARY_SCHEMA_VERSION`，
+   * 預設 `v1`；bump 即整批失效，AC-31.3/FR-31）。
+   */
+  aiSummarySchemaVersion: string;
+  /** per-keyword AI 意圖摘要快取 TTL（毫秒；env `CACHE_TTL_AI_SUMMARY_MS`，預設 60 天）。 */
+  aiSummaryTtlMs: number;
+  /** 意圖摘要 long-form `max_completion_tokens`（env `AI_SUMMARY_MAX_TOKENS`，預設 800；AC-31.4）。 */
+  aiSummaryMaxTokens: number;
+  /**
    * 購買歷程分類快取 namespace 版本（key `journey:v{ver}:{dep}:sha256(nt)` 的 `v{ver}` 段；
    * env `JOURNEY_SCHEMA_VERSION`，預設 `v1`；**schema 或 prompt 變更皆 bump**→整批失效，FR-33/AC-33.3）。
    */
@@ -43,6 +53,9 @@ export const cacheConfig = registerAs('cache', (): CacheConfig => ({
   aiInsightSchemaVersion: process.env.AI_INSIGHT_SCHEMA_VERSION as string,
   aiInsightTtlMs: Number(process.env.CACHE_TTL_AI_INSIGHT_MS),
   aiInsightMaxRows: Number(process.env.AI_INSIGHT_MAX_ROWS),
+  aiSummarySchemaVersion: process.env.AI_SUMMARY_SCHEMA_VERSION as string,
+  aiSummaryTtlMs: Number(process.env.CACHE_TTL_AI_SUMMARY_MS),
+  aiSummaryMaxTokens: Number(process.env.AI_SUMMARY_MAX_TOKENS),
   journeySchemaVersion: process.env.JOURNEY_SCHEMA_VERSION as string,
   journeyTtlMs: Number(process.env.CACHE_TTL_JOURNEY_MS),
   customClassifySchemaVersion: process.env.CUSTOM_CLASSIFY_SCHEMA_VERSION as string,

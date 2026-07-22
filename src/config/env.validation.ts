@@ -112,6 +112,15 @@ export const validationSchema = Joi.object({
   CACHE_TTL_AI_INSIGHT_MS: Joi.number().integer().min(0).default(5184000000),
   // table-grain view 洞察的有界代表樣本上限（top-N by avgMonthlySearches desc；M12-R2/AC-32.1，預設 200）。
   AI_INSIGHT_MAX_ROWS: Joi.number().integer().min(1).default(200),
+  // per-keyword AI 意圖摘要（FR-31 SERP-grounded，T12.1）快取 namespace 版本（bump 整批失效，AC-31.3；
+  // 限 `v\d+`，同 INTENT_SCHEMA_VERSION，擋 `:` 注入 cache namespace）。
+  AI_SUMMARY_SCHEMA_VERSION: Joi.string()
+    .pattern(/^v\d+$/)
+    .default('v1'),
+  // per-keyword AI 意圖摘要快取 TTL（毫秒，預設 60 天）；快取綁 normalizedText + SERP 版本，TTL 僅記憶體逐出。
+  CACHE_TTL_AI_SUMMARY_MS: Joi.number().integer().min(0).default(5184000000),
+  // per-keyword AI 意圖摘要 long-form `max_completion_tokens`（避免 finish_reason=length 截斷，AC-31.4；預設 800）。
+  AI_SUMMARY_MAX_TOKENS: Joi.number().integer().min(1).default(800),
   // 購買歷程分類快取 namespace 版本（bump 整批失效，AC-33.3；schema 或 prompt 變更皆 bump；限 `v\d+`，同 INTENT_SCHEMA_VERSION）。
   JOURNEY_SCHEMA_VERSION: Joi.string()
     .pattern(/^v\d+$/)

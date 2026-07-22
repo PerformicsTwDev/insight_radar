@@ -11,6 +11,7 @@ export const CacheNamespace = {
   EMBEDDING: 'embedding',
   SESSION: 'session',
   AI_INSIGHT: 'ai_insight',
+  AI_INTENT_SUMMARY: 'ai_intent_summary',
   JOURNEY: 'journey',
   CUSTOM_CLASSIFY: 'custom_classify',
 } as const;
