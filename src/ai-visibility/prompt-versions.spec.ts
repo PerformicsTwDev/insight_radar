@@ -1,47 +1,31 @@
-import {
-  brandExtractPromptVersion,
-  mediaClassifyPromptVersion,
-  sentimentPromptVersion,
-} from './prompt-versions';
+import { aiVisibilitySchemaVersion } from './prompt-versions';
 
 /**
- * TC-78 (部分) / §14 config — prompt 版本化 namespace（快取用；S17/S19）。預設 `v1`，可經 env 覆寫
- * （`BRAND_EXTRACT_PROMPT_VERSION`/`SENTIMENT_PROMPT_VERSION`/`MEDIA_CLASSIFY_PROMPT_VERSION`）。
- * 入 Joi + `.env.example` 屬 T15.7。
+ * TC-78 (部分) / §14 config — AI 可見度分析版本 namespace（落列 tag / idempotency；bump 整批失效）。預設 `v1`，
+ * 可經 env 覆寫（`AI_VISIBILITY_SCHEMA_VERSION`）。入 Joi + `.env.example` 屬 T15.7。
+ *
+ * M15-R6/#688：三線 per-prompt 版本（brandExtract/sentiment/mediaClassify）production 零消費 → 已移除；
+ * `aiVisibilitySchemaVersion()` 為唯一 invalidation lever。
  */
-describe('TC-78: prompt version namespaces', () => {
-  const ENV_KEYS = [
-    'BRAND_EXTRACT_PROMPT_VERSION',
-    'SENTIMENT_PROMPT_VERSION',
-    'MEDIA_CLASSIFY_PROMPT_VERSION',
-  ] as const;
-  const saved: Record<string, string | undefined> = {};
+describe('TC-78: AI visibility schema version namespace', () => {
+  const KEY = 'AI_VISIBILITY_SCHEMA_VERSION';
+  let saved: string | undefined;
 
   beforeEach(() => {
-    for (const k of ENV_KEYS) {
-      saved[k] = process.env[k];
-      delete process.env[k];
-    }
+    saved = process.env[KEY];
+    delete process.env[KEY];
   });
   afterEach(() => {
-    for (const k of ENV_KEYS) {
-      if (saved[k] === undefined) delete process.env[k];
-      else process.env[k] = saved[k];
-    }
+    if (saved === undefined) delete process.env[KEY];
+    else process.env[KEY] = saved;
   });
 
   it('defaults to v1 when the env var is unset', () => {
-    expect(brandExtractPromptVersion()).toBe('v1');
-    expect(sentimentPromptVersion()).toBe('v1');
-    expect(mediaClassifyPromptVersion()).toBe('v1');
+    expect(aiVisibilitySchemaVersion()).toBe('v1');
   });
 
-  it('honours an env override', () => {
-    process.env.BRAND_EXTRACT_PROMPT_VERSION = 'v3';
-    process.env.SENTIMENT_PROMPT_VERSION = 'v2';
-    process.env.MEDIA_CLASSIFY_PROMPT_VERSION = 'v5';
-    expect(brandExtractPromptVersion()).toBe('v3');
-    expect(sentimentPromptVersion()).toBe('v2');
-    expect(mediaClassifyPromptVersion()).toBe('v5');
+  it('honours an env override (bump → 下游落列 tag / idempotency 整批失效)', () => {
+    process.env.AI_VISIBILITY_SCHEMA_VERSION = 'v2';
+    expect(aiVisibilitySchemaVersion()).toBe('v2');
   });
 });

@@ -13,6 +13,7 @@ import { AI_SEARCH_PROCESSOR_CONFIG, AiSearchProcessor } from './ai-search.proce
 import { AI_SEARCH_RUN_CONFIG, AiSearchRunService } from './ai-search-run.service';
 import { AiSearchRunRepository } from './ai-search-run.repository';
 import { AI_SEARCH_SCHEMA_VERSION } from './ai-search-run.types';
+import { aiVisibilitySchemaVersion } from '../ai-visibility/prompt-versions';
 
 /**
  * AI Search 抓取模組（T14.6，FR-41/AC-41.x）。`ai-search` BullMQ queue + `AiSearchProcessor`（SerpAPI pull reserved +
@@ -40,6 +41,9 @@ import { AI_SEARCH_SCHEMA_VERSION } from './ai-search-run.types';
       provide: AI_SEARCH_RUN_CONFIG,
       useFactory: (queue: ConfigType<typeof queueConfig>) => ({
         schemaVersion: AI_SEARCH_SCHEMA_VERSION,
+        // 分析層版本入 idempotency key（M15-R5/#687）；同 AiVisibilityModule 的 AI_ANALYSIS_CONFIG 讀同一
+        // env（AI_VISIBILITY_SCHEMA_VERSION），故 run 版本 provenance 與落列 tag 一致。
+        analysisSchemaVersion: aiVisibilitySchemaVersion(),
         jobAttempts: queue.jobAttempts,
         jobBackoffMs: queue.jobBackoffMs,
         jobBackoffJitter: queue.jobBackoffJitter,
