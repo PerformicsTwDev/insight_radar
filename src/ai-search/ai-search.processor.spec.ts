@@ -447,6 +447,72 @@ describe('TC-77: AiSearchProcessor', () => {
       });
     });
 
+    // M15-R12/#701: close the M15-R1 residual window. The reuse-on-retry guard only spares the paid
+    // pull once persistCanonical lands; a transient throw of any DB op BETWEEN the paid pull and
+    // persist (extension read / progress write) aborts pre-persist → the retry sees nothing durable →
+    // full re-fetch → the SerpAPI pull is charged twice. The paid pull must be the last thing before
+    // persist, with only a best-effort cosmetic tick in between.
+    describe('no re-charge on a transient failure between the paid pull and persist (#701/M15-R12)', () => {
+      it('a transient extension-read failure aborts before the paid pull; the retry charges the pull exactly once', async () => {
+        const { processor, fetchAiOverviews, readRawExtensionCaptures, persistCanonical } = build({
+          aiOverviews: [
+            {
+              query: 'asus zenbook',
+              aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+              creditsUsed: 1,
+            },
+          ],
+          rawExtension: [extRow('chatGpt', 'asus zenbook')],
+        });
+        // The extension read (a DB op sitting between the paid pull and persist in the buggy order)
+        // throws transiently on the first attempt, then succeeds on the retry.
+        readRawExtensionCaptures.mockRejectedValueOnce(new Error('transient ext read'));
+        const payload = { channels: ['chatGpt', 'aiOverview'] as CaptureChannel[] };
+
+        // Attempt 1 (non-final): aborts mid-gather → BullMQ will retry.
+        const first = makeJob(payload, { attemptsMade: 0, attempts: 5 });
+        await expect(processor.process(first.j)).rejects.toThrow('transient ext read');
+        // Attempt 2 (retry): nothing was persisted → full fetch.
+        const second = makeJob(payload, { attemptsMade: 1, attempts: 5 });
+        const result = await processor.process(second.j);
+
+        expect(result.status).toBe('completed');
+        // The paid pull must run exactly once across both attempts (no double charge on retry).
+        expect(fetchAiOverviews).toHaveBeenCalledTimes(1);
+        expect(persistCanonical).toHaveBeenCalledTimes(1);
+      });
+
+      it('completes without a retry when the persisting-phase progress write fails after the paid pull (best-effort)', async () => {
+        const { processor, fetchAiOverviews, updateProgress, persistCanonical, markStatus } = build(
+          {
+            aiOverviews: [
+              {
+                query: 'asus zenbook',
+                aiOverview: serpCanonical('aiOverview', 'asus zenbook'),
+                creditsUsed: 1,
+              },
+            ],
+          },
+        );
+        // The DB progress write that sits between the paid pull and persist fails transiently.
+        updateProgress.mockImplementation(
+          (_runId: string, progress: { phase: string; percent: number }) =>
+            progress.percent === 85
+              ? Promise.reject(new Error('transient db error'))
+              : Promise.resolve(),
+        );
+        const { j } = makeJob({ channels: ['aiOverview'] }, { attemptsMade: 0, attempts: 5 });
+
+        const result = await processor.process(j);
+
+        // The cosmetic progress tick must never throw into the catch and force a retry that re-charges.
+        expect(result.status).toBe('completed');
+        expect(fetchAiOverviews).toHaveBeenCalledTimes(1);
+        expect(persistCanonical).toHaveBeenCalledTimes(1);
+        expect(markStatus).not.toHaveBeenCalledWith('run-1', 'failed', expect.anything());
+      });
+    });
+
     it('completes even when job.updateProgress (SSE publish) fails — best-effort, non-blocking', async () => {
       const { processor, persistCanonical } = build({
         rawExtension: [extRow('chatGpt', 'asus zenbook')],
