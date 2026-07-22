@@ -2,12 +2,10 @@ import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from './msw/server';
 import {
-  BRAND_ALIAS_IDEATION_TEMPLATE,
   createBrandProfile,
   getBrandProfile,
   listBrandProfiles,
   removeBrandProfile,
-  suggestBrandTerms,
   updateBrandProfile,
 } from './brandProfiles';
 
@@ -17,9 +15,10 @@ import {
  * error); the (openapi-untyped, #392) response body is zod-validated here against
  * the backend `BrandProfileView`. Name collisions → 409, cross-owner/unknown → 404.
  *
- * The ✦ AI 別名補全 (AC-40.2 HITL) has **no dedicated backend endpoint** (deferred,
- * undelivered — backend `should` #668), so it consumes the delivered FR-20 ideation
- * endpoint (`POST /ai-ideation`) — see `suggestBrandTerms`. The MSW server lifecycle
+ * The ✦ AI 別名補全 (AC-40.2) has **no dedicated backend endpoint** (undelivered,
+ * backend brand-alias-extractor backlog), so the front end ships it as a disabled
+ * roadmap affordance (FR-22 revision 2026-07-23) — it is NOT wired to any endpoint,
+ * so there is no client egress to contract-test here. The MSW server lifecycle
  * (listen / reset / close) is owned by the global `src/test/setup.ts`.
  */
 
@@ -164,29 +163,5 @@ describe('listBrandProfiles / getBrandProfile / updateBrandProfile / removeBrand
       ),
     );
     expect(await removeBrandProfile(PROFILE_ID)).toBe(true);
-  });
-});
-
-describe('suggestBrandTerms (AI 別名補全 HITL — consumes FR-20 ideation)', () => {
-  it('posts the brand name as an ideation seed and returns candidate terms', async () => {
-    let received: unknown;
-    server.use(
-      http.post('/api/v1/ai-ideation', async ({ request }) => {
-        received = await request.json();
-        return HttpResponse.json({ keywords: ['戴森', 'Dyson Taiwan'] }, { status: 200 });
-      }),
-    );
-
-    const result = await suggestBrandTerms('Dyson');
-
-    expect(result).toEqual({ ok: true, keywords: ['戴森', 'Dyson Taiwan'] });
-    // AC-40.2's dedicated endpoint is undelivered → the delivered ideation endpoint
-    // (real backend template key) powers the HITL suggestion.
-    expect(received).toEqual({ template: BRAND_ALIAS_IDEATION_TEMPLATE, seeds: ['Dyson'] });
-  });
-
-  it('degrades to ok:false when the ideation call fails (manual entry still works)', async () => {
-    server.use(http.post('/api/v1/ai-ideation', () => HttpResponse.json({}, { status: 500 })));
-    expect(await suggestBrandTerms('Dyson')).toMatchObject({ ok: false });
   });
 });

@@ -9,8 +9,9 @@ import { BrandProfileForm } from './BrandProfileForm';
 /**
  * TC-61 (品牌檔案卡) focused component tests. Drives the controlled `BrandProfileForm`
  * through its interactive surface — site chip removal, competitor row CRUD, and the
- * ✦ AI 補全 failure path (manual entry still works). The whole-home wiring (validation
- * gate, submit, explore-mode) is covered by `AiSearchHome.test.tsx`.
+ * ✦ AI 別名補全 roadmap affordance (disabled, no ideation call; manual entry works).
+ * The whole-home wiring (validation gate, submit, explore-mode) is covered by
+ * `AiSearchHome.test.tsx`.
  */
 
 function Harness({ initial = EMPTY_BRAND }: { initial?: BrandFormState }) {
@@ -74,17 +75,27 @@ describe('TC-61 · BrandProfileForm interactive surface', () => {
     expect(screen.getByLabelText('競品 2 名稱')).toHaveValue('Miele');
   });
 
-  it('shows an error when ✦ AI 補全 fails, leaving manual entry usable', async () => {
-    server.use(http.post('/api/v1/ai-ideation', () => HttpResponse.json({}, { status: 500 })));
+  it('renders ✦ AI 別名補全 as a disabled roadmap affordance (no ideation call); manual entry works', () => {
+    let ideationCalled = false;
+    server.use(
+      http.post('/api/v1/ai-ideation', () => {
+        ideationCalled = true;
+        return HttpResponse.json({ keywords: ['x'] }, { status: 200 });
+      }),
+    );
     render(<Harness initial={{ ...EMPTY_BRAND, name: 'Dyson' }} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /AI 補全/ }));
-    expect(await screen.findByText(/AI 補全失敗/)).toBeInTheDocument();
+    // AC-40.2's dedicated alias-extractor is undelivered → the affordance is a disabled
+    // roadmap chip, never wired to /ai-ideation (competitor terms would pollute aliases).
+    const assist = screen.getByRole('button', { name: /AI 補全/ });
+    expect(assist).toBeDisabled();
+    fireEvent.click(assist); // disabled → no-op
 
-    // manual alias entry still works after the failure
+    // manual alias entry is the supported path
     const alias = screen.getByLabelText('新增品牌別名');
     fireEvent.change(alias, { target: { value: '戴森' } });
     fireEvent.keyDown(alias, { key: 'Enter' });
     expect(screen.getByText('戴森')).toBeInTheDocument();
+    expect(ideationCalled).toBe(false);
   });
 });

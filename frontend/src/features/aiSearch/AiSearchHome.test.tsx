@@ -16,10 +16,10 @@ import { axe } from '../../test/axe';
 import { AiSearchHome } from './AiSearchHome';
 
 /**
- * TC-61 (品牌檔案卡 + AI 補全 HITL) + TC-63 (探索模式 pills + 抓取渠道 + 驗證 → 建立).
- * Mirrors the HomeRoute harness: a memory-history router (root owns the same
- * `deserialize` search codec) so `router.state.location.search` reflects real
- * navigation after the 202. All egress is MSW-mocked (no real backend).
+ * TC-61 (品牌檔案卡 + AI 別名補全 roadmap affordance) + TC-63 (探索模式 pills +
+ * 抓取渠道 + 驗證 → 建立). Mirrors the HomeRoute harness: a memory-history router
+ * (root owns the same `deserialize` search codec) so `router.state.location.search`
+ * reflects real navigation after the 202. All egress is MSW-mocked (no real backend).
  */
 
 const PROFILE_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
@@ -56,7 +56,7 @@ async function fillBrand() {
   fireEvent.keyDown(site, { key: 'Enter' });
 }
 
-describe('TC-61 · 品牌檔案卡 (品牌名 / 別名 chips / 網站 chips / 競品 / ✦ AI 補全 HITL)', () => {
+describe('TC-61 · 品牌檔案卡 (品牌名 / 別名 chips / 網站 chips / 競品 / ✦ AI 別名補全 roadmap)', () => {
   it('gates the CTA on the required brand fields + a channel, listing what is missing', async () => {
     renderHome();
     const cta = await screen.findByRole('button', { name: '開始分析' });
@@ -94,43 +94,33 @@ describe('TC-61 · 品牌檔案卡 (品牌名 / 別名 chips / 網站 chips / �
     expect(screen.getByLabelText('競品 2 名稱')).toBeInTheDocument();
   });
 
-  it('disables ✦ AI 補全 until a brand name is entered', async () => {
+  it('renders ✦ AI 別名補全 as a disabled roadmap affordance and never calls ideation from the brand card', async () => {
+    let ideationCalled = false;
+    server.use(
+      http.post('/api/v1/ai-ideation', () => {
+        ideationCalled = true;
+        return HttpResponse.json({ keywords: ['戴森', 'Dyson Taiwan'] }, { status: 200 });
+      }),
+    );
     renderHome();
+    // The dedicated brand-alias-extractor (backend AC-40.2) is undelivered, so the
+    // affordance stays disabled/roadmap — never enabled, never wired to /ai-ideation
+    // (which returns competitor terms, not same-brand aliases; FR-22 revision 2026-07-23).
     const assist = await screen.findByRole('button', { name: /AI 補全/ });
     expect(assist).toBeDisabled();
     fireEvent.change(screen.getByLabelText('品牌名'), { target: { value: 'Dyson' } });
-    expect(assist).toBeEnabled();
-  });
+    expect(assist).toBeDisabled();
+    fireEvent.click(assist); // disabled → no-op
 
-  it('offers AI candidate aliases as HITL chips — added only on click, de-duped, never auto-written', async () => {
-    server.use(
-      http.post('/api/v1/ai-ideation', () =>
-        HttpResponse.json({ keywords: ['戴森', 'Dyson Taiwan'] }, { status: 200 }),
-      ),
-    );
-    renderHome();
-    fireEvent.change(await screen.findByLabelText('品牌名'), { target: { value: 'Dyson' } });
-
-    // A pre-existing manual alias — proves the AI suggestion de-dupes against it (C7).
+    // Manual alias entry (C7-deduped) is the supported path; no AI suggestion chips surface.
     const alias = screen.getByLabelText('新增品牌別名');
     fireEvent.change(alias, { target: { value: '戴森' } });
     fireEvent.keyDown(alias, { key: 'Enter' });
-
-    fireEvent.click(screen.getByRole('button', { name: /AI 補全/ }));
-
-    // Candidates appear as suggestion chips — NOT written into the alias list yet.
-    // (Alias chips are counted by their "移除 X" remove buttons, which suggestions lack.)
-    const suggestDyson = await screen.findByRole('button', { name: '加入品牌別名 Dyson Taiwan' });
-    expect(screen.getByRole('button', { name: '加入品牌別名 戴森' })).toBeInTheDocument();
+    fireEvent.change(alias, { target: { value: '戴森' } }); // duplicate → no-op (C7)
+    fireEvent.keyDown(alias, { key: 'Enter' });
     expect(screen.getAllByRole('button', { name: '移除 戴森' })).toHaveLength(1);
-    expect(screen.queryByRole('button', { name: '移除 Dyson Taiwan' })).not.toBeInTheDocument();
-
-    fireEvent.click(suggestDyson);
-    expect(screen.getByRole('button', { name: '移除 Dyson Taiwan' })).toBeInTheDocument();
-
-    // Clicking the "戴森" suggestion is a no-op (de-dupes against the existing chip).
-    fireEvent.click(screen.getByRole('button', { name: '加入品牌別名 戴森' }));
-    expect(screen.getAllByRole('button', { name: '移除 戴森' })).toHaveLength(1);
+    expect(screen.queryByText('AI 建議別名')).not.toBeInTheDocument();
+    expect(ideationCalled).toBe(false);
   });
 
   it('has no axe violations on first render', async () => {
@@ -151,6 +141,18 @@ describe('TC-63 · 探索模式 pills + 抓取渠道 複選 + 驗證 → 建立'
     expect(screen.getByLabelText('搜尋詞')).toBeInTheDocument();
     // the FR-20 AI 發想 sub-card rides along in 指定模式
     expect(screen.getByRole('button', { name: '送出' })).toBeInTheDocument();
+  });
+
+  it('does not nest the FR-20 AI 發想 form inside the create-analysis form (指定模式)', async () => {
+    renderHome();
+    fireEvent.click(await screen.findByRole('tab', { name: '指定模式' }));
+    // The AI 發想 sub-card carries its own <form>; it must be a SIBLING of the
+    // create-analysis <form>, never a descendant — nested <form> is invalid HTML
+    // and trips React's validateDOMNesting hydration warning (B1).
+    await screen.findByRole('button', { name: '送出' });
+    for (const form of Array.from(document.querySelectorAll('form'))) {
+      expect(form.querySelector('form')).toBeNull();
+    }
   });
 
   it('appends FR-20 AI-ideation results into the 搜尋詞 field (de-duped) in 指定模式', async () => {

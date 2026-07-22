@@ -4,7 +4,6 @@ import {
   EXPLORE_MODE_OPTIONS,
   INITIAL_AI_SEARCH_FORM,
   aiSearchKeywords,
-  canBrandAssist,
   isAiSearchSubmittable,
   missingAiSearchFields,
   toBrandProfilePayload,
@@ -91,14 +90,6 @@ describe('missingAiSearchFields (缺項 hint, ordered)', () => {
     expect(missingAiSearchFields(full())).toEqual([]);
     expect(isAiSearchSubmittable(full())).toBe(true);
     expect(isAiSearchSubmittable(INITIAL_AI_SEARCH_FORM)).toBe(false);
-  });
-});
-
-describe('canBrandAssist (✦ AI 補全 gate)', () => {
-  it('is enabled only once a non-blank brand name is entered', () => {
-    expect(canBrandAssist('')).toBe(false);
-    expect(canBrandAssist('   ')).toBe(false);
-    expect(canBrandAssist('Dyson')).toBe(true);
   });
 });
 
