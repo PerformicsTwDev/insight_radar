@@ -53,31 +53,31 @@ describe('IdeationService (T12.10 / FR-35 / AC-35.1 / TC-71 部分)', () => {
   it('dedupes by normalizedText (case/whitespace-insensitive), keeping the first original', async () => {
     const { service, parseChat } = build();
     parseChat.mockResolvedValue(ok(['Coffee Maker', 'coffee  maker', 'espresso', 'ESPRESSO']));
-    const out = await service.generate({ template: 'related_concepts', seeds: ['coffee'] });
+    const out = await service.generate({ template: 'subtopics', seeds: ['coffee'] });
     expect(out.keywords).toEqual(['Coffee Maker', 'espresso']);
   });
 
   it('drops blank keywords and truncates to maxKeywords', async () => {
     const { service, parseChat } = build({ maxKeywords: 2 });
     parseChat.mockResolvedValue(ok(['  ', 'a', 'b', 'c']));
-    const out = await service.generate({ template: 'long_tail', seeds: ['x'] });
+    const out = await service.generate({ template: 'trends', seeds: ['x'] });
     expect(out.keywords).toEqual(['a', 'b']);
   });
 
   it('maps an LLM refusal to IdeationGenerationError', async () => {
     const { service, parseChat } = build();
     parseChat.mockResolvedValue({ parsed: null, refusal: 'content_filter' });
-    await expect(service.generate({ template: 'use_cases', seeds: ['x'] })).rejects.toBeInstanceOf(
-      IdeationGenerationError,
-    );
+    await expect(
+      service.generate({ template: 'cross_industry', seeds: ['x'] }),
+    ).rejects.toBeInstanceOf(IdeationGenerationError);
   });
 
   it('maps a thrown LLM error to IdeationGenerationError (scrubbed)', async () => {
     const { service, parseChat } = build();
     parseChat.mockRejectedValue(new Error('boom sk-secret'));
-    await expect(service.generate({ template: 'use_cases', seeds: ['x'] })).rejects.toBeInstanceOf(
-      IdeationGenerationError,
-    );
+    await expect(
+      service.generate({ template: 'cross_industry', seeds: ['x'] }),
+    ).rejects.toBeInstanceOf(IdeationGenerationError);
   });
 
   it('maps an all-blank/empty result to IdeationGenerationError (nothing usable)', async () => {
