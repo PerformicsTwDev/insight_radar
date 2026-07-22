@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '../api/msw/server';
@@ -39,6 +39,7 @@ function renderRoot(initialPath: string) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return router;
 }
 
 describe('TC-60 · views-loading notice gated on analysis context (T7.5)', () => {
@@ -70,5 +71,17 @@ describe('TC-60 · views-loading notice gated on analysis context (T7.5)', () =>
       await new Promise((r) => setTimeout(r, 50));
     });
     expect(screen.queryByText(/無法載入視圖清單/)).not.toBeInTheDocument();
+  });
+});
+
+describe('TC-72 · Search Insight tab navigates home (T7.9)', () => {
+  it('clears the analysis context and returns to the input screen when the Search tab is clicked', async () => {
+    const router = renderRoot(`/?analysisId=${ANALYSIS_ID}&view=keywords`);
+    await screen.findByRole('navigation', { name: '主要分頁' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search Insight' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    expect(router.state.location.search).not.toHaveProperty('analysisId');
   });
 });

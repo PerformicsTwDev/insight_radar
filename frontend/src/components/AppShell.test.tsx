@@ -29,7 +29,11 @@ const DIMS: readonly ViewNavItem[] = [
 
 describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
   it('renders one dimension button per provided view, including a newly-registered one (AC-1.2)', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
     const menu = screen.getByRole('navigation', { name: '維度選單' });
     expect(menu).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '搜尋詞總表' })).toBeInTheDocument();
@@ -38,7 +42,7 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
 
   it('marks the active view with aria-current="page"', () => {
     render(
-      <AppShell dimensions={DIMS} activeView="intent_distribution">
+      <AppShell dimensions={DIMS} hasAnalysisContext activeView="intent_distribution">
         content
       </AppShell>,
     );
@@ -51,7 +55,7 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
 
   it('shows a degraded notice when the list is the built-in fallback (FR-1)', () => {
     render(
-      <AppShell dimensions={DIMS} degraded>
+      <AppShell dimensions={DIMS} hasAnalysisContext degraded>
         content
       </AppShell>,
     );
@@ -59,25 +63,33 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
   });
 
   it('shows no degraded notice in the normal case', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('falls back to the built-in registry nav list when no dimensions are provided', () => {
-    render(<AppShell>content</AppShell>);
+    render(<AppShell hasAnalysisContext>content</AppShell>);
     // FALLBACK_REGISTRY includes the keywords view.
     expect(screen.getByRole('button', { name: '搜尋詞總表' })).toBeInTheDocument();
   });
 
   it('leaves the dimension menu disabled when no onSelectView is provided', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
     expect(screen.getByRole('button', { name: '意圖分佈' })).toBeDisabled();
   });
 
   it('enables the dimension menu and reports the selected view when onSelectView is provided (T6.0)', () => {
     const onSelectView = vi.fn();
     render(
-      <AppShell dimensions={DIMS} onSelectView={onSelectView}>
+      <AppShell dimensions={DIMS} hasAnalysisContext onSelectView={onSelectView}>
         content
       </AppShell>,
     );
@@ -99,7 +111,11 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
  */
 describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
   it('renders the three v4 top tabs, with Search Insight active', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
     expect(screen.getByRole('navigation', { name: '主要分頁' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Search Insight' })).toHaveAttribute(
       'aria-current',
@@ -110,7 +126,11 @@ describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
   });
 
   it('AI Search Insight is a roadmap tab: not active, click surfaces 即將推出 without navigating', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
     const ai = screen.getByRole('button', { name: 'AI Search Insight' });
     expect(ai).not.toHaveAttribute('aria-current');
     // no notice before interaction (not drawn empty)
@@ -120,10 +140,49 @@ describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
   });
 
   it('Social Insight is a roadmap tab and surfaces the same 即將推出 notice on click', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
     const social = screen.getByRole('button', { name: 'Social Insight' });
     expect(social).not.toHaveAttribute('aria-current');
     fireEvent.click(social);
     expect(screen.getByText('即將推出')).toBeInTheDocument();
+  });
+});
+
+/**
+ * TC-72 (T7.9, FR-1 修訂 / AC-1.3) — the left dimension menu only renders in results
+ * context (`hasAnalysisContext`); the Search Insight tab navigates back to the input
+ * screen; the top-nav 分析設定 control is present.
+ */
+describe('TC-72 · nav results-context menu + Search-tab nav + settings (T7.9)', () => {
+  it('hides the left dimension menu without analysis context, and shows it with', () => {
+    const { rerender } = render(<AppShell dimensions={DIMS}>content</AppShell>);
+    expect(screen.queryByRole('navigation', { name: '維度選單' })).not.toBeInTheDocument();
+
+    rerender(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
+    expect(screen.getByRole('navigation', { name: '維度選單' })).toBeInTheDocument();
+  });
+
+  it('navigates home when the Search Insight tab is clicked', () => {
+    const onNavigateHome = vi.fn();
+    render(
+      <AppShell dimensions={DIMS} onNavigateHome={onNavigateHome}>
+        content
+      </AppShell>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Search Insight' }));
+    expect(onNavigateHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the top-nav 分析設定 control', () => {
+    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    expect(screen.getByRole('button', { name: '分析設定' })).toBeInTheDocument();
   });
 });

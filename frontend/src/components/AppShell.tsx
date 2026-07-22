@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { FALLBACK_REGISTRY, type ViewNavItem } from '../lib/viewRegistry';
+import { NavSettings } from './NavSettings';
 
 /**
  * App shell layout (T1.1) — presentational only, no router/API dependency.
@@ -30,6 +31,18 @@ export interface AppShellProps {
    */
   readonly onSelectView?: (view: string) => void;
   /**
+   * Navigate the `Search Insight` tab back to the input screen (T7.9, `/`, clearing
+   * the analysis context). Router-aware container supplies it; when omitted the tab
+   * is a passive active-indicator (standalone shell render stays router-free).
+   */
+  readonly onNavigateHome?: () => void;
+  /**
+   * True when an analysis is in view (`analysisId` present) — the left dimension menu
+   * only renders in this "results context" (T7.9, AC-1.3); on the input / cold screen
+   * it is hidden entirely and the main content takes full width.
+   */
+  readonly hasAnalysisContext?: boolean;
+  /**
    * Optional right-aligned header slot (e.g. the 分析歷史 entry, T3.5). A container
    * fills it with router-aware nodes; the presentational shell just renders it, so
    * standalone shell renders stay router-free.
@@ -58,6 +71,8 @@ export function AppShell({
   activeView,
   degraded = false,
   onSelectView,
+  onNavigateHome,
+  hasAnalysisContext = false,
   headerExtra,
 }: AppShellProps) {
   // Roadmap tabs (AI Search / Social) are not navigable yet: clicking one flips this
@@ -80,7 +95,15 @@ export function AppShell({
                   {tab.label}
                 </button>
               ) : (
-                <button key={tab.id} type="button" aria-current="page" className={TAB_ACTIVE}>
+                // Search Insight — active indicator AND a link back to the input screen
+                // (T7.9): clicking navigates home (`/`, clearing the analysis context).
+                <button
+                  key={tab.id}
+                  type="button"
+                  aria-current="page"
+                  onClick={onNavigateHome}
+                  className={TAB_ACTIVE}
+                >
                   {tab.label}
                 </button>
               ),
@@ -91,42 +114,52 @@ export function AppShell({
               </span>
             ) : null}
           </nav>
-          {headerExtra ? <div className="ml-auto">{headerExtra}</div> : null}
+          <div className="ml-auto flex items-center gap-2">
+            <NavSettings />
+            {headerExtra}
+          </div>
         </div>
       </header>
       <div className="flex">
-        <nav aria-label="維度選單" className="w-56 shrink-0 border-r border-white/10 p-3">
-          {degraded ? (
-            <p role="status" className="mb-2 rounded-md bg-white/5 px-3 py-2 text-xs text-white/50">
-              無法載入視圖清單，改用內建預設
-            </p>
-          ) : null}
-          <ul className="flex flex-col gap-1">
-            {dimensions.map((dim) => {
-              const isActive = dim.name === activeView;
-              const interactive = onSelectView !== undefined;
-              return (
-                <li key={dim.name}>
-                  <button
-                    type="button"
-                    disabled={!interactive}
-                    aria-current={isActive ? 'page' : undefined}
-                    onClick={interactive ? () => onSelectView(dim.name) : undefined}
-                    className={
-                      isActive
-                        ? 'w-full rounded-lg bg-white/10 px-3 py-2 text-left text-sm text-white'
-                        : interactive
-                          ? 'w-full rounded-lg px-3 py-2 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white'
-                          : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
-                    }
-                  >
-                    {dim.label}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        {/* Left dimension menu — only in results context (T7.9, AC-1.3). On the input /
+            cold screen it is hidden entirely and the main content takes full width. */}
+        {hasAnalysisContext ? (
+          <nav aria-label="維度選單" className="w-56 shrink-0 border-r border-white/10 p-3">
+            {degraded ? (
+              <p
+                role="status"
+                className="mb-2 rounded-md bg-white/5 px-3 py-2 text-xs text-white/50"
+              >
+                無法載入視圖清單，改用內建預設
+              </p>
+            ) : null}
+            <ul className="flex flex-col gap-1">
+              {dimensions.map((dim) => {
+                const isActive = dim.name === activeView;
+                const interactive = onSelectView !== undefined;
+                return (
+                  <li key={dim.name}>
+                    <button
+                      type="button"
+                      disabled={!interactive}
+                      aria-current={isActive ? 'page' : undefined}
+                      onClick={interactive ? () => onSelectView(dim.name) : undefined}
+                      className={
+                        isActive
+                          ? 'w-full rounded-lg bg-white/10 px-3 py-2 text-left text-sm text-white'
+                          : interactive
+                            ? 'w-full rounded-lg px-3 py-2 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white'
+                            : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
+                      }
+                    >
+                      {dim.label}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        ) : null}
         <main className="flex-1 p-6">{children}</main>
       </div>
     </div>
