@@ -98,9 +98,14 @@ export class AiAnalysisService {
 
   async analyzeAndPersist(input: AnalyzeAndPersistInput): Promise<AiAnalysisResult> {
     const { jobId, ownerId, brandProfileId, captures } = input;
-    // clean slate：reset/retry 沿用同一 jobId → 先清舊列避免重複落列（idempotent re-run）。
-    await this.repo.deleteByJobId(jobId);
+    const { schemaVersion } = this.config;
     if (captures.length === 0) {
+      // idempotent re-run clean-slate：reset 後零 capture 仍須清舊列（無新列可寫），原子 replace 空集。
+      await this.repo.replaceForJob(jobId, ownerId, schemaVersion, {
+        answers: [],
+        cited: [],
+        metrics: [],
+      });
       return { answersCount: 0, citedCount: 0, metricsCount: 0, needsReview: 0 };
     }
 
@@ -125,10 +130,13 @@ export class AiAnalysisService {
       brands.visibilityBrands,
     );
 
-    const { schemaVersion } = this.config;
-    const answersCount = await this.repo.persistAnswers(jobId, ownerId, schemaVersion, answers);
-    const citedCount = await this.repo.persistCitedReferences(jobId, ownerId, schemaVersion, cited);
-    const metricsCount = await this.repo.persistMetrics(jobId, ownerId, schemaVersion, metrics);
+    // 原子持久化（M15-R8/#689）：delete + 三 createMany 收斂單一 `$transaction`（全有或全無，不跨表撕裂）。
+    const { answersCount, citedCount, metricsCount } = await this.repo.replaceForJob(
+      jobId,
+      ownerId,
+      schemaVersion,
+      { answers, cited, metrics },
+    );
 
     const needsReview =
       brandOutcome.needsReview.length +

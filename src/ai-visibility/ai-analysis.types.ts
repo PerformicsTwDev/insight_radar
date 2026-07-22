@@ -87,25 +87,33 @@ export interface AiVisibilityMetricRow {
   exposure: number | null;
 }
 
-/** AI 分析結果持久層 narrow 契約（AiAnalysisRepository 實作）。 */
+/** 一 job 三表待落列（`replaceForJob` 的原子輸入）。 */
+export interface AiAnalysisRows {
+  answers: readonly AiAnswerRow[];
+  cited: readonly AiCitedReferenceRow[];
+  metrics: readonly AiVisibilityMetricRow[];
+}
+
+/** `replaceForJob` 回傳的三表落列筆數。 */
+export interface AiAnalysisPersistCounts {
+  answersCount: number;
+  citedCount: number;
+  metricsCount: number;
+}
+
+/**
+ * AI 分析結果持久層 narrow 契約（AiAnalysisRepository 實作）。
+ *
+ * **原子 clean-slate（M15-R8/#689，INV-6 idempotent）**：`replaceForJob` 把三表 `deleteMany`（reset/retry
+ * clean-slate）+ 三表 `createMany`（新分析列）**收斂進單一 `$transaction`**——delete 與 creates 全有或全無，
+ * final attempt mid-persist crash 不再跨表撕裂（比照 Journey/CustomClassify 的 `saveAssignments` 慣例）。
+ * 空 `rows`（零 capture 重跑）→ 仍 delete 清舊、createMany 為 no-op（clean-slate、無新列）。
+ */
 export interface AiAnalysisStore {
-  deleteByJobId(jobId: string): Promise<void>;
-  persistAnswers(
+  replaceForJob(
     jobId: string,
     ownerId: string | null,
     schemaVersion: string,
-    rows: readonly AiAnswerRow[],
-  ): Promise<number>;
-  persistCitedReferences(
-    jobId: string,
-    ownerId: string | null,
-    schemaVersion: string,
-    rows: readonly AiCitedReferenceRow[],
-  ): Promise<number>;
-  persistMetrics(
-    jobId: string,
-    ownerId: string | null,
-    schemaVersion: string,
-    rows: readonly AiVisibilityMetricRow[],
-  ): Promise<number>;
+    rows: AiAnalysisRows,
+  ): Promise<AiAnalysisPersistCounts>;
 }
