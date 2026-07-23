@@ -7,6 +7,7 @@ import { config } from '../../config/env';
 import type { JobState, JobStatus } from '../../lib/jobState';
 import { JobTrackingPanel } from '../job/JobTrackingPanel';
 import { jobStateQueryKey } from '../job/useJobTracking';
+import { analysisStatusQueryKey } from './analysisStatusQuery';
 import { AnalysisNotFound } from './ViewStates';
 import { ViewContent } from './ViewContent';
 
@@ -64,7 +65,7 @@ export function AnalysisDashboard({ analysisId }: { analysisId: string }): React
   // snapshot has not caught up yet, to pull the fresh `features` the view gates on;
   // it stops the instant the snapshot catches up.
   const statusQuery = useQuery({
-    queryKey: ['analysis-status', analysisId],
+    queryKey: analysisStatusQueryKey(analysisId),
     // A transient `unavailable` (5xx / timeout / schema-invalid body) THROWS so TanStack
     // Query RETAINS the last-known-good snapshot instead of overwriting it (§7, #645).
     // Viewing a COMPLETED analysis, a refetch (default `refetchOnReconnect`) that briefly

@@ -23,6 +23,7 @@ const EnvSchema = z.object({
   VITE_VIRTUAL_ROW_THRESHOLD: num(100),
   VITE_TRACKING_DEFAULT_RANGE: z.enum(['6M', '12M', 'all']).default('12M'),
   VITE_TRACKING_CONTINUE_TOP_N: num(3), // home「從追蹤清單繼續」預設顯示的卡片數（T7.7）
+  VITE_CONTEXT_BAR_PREVIEW_N: num(3), // 頂欄語境列 seeds preview 顯示前 N 詞（T7.8）
   // T7.12: value = Google Ads resource name (backend contract), NOT a friendly code.
   VITE_DEFAULT_GEO: z.string().default('geoTargetConstants/2158'), // 台灣（T7.9/T7.12）
   VITE_DEFAULT_LANGUAGE: z.string().default('languageConstants/1018'), // 繁中（T7.9/T7.12）
@@ -53,6 +54,7 @@ export interface AppConfig {
   readonly virtualRowThreshold: number;
   readonly trackingDefaultRange: '6M' | '12M' | 'all';
   readonly trackingContinueTopN: number;
+  readonly contextBarPreviewN: number;
   readonly defaultGeo: string;
   readonly defaultLanguage: string;
   readonly aiChannels: readonly string[];
@@ -80,6 +82,7 @@ export function parseConfig(source: Record<string, unknown>): AppConfig {
     virtualRowThreshold: e.VITE_VIRTUAL_ROW_THRESHOLD,
     trackingDefaultRange: e.VITE_TRACKING_DEFAULT_RANGE,
     trackingContinueTopN: e.VITE_TRACKING_CONTINUE_TOP_N,
+    contextBarPreviewN: e.VITE_CONTEXT_BAR_PREVIEW_N,
     defaultGeo: e.VITE_DEFAULT_GEO,
     defaultLanguage: e.VITE_DEFAULT_LANGUAGE,
     aiChannels: csv(e.VITE_AI_CHANNELS),

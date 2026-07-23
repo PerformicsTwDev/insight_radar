@@ -1,5 +1,6 @@
 import { Link, Outlet, useNavigate, useSearch } from '@tanstack/react-router';
 import { useUnauthorizedRedirect } from '../features/auth/unauthorizedRedirect';
+import { AnalysisContextBar } from '../features/dashboard/AnalysisContextBar';
 import { useViews } from '../features/views/useViews';
 import { AppShell } from './AppShell';
 
@@ -43,6 +44,11 @@ export function RootLayout() {
       // Search Insight tab → back to the input screen: clear the analysis context (and
       // per-view URL state) so a fresh analysis can be started (T7.9).
       onNavigateHome={() => void navigate({ to: '/', search: {} })}
+      // Top-nav analysis context bar (T7.8): only while an analysis is in view — a pure
+      // subscriber to the dashboard's `GET :id` snapshot (no extra request).
+      contextBar={
+        analysisId !== undefined ? <AnalysisContextBar analysisId={analysisId} /> : undefined
+      }
       headerExtra={
         <div className="flex items-center gap-2">
           <Link

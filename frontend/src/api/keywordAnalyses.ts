@@ -86,6 +86,9 @@ export const JobStatusSchema = z.object({
   progress: JobProgressBodySchema.nullish(),
   result: JobResultBodySchema.nullish(),
   error: z.string().nullish(),
+  // AC-8.5 (backend #741): the analysis's original input search terms, always present.
+  // Optional here for resilience to a pre-#741 backend / a mock that omits it (T7.8 context-bar).
+  seeds: z.array(z.string()).optional(),
   features: z.unknown().optional(),
 });
 export type KeywordAnalysisStatus = z.infer<typeof JobStatusSchema>;
