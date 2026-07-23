@@ -35,7 +35,7 @@ describe('TC-72/TC-75 · NavSettings (top-nav geo/language picker)', () => {
   it('renders the supported locales as options whose value is a resource name', () => {
     render(<NavSettings />);
     fireEvent.click(screen.getByRole('button', { name: '分析設定' }));
-    const geoSelect = screen.getByLabelText('地區 (geo)') as HTMLSelectElement;
+    const geoSelect = screen.getByLabelText<HTMLSelectElement>('地區 (geo)');
     const values = Array.from(geoSelect.options).map((o) => o.value);
     expect(values).toContain('geoTargetConstants/2158');
     expect(values.every((v) => v.startsWith('geoTargetConstants/'))).toBe(true);
@@ -54,7 +54,7 @@ describe('TC-72/TC-75 · NavSettings (top-nav geo/language picker)', () => {
       'geoTargetConstants/9999',
     );
     fireEvent.click(screen.getByRole('button', { name: '分析設定' }));
-    const geoSelect = screen.getByLabelText('地區 (geo)') as HTMLSelectElement;
+    const geoSelect = screen.getByLabelText<HTMLSelectElement>('地區 (geo)');
     expect(geoSelect.value).toBe('geoTargetConstants/9999');
     expect(Array.from(geoSelect.options).map((o) => o.value)).toContain('geoTargetConstants/9999');
   });
