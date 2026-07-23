@@ -50,7 +50,7 @@ function renderHome() {
 }
 
 // geo/language now come from the persisted settings store (T7.9/T7.10) — reset to the
-// config defaults (TW / zh-TW) before each test.
+// config defaults (T7.12: Google Ads resource names 台灣/繁中) before each test.
 beforeEach(() => {
   localStorage.clear();
   useAnalysisSettingsStore.setState({ geo: config.defaultGeo, language: config.defaultLanguage });
@@ -109,8 +109,8 @@ describe('TC-13 · HomeRoute create-analysis form (seeds gate + inline errors)',
   });
 });
 
-describe('TC-32 · HomeRoute submit (POST 202 with settings geo/lang + fixed network/adult)', () => {
-  it('submits with default settings geo/lang, fixed network=partners + includeAdult=true, mode=exact', async () => {
+describe('TC-32/TC-75 · HomeRoute submit (POST 202 with settings geo/lang + fixed network/adult)', () => {
+  it('submits the default settings geo/lang as Google Ads resource names, fixed network=partners + includeAdult=true, mode=exact', async () => {
     let received: unknown;
     server.use(
       http.post('/api/v1/keyword-analyses', async ({ request }) => {
@@ -129,14 +129,14 @@ describe('TC-32 · HomeRoute submit (POST 202 with settings geo/lang + fixed net
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         analysisId: ANALYSIS_ID,
-        geo: 'TW',
-        language: 'zh-TW',
+        geo: 'geoTargetConstants/2158',
+        language: 'languageConstants/1018',
       });
     });
     expect(received).toEqual({
       seeds: ['running shoes', 'trail shoes'],
-      geo: 'TW',
-      language: 'zh-TW',
+      geo: 'geoTargetConstants/2158', // T7.12: resource name (backend contract), not 'TW'
+      language: 'languageConstants/1018',
       mode: 'exact', // v4 default 探索模式
       network: 'GOOGLE_SEARCH_AND_PARTNERS', // fixed (FR-2 修訂 c)
       includeAdult: true, // fixed
@@ -145,7 +145,10 @@ describe('TC-32 · HomeRoute submit (POST 202 with settings geo/lang + fixed net
   });
 
   it('adopts the changed settings geo/language and the explore-mode pill into the body', async () => {
-    useAnalysisSettingsStore.setState({ geo: 'US', language: 'en' });
+    useAnalysisSettingsStore.setState({
+      geo: 'geoTargetConstants/2840',
+      language: 'languageConstants/1000',
+    });
     let received: unknown;
     server.use(
       http.post('/api/v1/keyword-analyses', async ({ request }) => {
@@ -163,8 +166,8 @@ describe('TC-32 · HomeRoute submit (POST 202 with settings geo/lang + fixed net
     await waitFor(() => {
       expect(received).toEqual({
         seeds: ['shoes'],
-        geo: 'US',
-        language: 'en',
+        geo: 'geoTargetConstants/2840',
+        language: 'languageConstants/1000',
         mode: 'expand',
         network: 'GOOGLE_SEARCH_AND_PARTNERS',
         includeAdult: true,
