@@ -177,6 +177,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
         id: 'some-id',
         status: 'running',
         progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
+        seeds: ['咖啡機', 'espresso machine'],
         resultSnapshot: null,
       });
 
@@ -189,6 +190,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
         status: 'running',
         progress: { phase: 'intent', percent: 72, expanded: 1980, labeled: 1420, total: 1980 },
         result: { resultSnapshotId: null, count: null },
+        seeds: ['咖啡機', 'espresso machine'], // AC-8.5：狀態回應恆含建立時 seeds（frontend:T7.8）
         // T6.8：running（無 snapshot）→ keyword_metrics running；serp/topics/ai_search compute 未接線（AC-14.7）。
         features: {
           keyword_metrics: { status: 'running' },

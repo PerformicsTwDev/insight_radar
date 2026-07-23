@@ -427,6 +427,7 @@ function seedRow(
     id: string;
     status: string;
     progress?: unknown;
+    seeds?: string[];
     resultSnapshotId?: string | null;
     resultSnapshot?: { id: string; keywordCount: number } | null;
   },
@@ -436,6 +437,7 @@ function seedRow(
     idempotencyKey: `idem-${row.id}`,
     status: row.status,
     progress: row.progress ?? { phase: 'queued', percent: 0 },
+    seeds: row.seeds ?? ['seed-a', 'seed-b'],
     resultSnapshotId: row.resultSnapshotId ?? null,
     resultSnapshot: row.resultSnapshot ?? null,
   });
@@ -464,6 +466,7 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
       status: 'queued',
       progress: { phase: 'queued', percent: 0 },
       result: { resultSnapshotId: null, count: null },
+      seeds: ['seed-a', 'seed-b'], // AC-8.5：狀態回應恆含建立時 seeds
       // T6.8：features 反映 compute 狀態——queued 無 snapshot → keyword_metrics running；serp/topics/ai_search 未接線。
       features: {
         keyword_metrics: { status: 'running' },
@@ -473,6 +476,20 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
         ai_search: { status: 'not_generated' },
       },
     });
+  });
+
+  it('returns the original seeds regardless of status (AC-8.5, enabler for frontend:T7.8)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'running',
+      progress: { phase: 'intent', percent: 40 },
+      seeds: ['果汁機', '電鍋'],
+    });
+
+    const res = await service.getStatus('id-1', API_ACTOR);
+
+    expect(res.seeds).toEqual(['果汁機', '電鍋']);
   });
 
   it('returns status=running with phase progress', async () => {

@@ -66,6 +66,8 @@ export interface AnalysisStatusResponse {
   status: AnalysisStatus;
   progress: AnalysisProgress;
   result: { resultSnapshotId: string | null; count: number | null };
+  // AC-8.5：建立時的原始輸入搜尋詞，狀態無關恆回（frontend:T7.8 語境列 preview）。
+  seeds: string[];
   features: FeaturesMap;
 }
 
@@ -361,7 +363,8 @@ export class KeywordAnalysisService {
       { journeyStatus: journeyRun?.status, aiSearchStatus: aiSearchRun?.status },
     );
 
-    return { status: row.status, progress, result, features };
+    // AC-8.5：row 已含 seeds（findUnique 全欄），直接回；`as string[]` 鏡射 toListRow（存為 string[] 的 Json）。
+    return { status: row.status, progress, result, seeds: row.seeds as string[], features };
   }
 
   /**
