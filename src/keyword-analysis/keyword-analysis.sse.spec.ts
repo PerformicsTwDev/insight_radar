@@ -17,6 +17,7 @@ function statusResponse(status: AnalysisStatus): AnalysisStatusResponse {
     status,
     progress: { phase: status === 'queued' ? 'queued' : 'running', percent: 50 },
     result: { resultSnapshotId: null, count: null },
+    seeds: ['seed-a', 'seed-b'], // AC-8.5
     features: {
       keyword_metrics: { status: 'running' },
       serp: { status: 'not_generated' },
