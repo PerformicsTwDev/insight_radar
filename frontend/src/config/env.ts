@@ -23,8 +23,9 @@ const EnvSchema = z.object({
   VITE_VIRTUAL_ROW_THRESHOLD: num(100),
   VITE_TRACKING_DEFAULT_RANGE: z.enum(['6M', '12M', 'all']).default('12M'),
   VITE_TRACKING_CONTINUE_TOP_N: num(3), // home「從追蹤清單繼續」預設顯示的卡片數（T7.7）
-  VITE_DEFAULT_GEO: z.string().default('TW'), // 分析設定預設地區（T7.9；localStorage 覆寫）
-  VITE_DEFAULT_LANGUAGE: z.string().default('zh-TW'), // 分析設定預設語言（T7.9）
+  // T7.12: value = Google Ads resource name (backend contract), NOT a friendly code.
+  VITE_DEFAULT_GEO: z.string().default('geoTargetConstants/2158'), // 台灣（T7.9/T7.12）
+  VITE_DEFAULT_LANGUAGE: z.string().default('languageConstants/1018'), // 繁中（T7.9/T7.12）
   // AI Search 抓取渠道選項（FR-23，M8）：CSV of labels，enum 對映在 lib/aiSearchForm。
   VITE_AI_CHANNELS: z.string().default('AI Overview,AI Mode,Gemini,ChatGPT'),
 });
