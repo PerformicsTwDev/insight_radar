@@ -48,6 +48,13 @@ export interface AppShellProps {
    * standalone shell renders stay router-free.
    */
   readonly headerExtra?: ReactNode;
+  /**
+   * Optional top-nav analysis context bar (T7.8): the analysis's 搜尋詞 preview + ⓘ popover.
+   * A container supplies `<AnalysisContextBar>` only while an analysis is in view; the
+   * component itself renders nothing when there is no snapshot, so on the cold screen this
+   * slot is empty. Kept out of `main` so no visual golden captures it.
+   */
+  readonly contextBar?: ReactNode;
 }
 
 /**
@@ -74,6 +81,7 @@ export function AppShell({
   onNavigateHome,
   hasAnalysisContext = false,
   headerExtra,
+  contextBar,
 }: AppShellProps) {
   // Roadmap tabs (AI Search / Social) are not navigable yet: clicking one flips this
   // to show an ephemeral 即將推出 notice — never a route change / 404 (TC-58〔nav〕).
@@ -114,6 +122,8 @@ export function AppShell({
               </span>
             ) : null}
           </nav>
+          {/* Analysis context bar (T7.8) — only present while an analysis is in view. */}
+          {contextBar}
           <div className="ml-auto flex items-center gap-2">
             <NavSettings />
             {headerExtra}
