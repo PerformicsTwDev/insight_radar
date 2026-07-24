@@ -122,6 +122,23 @@ describe('TC-16 · TrendChart (aggregate line + axis-aligned multi-line)', () =>
     expect(lastConfig().data.datasets).toHaveLength(1);
   });
 
+  it('shows a 加總 N badge on the trigger reflecting the number of selected terms (M7-R3)', () => {
+    render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
+    const trigger = screen.getByRole('button', { name: /篩選搜尋詞/ });
+    expect(trigger).not.toHaveTextContent('加總');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'running shoes' }));
+    expect(trigger).toHaveTextContent('加總 1');
+  });
+
+  it('closes the 篩選搜尋詞 popover on an outside pointer-down (M7-R3)', () => {
+    render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
+    fireEvent.click(screen.getByRole('button', { name: /篩選搜尋詞/ }));
+    expect(screen.getByRole('group', { name: '篩選搜尋詞' })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('group', { name: '篩選搜尋詞' })).not.toBeInTheDocument();
+  });
+
   it('destroys the chart on unmount', () => {
     const { unmount } = render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
     unmount();

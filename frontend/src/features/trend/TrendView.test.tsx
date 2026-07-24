@@ -49,6 +49,33 @@ describe('TrendView · trend chart data wiring', () => {
     expect(await screen.findByRole('img', { name: '搜尋趨勢折線圖' })).toBeInTheDocument();
   });
 
+  it('populates the 篩選搜尋詞 popover from the keywords-view series (M7-R3)', async () => {
+    server.use(
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const body = (await request.json()) as { view: string };
+        if (body.view === 'keywords') {
+          return HttpResponse.json({
+            view: 'keywords',
+            columns: [
+              { key: 'text', label: '搜尋詞', type: 'text' },
+              { key: 'monthlyVolumes', label: '月序列', type: 'array' },
+            ],
+            rows: [
+              { text: '吸塵器', monthlyVolumes: [{ year: 2026, month: 1, searches: 100 }] },
+              { notText: 'malformed' }, // dropped by toKeywordSeries (unparseable row)
+            ],
+            pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+          });
+        }
+        return HttpResponse.json({ view: 'trend', axis: ['2026-01'], total: [100], series: [] });
+      }),
+    );
+    renderTrend();
+    fireEvent.click(await screen.findByRole('button', { name: /篩選搜尋詞/ }));
+    // The fetched top-N term is now selectable (previously the popover was always empty).
+    expect(await screen.findByText('吸塵器')).toBeInTheDocument();
+  });
+
   it('shows an error + retry when the trend query fails, and recovers on retry', async () => {
     let calls = 0;
     server.use(

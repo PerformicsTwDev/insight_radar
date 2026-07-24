@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Chart, registerables } from 'chart.js';
+import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { assembleTrendDatasets, type KeywordSeriesInput } from '../../lib/trendSeries';
 import { TREND_AGGREGATE, TREND_PALETTE } from './trendPalette';
 import { handleExternalTooltip } from './trendTooltip';
@@ -26,6 +27,13 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [popoverOpen, setPopoverOpen] = useState(false);
+  // Click away closes the 篩選搜尋詞 popover (M7-R3, shared with the filter chips — R9 hook).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useOutsideClick<HTMLDivElement>(
+    popoverOpen,
+    () => setPopoverOpen(false),
+    triggerRef,
+  );
 
   const selectedKeywords = useMemo(
     () => keywords.filter((keyword) => selected.has(keyword.keyword)),
@@ -106,9 +114,12 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
 
   if (!hasData) {
     return (
-      <section className="rounded-xl bg-bg-card p-4 ring-1 ring-white/10" aria-label="搜尋趨勢">
+      <section
+        className="flex min-h-[22rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10"
+        aria-label="搜尋趨勢"
+      >
         <h2 className="mb-3 text-sm font-medium text-white/80">搜尋趨勢</h2>
-        <p role="status" className="py-16 text-center text-sm text-white/40">
+        <p role="status" className="flex flex-1 items-center justify-center text-sm text-white/40">
           尚無趨勢資料
         </p>
       </section>
@@ -116,21 +127,31 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
   }
 
   return (
-    <section className="rounded-xl bg-bg-card p-4 ring-1 ring-white/10" aria-label="搜尋趨勢">
+    <section
+      className="flex min-h-[22rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10"
+      aria-label="搜尋趨勢"
+    >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-medium text-white/80">搜尋趨勢</h2>
         <div className="relative">
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setPopoverOpen((open) => !open)}
             aria-haspopup="true"
             aria-expanded={popoverOpen}
-            className="rounded-lg bg-bg-input px-3 py-1.5 text-xs text-white/80 ring-1 ring-white/10 hover:bg-bg-raised"
+            className="flex items-center gap-1.5 rounded-lg bg-bg-input px-3 py-1.5 text-xs text-white/80 ring-1 ring-white/10 hover:bg-bg-raised"
           >
-            篩選搜尋詞
+            <span>篩選搜尋詞</span>
+            {selected.size > 0 ? (
+              <span className="rounded-full bg-brand/20 px-1.5 text-[11px] font-medium text-brand">
+                加總 {selected.size}
+              </span>
+            ) : null}
           </button>
           {popoverOpen && (
             <div
+              ref={popoverRef}
               role="group"
               aria-label="篩選搜尋詞"
               className="absolute right-0 z-20 mt-2 max-h-64 w-56 overflow-auto rounded-lg bg-bg-raised p-2 shadow-lg ring-1 ring-white/10"
