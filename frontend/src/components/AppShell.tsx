@@ -94,8 +94,11 @@ export function AppShell({
   // to show an ephemeral 即將推出 notice — never a route change / 404 (TC-58〔nav〕).
   const [roadmapHint, setRoadmapHint] = useState(false);
   return (
-    <div className="min-h-screen bg-bg-body text-white">
-      <header className="border-b border-border-topbar bg-bg-card">
+    // v4 fixed-height frame (M7-R4): a viewport-tall column (header + body) whose overflow is
+    // clipped, so the page itself never scrolls — the left menu + main content each scroll on
+    // their own inside the remaining height (independent-scroll 三欄).
+    <div className="flex h-screen flex-col overflow-hidden bg-bg-body text-white">
+      <header className="shrink-0 border-b border-border-topbar bg-bg-card">
         <div className="flex items-center gap-6 px-6">
           <h1 className="py-4 text-lg font-semibold text-brand">Insight Radar</h1>
           <nav aria-label="主要分頁" className="flex items-center gap-1">
@@ -137,11 +140,13 @@ export function AppShell({
           </div>
         </div>
       </header>
-      <div className="flex">
+      {/* Body row fills the remaining viewport height (min-h-0 lets the flex children scroll). */}
+      <div className="flex min-h-0 flex-1">
         {/* Left dimension menu — only in results context (T7.9, AC-1.3). On the input /
-            cold screen it is hidden entirely and the main content takes full width. */}
+            cold screen it is hidden entirely and the main content takes full width. Scrolls
+            independently (overflow-y-auto) so long tracking lists don't grow the frame (M7-R4). */}
         {hasAnalysisContext ? (
-          <div className="w-56 shrink-0 border-r border-white/10 p-3">
+          <div className="w-56 shrink-0 overflow-y-auto border-r border-white/10 p-3">
             <nav aria-label="維度選單">
               {degraded ? (
                 <p
@@ -180,7 +185,8 @@ export function AppShell({
             {trackingNav}
           </div>
         ) : null}
-        <main className="flex-1 p-6">{children}</main>
+        {/* Center content column — fills the remaining width, scrolls independently (M7-R4). */}
+        <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
   );
