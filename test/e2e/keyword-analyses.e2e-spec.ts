@@ -53,6 +53,7 @@ describe('POST /keyword-analyses (e2e, TC-21/TC-28)', () => {
         // getStatus 讀最新 JourneyRun 以推導 journey feature（T12.6/AC-33.6）；無 run → not_generated。
         journeyRun: { findFirst: jest.fn().mockResolvedValue(null) },
         aiSearchRun: { findFirst: jest.fn().mockResolvedValue(null) },
+        topicRun: { findFirst: jest.fn().mockResolvedValue(null) },
       })
       // Stub the processor so its WorkerHost doesn't spin up a real BullMQ Worker
       // (this is an HTTP-layer e2e; worker behavior is covered by the processor unit test).

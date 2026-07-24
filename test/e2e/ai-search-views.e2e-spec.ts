@@ -95,6 +95,7 @@ describe('AI Search views registration + gating (e2e, TC-80)', () => {
       },
       journeyRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
       aiSearchRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
+      topicRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
     };
 
     const moduleRef = await overrideBackgroundWorkers(
@@ -219,6 +220,7 @@ describe('AI Search views ready → real data (e2e, TC-80 · #678 G2/G3)', () =>
       aiSearchRun: {
         findFirst: jest.fn(() => Promise.resolve({ id: RUN_ID, status: 'completed' })),
       },
+      topicRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
       aiAnswer: {
         findMany: jest.fn(() =>
           Promise.resolve([

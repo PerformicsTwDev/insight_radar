@@ -103,6 +103,11 @@ class FakePrisma {
   aiSearchRun = {
     findFirst: jest.fn((_args?: unknown) => Promise.resolve<{ status: string } | null>(null)),
   };
+
+  // topics feature 推導（M7-R7a/AC-14.7）：getStatus 查最新 TopicRun；預設無 run（→ not_generated）。
+  topicRun = {
+    findFirst: jest.fn(() => Promise.resolve<{ status: string } | null>(null)),
+  };
 }
 
 const QUEUE_CONFIG = {
@@ -594,6 +599,28 @@ describe('KeywordAnalysisService.getStatus (T3.4, TC-22) — DB is source of tru
     expect(res.features.ai_search.status).toBe('ready');
     // owner-scoped, latest-first, by keywordAnalysisId (apiKey actor → no owner filter, exact where).
     expect(prisma.aiSearchRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { keywordAnalysisId: 'id-1' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+  });
+
+  it('derives topics from the latest TopicRun (M7-R7a / AC-14.7; no longer hardcoded not_generated)', async () => {
+    const { service, prisma } = await buildHarness();
+    seedRow(prisma, {
+      id: 'id-1',
+      status: 'completed',
+      resultSnapshotId: 'snap-1',
+      resultSnapshot: { id: 'snap-1', keywordCount: 5 },
+    });
+    // A completed TopicRun → topics feature = ready, so 意圖主題 view shows its table on revisit.
+    prisma.topicRun.findFirst.mockResolvedValueOnce({ status: 'completed' });
+
+    const res = await service.getStatus('id-1', API_ACTOR);
+
+    expect(res.features.topics.status).toBe('ready');
+    expect(prisma.topicRun.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { keywordAnalysisId: 'id-1' },
         orderBy: { createdAt: 'desc' },

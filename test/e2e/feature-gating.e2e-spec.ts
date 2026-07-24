@@ -66,6 +66,7 @@ describe('view feature-gating (e2e, TC-53)', () => {
       // getStatus 讀最新 JourneyRun / linked AiSearchRun 以推導 journey / ai_search feature；無 run → not_generated。
       journeyRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
       aiSearchRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
+      topicRun: { findFirst: jest.fn(() => Promise.resolve(null)) },
     };
 
     const moduleRef = await overrideBackgroundWorkers(
@@ -104,7 +105,7 @@ describe('view feature-gating (e2e, TC-53)', () => {
     const body = res.body as StatusBody;
     expect(body.features?.keyword_metrics.status).toBe('ready'); // snapshot 就緒
     expect(body.features?.serp.status).toBe('not_generated'); // SERP compute 未實作
-    expect(body.features?.topics.status).toBe('not_generated'); // 分群 compute 未實作
+    expect(body.features?.topics.status).toBe('not_generated'); // no TopicRun in this fixture → gated (M7-R7a)
   });
 
   it('POST /query serp_questions → 409 FEATURE_NOT_READY (not a misleading empty table)', async () => {

@@ -33,10 +33,10 @@ describe('computeFeatures (T6.8)', () => {
     ).toBe('not_generated');
   });
 
-  it('serp and topics are not_generated (compute not implemented yet, M7/M8)', () => {
+  it('serp is not_generated (SERP compute not wired); topics not_generated with no run', () => {
     const features = computeFeatures({ status: 'completed', resultSnapshotId: 'snap-1' });
     expect(features.serp).toEqual({ status: 'not_generated' });
-    expect(features.topics).toEqual({ status: 'not_generated' });
+    expect(features.topics).toEqual({ status: 'not_generated' }); // no TopicRun → gated (see derives test)
   });
 
   it('ai_search is not_generated when there is no linked AiSearchRun (T15.8a / #678 G1)', () => {
@@ -69,6 +69,21 @@ describe('computeFeatures (T6.8)', () => {
     expect(derive('queued')).toBe('running');
     expect(derive('running')).toBe('running');
     expect(derive('completed')).toBe('ready'); // T15.5 已落 ai_answers/ai_visibility_metrics
+    expect(derive('partial')).toBe('ready');
+    expect(derive('failed')).toBe('failed');
+  });
+
+  it('topics derives from the latest TopicRun status (M7-R7a / AC-14.7; was hardcoded not_generated)', () => {
+    // M8 topics is complete → features.topics must report the run status (AC-14.7), mirroring
+    // journey/ai_search, so 意圖主題 shows its table on revisit instead of re-showing the CTA.
+    const ready = { status: 'completed' as const, resultSnapshotId: 'snap-1' };
+    const derive = (topicsStatus?: string) =>
+      computeFeatures(ready, { topicsStatus }).topics.status;
+    expect(derive(undefined)).toBe('not_generated'); // 無 run
+    expect(derive('canceled')).toBe('not_generated');
+    expect(derive('queued')).toBe('running');
+    expect(derive('running')).toBe('running');
+    expect(derive('completed')).toBe('ready');
     expect(derive('partial')).toBe('ready');
     expect(derive('failed')).toBe('failed');
   });
