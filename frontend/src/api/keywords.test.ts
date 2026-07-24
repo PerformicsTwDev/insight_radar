@@ -314,21 +314,39 @@ describe('M7-R1 · getKeywordsView (POST /query {view:keywords} → KeywordRow[]
     expect(await getKeywordsView(ID)).toEqual({ ok: false, status: 200 });
   });
 
-  it('drops an unparseable row rather than failing the whole page', async () => {
+  it('fail-loud: ANY unparseable row degrades the whole page (no silent partial-drop under a stale total, M7-R11/#1)', async () => {
     server.use(
       http.post(QUERY_PATH, () =>
         HttpResponse.json({
           view: 'keywords',
           columns: [],
+          // one valid + one invalid row: dropping the bad one while keeping meta.total=2 would show
+          // an incomplete list under a footer that overstates it — instead degrade to ErrorState+retry
+          // (parity with the replaced getKeywords, which fails the whole page on any row).
           rows: [{ text: 'ok', intent: [], monthlyVolumes: [] }, { notText: 'bad' }],
           pagination: { total: 2, page: 1, pageSize: 25, cursor: null },
         }),
       ),
     );
-    const result = await getKeywordsView(ID);
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].text).toBe('ok');
+    expect(await getKeywordsView(ID)).toEqual({ ok: false, status: 200 });
+  });
+
+  it('serializes a sortBy-only sort with a defaulted desc direction (M7-R11/#4)', async () => {
+    let body: unknown;
+    server.use(
+      http.post(QUERY_PATH, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [],
+          pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
+        });
+      }),
+    );
+    // A sortBy-only URL (no sortDir) must still carry a sort so the visible sort chip (which the UI
+    // defaults to 'desc') agrees with the actual row order — previously the sort was dropped entirely.
+    await getKeywordsView(ID, { sortBy: 'cpcLow' });
+    expect((body as { sort?: unknown }).sort).toEqual([{ field: 'cpcLow', direction: 'desc' }]);
   });
 });

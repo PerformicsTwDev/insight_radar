@@ -239,7 +239,9 @@ export async function getKeywordsView(
     view: 'keywords',
     select: [...KEYWORDS_VIEW_SELECT],
     filters,
-    sort: sortBy && sortDir ? [{ field: sortBy, direction: sortDir }] : undefined,
+    // M7-R11 (#4): send the sort whenever `sortBy` is set — a sortBy-only URL still needs a direction
+    // so the visible sort chip agrees with the row order; default to 'desc' (the UI's own default).
+    sort: sortBy ? [{ field: sortBy, direction: sortDir ?? 'desc' }] : undefined,
     pagination: { page, pageSize, cursor },
   };
   const res = await postQuery(id, request);
@@ -249,9 +251,16 @@ export async function getKeywordsView(
   if (res.view.kind !== 'table') {
     return { ok: false, status: 200 };
   }
-  const rows = res.view.rows.flatMap((row) => {
+  // M7-R11 (#1): fail-loud on ANY unparseable row (parity with the replaced getKeywords). Silently
+  // dropping a row while keeping the backend `meta.total` would render an incomplete list under a
+  // footer that overstates it — degrade the whole page to ok:false (ErrorState + retry) instead.
+  const rows: KeywordRow[] = [];
+  for (const row of res.view.rows) {
     const parsed = KeywordViewRowSchema.safeParse(row);
-    return parsed.success ? [parsed.data] : [];
-  });
+    if (!parsed.success) {
+      return { ok: false, status: 200 };
+    }
+    rows.push(parsed.data);
+  }
   return { ok: true, rows, meta: res.view.pagination };
 }
