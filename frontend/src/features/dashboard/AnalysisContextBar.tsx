@@ -28,46 +28,52 @@ export function AnalysisContextBar({ analysisId }: { analysisId: string }): Reac
   const preview = seeds.slice(0, config.contextBarPreviewN).join('、');
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ring-1 ring-white/10 hover:ring-white/20"
-      >
-        <span className="text-white/40">分析字詞：</span>
-        <span className="max-w-[22rem] truncate text-white/80">{preview}</span>
-        <span className="shrink-0 text-white/40">等 {seeds.length} 個字詞</span>
-        <InfoIcon />
-      </button>
-
-      {open ? (
-        <div
-          role="dialog"
-          aria-label="分析字詞"
-          className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border border-white/10 bg-bg-card p-4 shadow-xl"
+    // v4 inline 語境列 (T7.8): `分析字詞：` + truncated preview as static text, then only the
+    // brand-coloured `等 N 個字詞 ⓘ` is the clickable toggle → full seed-list tooltip.
+    <div className="flex min-w-0 items-baseline gap-1.5 text-sm">
+      <span className="shrink-0 text-white/40">分析字詞：</span>
+      <span className="max-w-[22rem] truncate text-white/80">{preview}</span>
+      <span className="relative shrink-0">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="inline-flex items-center gap-1 whitespace-nowrap text-brand transition hover:opacity-80"
         >
-          <p className="mb-2 text-xs text-white/40">此分析的輸入搜尋詞（{seeds.length}）</p>
-          <ul aria-label="分析字詞清單" className="flex flex-wrap gap-1.5">
-            {seeds.map((seed) => (
-              <li
-                key={seed}
-                className="rounded-md bg-bg-input px-2 py-1 text-xs text-white/80 ring-1 ring-white/10"
-              >
-                {seed}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+          等 {seeds.length} 個字詞
+          <InfoIcon />
+        </button>
+
+        {open ? (
+          <div
+            role="dialog"
+            aria-label="分析字詞"
+            className="absolute left-0 top-[calc(100%+10px)] z-50 max-h-64 w-80 overflow-y-auto rounded-xl border border-white/10 bg-bg-body p-4 shadow-2xl"
+          >
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-white/40">
+              完整字詞清單（{seeds.length}）
+            </p>
+            <ul aria-label="分析字詞清單" className="flex flex-wrap gap-1.5">
+              {seeds.map((seed) => (
+                <li
+                  key={seed}
+                  className="rounded-md bg-bg-input px-2 py-1 text-xs text-white/80 ring-1 ring-white/10"
+                >
+                  {seed}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </span>
     </div>
   );
 }
 
-/** Inline ⓘ affordance for the context-bar popover toggle (decorative; the button is labelled). */
+/** Inline ⓘ affordance for the context-bar tooltip toggle (decorative; the button is labelled). */
 function InfoIcon(): ReactElement {
   return (
-    <svg className="h-4 w-4 text-white/40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
       <path d="M12 11v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <circle cx="12" cy="8" r="1" fill="currentColor" />
