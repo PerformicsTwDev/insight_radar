@@ -260,6 +260,18 @@ describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
       'false',
     );
   });
+
+  it('fills the fixed-height results column: the table flex-fills + scrolls (no fixed cap), M7-R4', async () => {
+    stubQuery([row('running shoes')]);
+    renderKeywords();
+    const table = await screen.findByRole('table', { name: '搜尋詞總表' });
+    // The 搜尋詞總表 fills the remaining height of the results row (flex-1 + min-h-0) and scrolls
+    // internally — the virtualizer's scroll element — instead of the old fixed 600px cap (M7-R4),
+    // so the centre table scrolls independently of the trend card + the right AI 側欄.
+    expect(table.className).toContain('flex-1');
+    expect(table.className).toContain('min-h-0');
+    expect(table.className).not.toContain('max-h-[600px]');
+  });
 });
 
 describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-18)', () => {

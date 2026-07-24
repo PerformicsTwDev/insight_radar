@@ -115,7 +115,7 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
   if (!hasData) {
     return (
       <section
-        className="flex min-h-[22rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10"
+        className="flex min-h-[16rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10"
         aria-label="搜尋趨勢"
       >
         <h2 className="mb-3 text-sm font-medium text-white/80">搜尋趨勢</h2>
@@ -128,7 +128,7 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
 
   return (
     <section
-      className="flex min-h-[22rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10"
+      className="flex min-h-[16rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10"
       aria-label="搜尋趨勢"
     >
       <div className="mb-3 flex items-center justify-between">
@@ -178,7 +178,7 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
           )}
         </div>
       </div>
-      <div className="relative h-72">
+      <div className="relative h-48">
         <canvas ref={canvasRef} role="img" aria-label="搜尋趨勢折線圖" />
       </div>
     </section>

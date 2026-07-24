@@ -151,9 +151,11 @@ export function KeywordsView({
   const [aiExpanded, setAiExpanded] = useState(true);
   const toggleAi = (): void => setAiExpanded((v) => !v);
   return (
-    <div className="flex flex-col gap-4">
+    // v4 fixed-height results layout (M7-R4): fill the (fixed-height) main column, keep the filter
+    // bar + 趨勢 card pinned, and let the 表格 + AI 側欄 row take the rest with independent scroll.
+    <div className="flex h-full flex-col gap-4">
       {/* Filter bar (FR-6) + 複製表格 (FR-13) + 隱藏/顯示 AI 洞察 header toggle (M7-R6). */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <KeywordsFilters />
         <div className="flex items-center gap-2">
           {rows.length > 0 ? <CopyTsvButton getTsv={() => keywordsToTsv(rows)} /> : null}
@@ -170,12 +172,15 @@ export function KeywordsView({
       </div>
 
       {/* v4: 趨勢圖卡置於總表頁頂（非獨立左選單維度，T7.3/T7.4）。TrendView/TrendChart 自帶
-          卡片外框（`region 搜尋趨勢`）+ 載入/錯誤/空態，故此處直接掛、不重複包卡。 */}
-      <TrendView analysisId={analysisId} />
+          卡片外框（`region 搜尋趨勢`）+ 載入/錯誤/空態，故此處直接掛、不重複包卡。固定高（shrink-0）。 */}
+      <div className="shrink-0">
+        <TrendView analysisId={analysisId} />
+      </div>
 
-      {/* 表（✦ AI 欄 + sparklines）+ 右側可收合 AI 洞察面板（T7.4；v4 預設展開，M7-R6 header toggle 控制）。 */}
-      <div className="flex gap-4">
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
+      {/* 表（✦ AI 欄 + sparklines）+ 右側可收合 AI 洞察面板（T7.4；v4 預設展開，M7-R6 header toggle 控制）。
+          此列填滿剩餘高度（min-h-0 + flex-1），內部表格與側欄各自獨立捲動（M7-R4）。 */}
+      <div className="flex min-h-0 flex-1 gap-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
           {query.isPending ? (
             <LoadingState label="載入搜尋詞…" />
           ) : !result || !result.ok ? (
@@ -193,7 +198,10 @@ export function KeywordsView({
                 selection={selection}
                 dimensionColumns={dimensionColumns}
               />
-              <KeywordsPagination meta={result.meta} />
+              {/* Pagination stays pinned below the filling table (shrink-0), M7-R4. */}
+              <div className="shrink-0">
+                <KeywordsPagination meta={result.meta} />
+              </div>
             </>
           )}
         </div>
