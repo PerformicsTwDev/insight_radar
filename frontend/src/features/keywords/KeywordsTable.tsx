@@ -151,6 +151,15 @@ function buildColumns(
       ),
     },
     {
+      id: 'trend',
+      header: '搜尋趨勢TTM',
+      size: COL_WIDTH.trend,
+      // v4 order: 搜尋趨勢TTM sits right after 搜尋量 (before 競爭度/CPC), M7-R2. sparkline + inline
+      // signed % from each row's monthlyVolumes (FR-4 → FR-21, M7-R2a); null months break the line
+      // (never 0), an unclassifiable % shows — inline.
+      cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
+    },
+    {
       id: 'competition',
       header: '競爭度',
       size: COL_WIDTH.competition,
@@ -167,14 +176,6 @@ function buildColumns(
           {formatCpcRange(row.original.cpcLow, row.original.cpcHigh)}
         </span>
       ),
-    },
-    {
-      id: 'trend',
-      header: '搜尋趨勢TTM',
-      size: COL_WIDTH.trend,
-      // 搜尋趨勢TTM sparkline + inline signed % from each row's monthlyVolumes (FR-4 → FR-21,
-      // M7-R2a); null months break the line (never 0), an unclassifiable % shows — inline.
-      cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
     },
     {
       id: 'ai',

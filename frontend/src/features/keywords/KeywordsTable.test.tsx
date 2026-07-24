@@ -46,8 +46,8 @@ const rows: KeywordRow[] = [
   },
 ];
 
-/** Column order in the DOM (search 詞 frozen first, 搜尋趨勢 sparkline, ✦ on-demand last). */
-const COL = { text: 0, intent: 1, volume: 2, competition: 3, cpc: 4, trend: 5, ai: 6 } as const;
+/** Column order in the DOM (v4, no dimension columns): 搜尋詞 frozen, 趨勢TTM after 搜尋量, ✦ last. */
+const COL = { text: 0, intent: 1, volume: 2, trend: 3, competition: 4, cpc: 5, ai: 6 } as const;
 
 function missingRowCells() {
   const missingRow = screen.getByRole('row', { name: /缺值列/ });
@@ -103,12 +103,14 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
     expect(missingRowCells()[COL.intent]).toHaveTextContent(EM_DASH);
   });
 
-  it('renders the 搜尋趨勢TTM sparkline column (FR-4 → FR-21) between CPC and the ✦ column', () => {
+  it('renders the 搜尋趨勢TTM sparkline column (FR-4 → FR-21) right after 搜尋量 (v4 order)', () => {
     render(<KeywordsTable rows={rows} />);
     expect(screen.getByRole('columnheader', { name: '搜尋趨勢TTM' })).toBeInTheDocument();
-    // column order: 搜尋趨勢TTM sits at index 5, ✦ at 6.
+    // v4 column order: 搜尋量(2) 搜尋趨勢TTM(3) 競爭度(4) CPC(5) ✦(6).
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers[COL.volume]).toBe('搜尋量');
     expect(headers[COL.trend]).toBe('搜尋趨勢TTM');
+    expect(headers[COL.competition]).toBe('競爭度');
     expect(headers[COL.ai]).toBe('✦');
   });
 
