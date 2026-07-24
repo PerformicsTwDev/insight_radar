@@ -215,4 +215,17 @@ describe('TC-59 · AppShell fixed-height frame (viewport-fill, independent scrol
       .parentElement as HTMLElement;
     expect(leftColumn.className).toContain('overflow-y-auto');
   });
+
+  it('wraps the header row so its right-side controls stay reachable on narrow viewports (M7-R13)', () => {
+    render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
+    // The header row wraps (flex-wrap) rather than clipping NavSettings / 登入·登出 off-screen under
+    // the fixed-height frame's overflow-hidden (which removed the page's horizontal-scroll escape).
+    const headerRow = screen.getByRole('navigation', { name: '主要分頁' })
+      .parentElement as HTMLElement;
+    expect(headerRow.className).toContain('flex-wrap');
+  });
 });
