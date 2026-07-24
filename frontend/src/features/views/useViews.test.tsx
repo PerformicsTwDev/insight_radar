@@ -52,6 +52,7 @@ describe('TC-37 · useViews (query hook → registry + degraded)', () => {
       expect(result.current.registry.navItems.map((n) => n.name)).toEqual([
         'keywords',
         'intent_topics',
+        'custom', // synthetic 自訂分類 dimension appended (M7-R7b)
       ]),
     );
     expect(result.current.degraded).toBe(false);

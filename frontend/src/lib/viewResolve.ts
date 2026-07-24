@@ -27,7 +27,7 @@ const CUSTOM_PREFIX = 'custom:';
 export type ViewResolution =
   | { readonly kind: 'default' }
   | { readonly kind: 'known'; readonly view: string }
-  | { readonly kind: 'custom'; readonly cid: string }
+  | { readonly kind: 'custom'; readonly cid?: string }
   | { readonly kind: 'not_found'; readonly view: string };
 
 /**
@@ -40,6 +40,11 @@ export type ViewResolution =
 export function resolveView(view: string | undefined, known: ReadonlySet<string>): ViewResolution {
   if (!view) {
     return { kind: 'default' };
+  }
+  // A bare `custom` (the 自訂分類 nav dimension, M7-R7b) opens CustomClassifyView on its empty
+  // create-state; a `custom:{cid}` deep-link opens that classification's dynamic table.
+  if (view === 'custom') {
+    return { kind: 'custom' };
   }
   if (view.startsWith(CUSTOM_PREFIX)) {
     const cid = view.slice(CUSTOM_PREFIX.length);

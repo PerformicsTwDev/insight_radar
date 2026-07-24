@@ -54,7 +54,7 @@ describe('TC-37 · buildViewRegistry (metadata → nav + column/filter/sort conf
   ];
   const registry = buildViewRegistry(views);
 
-  it('derives the ordered nav list (name + label + shape + feature)', () => {
+  it('derives the ordered nav list (name + label + shape + feature) + appends 自訂分類 (M7-R7b)', () => {
     expect(registry.navItems).toEqual([
       {
         name: 'keywords',
@@ -68,7 +68,22 @@ describe('TC-37 · buildViewRegistry (metadata → nav + column/filter/sort conf
         responseShape: 'table',
         requiresFeature: 'topics',
       },
+      // Synthetic 自訂分類 dimension — always present (backend never lists a bare `custom` view).
+      {
+        name: 'custom',
+        label: '自訂分類',
+        responseShape: 'table',
+        requiresFeature: 'keyword_metrics',
+      },
     ]);
+  });
+
+  it('does not double-append 自訂分類 when the backend already lists a `custom` view (dedup)', () => {
+    const withCustom = buildViewRegistry([
+      ...views,
+      meta({ name: 'custom', responseShape: 'table' }),
+    ]);
+    expect(withCustom.navItems.filter((item) => item.name === 'custom')).toHaveLength(1);
   });
 
   it('derives per-view column config from allowedSelect (T2.1 consumes)', () => {
@@ -117,6 +132,7 @@ describe('TC-58〔taxonomy〕· nav collapses embedded/secondary views (v4 IA, T
       'intent_topics',
       'journey',
       'new_dimension',
+      'custom', // synthetic 自訂分類 dimension appended (M7-R7b)
     ]);
   });
 
@@ -131,7 +147,7 @@ describe('TC-37 · resolveViewRegistry (fetch result → registry + degraded)', 
   it('uses the fetched views and is NOT degraded on success', () => {
     const resolved = resolveViewRegistry({ ok: true, views: [meta({ name: 'keywords' })] });
     expect(resolved.degraded).toBe(false);
-    expect(resolved.registry.navItems.map((n) => n.name)).toEqual(['keywords']);
+    expect(resolved.registry.navItems.map((n) => n.name)).toEqual(['keywords', 'custom']);
   });
 
   it('falls back to the built-in list and flags degraded on failure (FR-1)', () => {

@@ -40,6 +40,10 @@ describe('resolveView (registry-driven view resolution — AC-1.2)', () => {
     expect(resolveView('custom:abc123', KNOWN)).toEqual({ kind: 'custom', cid: 'abc123' });
   });
 
+  it('resolves a bare `custom` view to the custom create-state (no cid, M7-R7b)', () => {
+    expect(resolveView('custom', KNOWN)).toEqual({ kind: 'custom' });
+  });
+
   it('treats a custom: view with an empty cid as not_found (malformed custom name)', () => {
     expect(resolveView('custom:', KNOWN)).toEqual({ kind: 'not_found', view: 'custom:' });
   });
