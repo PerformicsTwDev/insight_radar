@@ -122,7 +122,10 @@ export function KeywordsView({
   // 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18): each keyword's stage comes from the journey
   // job's stage 表 (`POST /query {view:journey}`, default select carries normalizedText), client-joined
   // by normalizedText (D2). Same C13 gate-decoupling — generating runs the journey run, no view unlock.
-  const journey = useJourney(analysisId, featureStatusOf(features, 'journey'));
+  // Gate-only (M7-R24 [c1]): the grand table uses `journeyStagesQuery` (all stages) for the column
+  // join, never `journey.rows`/`partial`, so useJourney skips its discarded first-50 + run-status
+  // content fetches here — only the gate phase + start CTA are read.
+  const journey = useJourney(analysisId, featureStatusOf(features, 'journey'), { gateOnly: true });
   // M7-R12/R20: the column's stage map must cover EVERY keyword, not `useJourney.rows` (the journey
   // view's default first-50 page) — otherwise a classified keyword surfaced by a later table page /
   // sort / filter renders `—` as if unclassified. The backend `/query` caps a single page at 200
@@ -136,36 +139,52 @@ export function KeywordsView({
   });
   const journeyStageRows = journeyStagesQuery.data?.ok ? journeyStagesQuery.data.rows : undefined;
   const journeyMap = useMemo(() => journeyStageByKey(journeyStageRows), [journeyStageRows]);
+  // M7-R24 [c2]: destructure the PRIMITIVE fields the columns read, so the memo caches across
+  // renders. The whole `topics`/`journey` hook objects are fresh literals every render — depending
+  // on them defeated the memo and rebuilt react-table's columns on every parent render (e.g. each
+  // selection-checkbox toggle). `start` is useCallback-stable; `status`/`topics` change only when
+  // the underlying data does (and destructured locals let exhaustive-deps verify the dep list).
+  const { status: topicsStatus, start: startTopics, topics: topicRows } = topics;
+  const { status: journeyStatus, start: startJourney } = journey;
   const dimensionColumns = useMemo<DimensionColumnConfig[]>(
     () => [
       {
         id: 'intentTopic',
         label: '搜尋意圖主題',
         accent: 'topic',
-        phase: dimensionHeaderPhase(topics.status),
-        onGenerate: () => void topics.start(),
-        // `loaded` = the topics result has arrived (topics.topics defined); until then a classified
+        phase: dimensionHeaderPhase(topicsStatus),
+        onGenerate: () => void startTopics(),
+        // `loaded` = the topics result has arrived (topics defined); until then a classified
         // keyword shows the generating shimmer, not the definitive — (M7-R15).
         cellState: (row) =>
-          cellStateForRow(topics.status, row.normalizedText, topicMap, topics.topics !== undefined),
+          cellStateForRow(topicsStatus, row.normalizedText, topicMap, topicRows !== undefined),
       },
       {
         id: 'journeyStage',
         label: '購買歷程主題',
         accent: 'journey',
-        phase: dimensionHeaderPhase(journey.status),
-        onGenerate: () => void journey.start(),
+        phase: dimensionHeaderPhase(journeyStatus),
+        onGenerate: () => void startJourney(),
         // `loaded` = the all-stages query has arrived (M7-R15) — else generating shimmer, not —.
         cellState: (row) =>
           cellStateForRow(
-            journey.status,
+            journeyStatus,
             row.normalizedText,
             journeyMap,
             journeyStageRows !== undefined,
           ),
       },
     ],
-    [topics, topicMap, journey, journeyMap, journeyStageRows],
+    [
+      topicsStatus,
+      startTopics,
+      topicRows,
+      topicMap,
+      journeyStatus,
+      startJourney,
+      journeyMap,
+      journeyStageRows,
+    ],
   );
 
   return (

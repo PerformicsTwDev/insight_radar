@@ -227,8 +227,9 @@ const KeywordViewRowSchema = z
  * the lean `GET :id/keywords` (M7-R1). The view carries `monthlyVolumes` + `normalizedText`
  * (AC-5.1/AC-6.1), so the table's 搜尋趨勢TTM sparkline and FR-19 selection have their data. Same
  * `{ ok, rows: KeywordRow[], meta }` shape as {@link getKeywords} — a drop-in. The generic view
- * rows are mapped to `KeywordRow` (`intent`→`intentLabels`); an unparseable row is dropped rather
- * than failing the whole page. Never throws.
+ * rows are mapped to `KeywordRow` (`intent`→`intentLabels`); an unparseable row **fails the whole
+ * page** (`ok:false`), never silently dropped — a partial list under an overstated total would
+ * misrepresent the result set (M7-R11 fail-loud). Never throws.
  */
 export async function getKeywordsView(
   id: string,

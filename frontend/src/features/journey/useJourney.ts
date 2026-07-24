@@ -68,8 +68,13 @@ export interface UseJourney {
 export function useJourney(
   analysisId: string,
   featureStatus: FeatureStatus,
-  options?: { eventSourceFactory?: EventSourceFactory },
+  options?: { eventSourceFactory?: EventSourceFactory; gateOnly?: boolean },
 ): UseJourney {
+  // Gate-only (M7-R24 [c1]): a caller that needs ONLY the gate phase + start (the 搜尋詞總表 uses
+  // its own all-stages column join, not `rows`/`partial`) skips the stage-表 + run-status content
+  // fetches entirely — otherwise a ready journey fires a first-50 page + run-status query that are
+  // discarded on every render of the grand table.
+  const gateOnly = options?.gateOnly ?? false;
   // Local phase override; null → follow the server-reported featureStatus.
   const [override, setOverride] = useState<FeatureStatus | null>(null);
   // Set when the last start hit a not-ready snapshot (409/425) — a prerequisite hint,
@@ -97,7 +102,7 @@ export function useJourney(
   const tableQuery = useQuery({
     queryKey: ['journey-view', analysisId],
     queryFn: () => postQuery(analysisId, { view: 'journey' }),
-    enabled: status === 'ready',
+    enabled: !gateOnly && status === 'ready',
   });
   const table =
     tableQuery.data?.ok && tableQuery.data.view.kind === 'table' ? tableQuery.data.view : undefined;
@@ -114,7 +119,7 @@ export function useJourney(
       if (!res.ok) throw new Error(`journey run status unavailable (${res.status})`);
       return res.run;
     },
-    enabled: status === 'ready',
+    enabled: !gateOnly && status === 'ready',
   });
   // C3 (#644): `data` is the last-known-good run status — TanStack retains it across a
   // blip (the throwing queryFn errors without clearing it), so `data` present covers both
