@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { useMemo, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import { getKeywords } from '../../api/keywords';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
@@ -96,19 +96,34 @@ export function KeywordsView({
 
   const result = query.data;
   const rows = result?.ok ? result.rows : [];
+  // AI 洞察面板 open state (M7-R6) — default EXPANDED (v4). One handler drives both the header
+  // 隱藏/顯示 button and the in-panel chevron.
+  const [aiExpanded, setAiExpanded] = useState(true);
+  const toggleAi = (): void => setAiExpanded((v) => !v);
   return (
     <div className="flex flex-col gap-4">
-      {/* Filter bar (FR-6) + 複製表格 (FR-13). */}
+      {/* Filter bar (FR-6) + 複製表格 (FR-13) + 隱藏/顯示 AI 洞察 header toggle (M7-R6). */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <KeywordsFilters />
-        {rows.length > 0 ? <CopyTsvButton getTsv={() => keywordsToTsv(rows)} /> : null}
+        <div className="flex items-center gap-2">
+          {rows.length > 0 ? <CopyTsvButton getTsv={() => keywordsToTsv(rows)} /> : null}
+          <button
+            type="button"
+            aria-expanded={aiExpanded}
+            aria-controls="ai-insight-panel"
+            onClick={toggleAi}
+            className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
+          >
+            {aiExpanded ? '✕ 隱藏 AI 洞察' : '💡 顯示 AI 洞察'}
+          </button>
+        </div>
       </div>
 
       {/* v4: 趨勢圖卡置於總表頁頂（非獨立左選單維度，T7.3/T7.4）。TrendView/TrendChart 自帶
           卡片外框（`region 搜尋趨勢`）+ 載入/錯誤/空態，故此處直接掛、不重複包卡。 */}
       <TrendView analysisId={analysisId} />
 
-      {/* 表（✦ AI 欄 + sparklines）+ 右側可收合 AI 洞察面板（T7.4；預設收合、展開才生成）。 */}
+      {/* 表（✦ AI 欄 + sparklines）+ 右側可收合 AI 洞察面板（T7.4；v4 預設展開，M7-R6 header toggle 控制）。 */}
       <div className="flex gap-4">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           {query.isPending ? (
@@ -133,7 +148,8 @@ export function KeywordsView({
           filters={filters}
           requiresFeature="keyword_metrics"
           features={features}
-          defaultCollapsed
+          expanded={aiExpanded}
+          onToggle={toggleAi}
         />
       </div>
 
