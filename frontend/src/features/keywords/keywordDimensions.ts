@@ -67,14 +67,17 @@ export function dimensionCellState(
   status: FeatureStatus,
   label: string | undefined,
   loaded = true,
+  failed = false,
 ): DimensionCellState {
   if (status === 'running') return { kind: 'generating' };
   if (status === 'ready') {
-    // A label always wins (the keyword is classified). Otherwise distinguish a still-loading result
-    // (`loaded` false → the dimension's own query hasn't resolved yet, M7-R15) from a genuinely
-    // unclassified keyword: the former is a generating shimmer, only the latter is the definitive —
-    // (never flash — for a classified keyword during the fetch window, C12).
+    // A label always wins (the keyword is classified). Otherwise: a settled-with-FAILURE content
+    // fetch is `failed` → a definitive failed marker (never an eternal shimmer, M7-R26); else
+    // distinguish a still-loading result (`loaded` false → the dimension's own query hasn't resolved
+    // yet, M7-R15) from a genuinely unclassified keyword — the former is a generating shimmer, only
+    // the latter is the definitive — (never flash — for a classified keyword mid-fetch, C12).
     if (label) return { kind: 'value', label };
+    if (failed) return { kind: 'failed' };
     return loaded ? { kind: 'empty' } : { kind: 'generating' };
   }
   return { kind: 'masked' };
@@ -90,7 +93,8 @@ export function cellStateForRow(
   normalizedText: string | undefined,
   labels: ReadonlyMap<string, string>,
   loaded: boolean,
+  failed = false,
 ): DimensionCellState {
   const label = normalizedText !== undefined ? labels.get(normalizedText) : undefined;
-  return dimensionCellState(status, label, loaded);
+  return dimensionCellState(status, label, loaded, failed);
 }

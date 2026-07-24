@@ -57,6 +57,15 @@ export interface UseTopics {
    * the FeatureGate partial notice so a partial run is never shown as complete.
    */
   readonly partial: boolean;
+  /**
+   * The content fetch (`GET :id/topics`) settled with a FAILURE while the gate is `ready` (M7-R26):
+   * `fetchTopics` never throws, so a non-2xx / schema-invalid response resolves the query with
+   * `ok:false` (topics stays undefined). Distinct from "still loading" — the 搜尋意圖主題 column
+   * shows a 重試 header instead of an eternal shimmer.
+   */
+  readonly failed: boolean;
+  /** Refetch the content query — the 重試 handler for a failed content fetch (M7-R26). */
+  readonly retry: () => void;
   /** Start (or retry) the topics run — POST :id/topics, then track the job. */
   readonly start: () => Promise<void>;
 }
@@ -97,6 +106,14 @@ export function useTopics(
   });
   const fetched = query.data;
   const topics = fetched && fetched.ok ? fetched.topics : undefined;
+  // M7-R26: the content query resolved (fetched defined) with a failure (ok:false) → a definitive
+  // failed state, distinct from "still loading" (fetched undefined). `retry` refetches it — stable
+  // (TanStack's refetch identity is stable) so the grand table's dimensionColumns memo isn't churned.
+  const failed = fetched !== undefined && !fetched.ok;
+  const refetch = query.refetch;
+  const retry = useCallback((): void => {
+    void refetch();
+  }, [refetch]);
   // Partial is read from the authoritative TopicsResponse.status (the topics run's
   // OWN status) once fetched (C3 / FR-9). Since M3-R1 the job machine is also
   // topics-scoped (statusFetcher → GET :id/topics), so it too reaches a 'partial'
@@ -128,5 +145,5 @@ export function useTopics(
     [analysisId, guardStart],
   );
 
-  return { status, jobState: job.state, topics, blocked, partial, start };
+  return { status, jobState: job.state, topics, blocked, partial, failed, retry, start };
 }

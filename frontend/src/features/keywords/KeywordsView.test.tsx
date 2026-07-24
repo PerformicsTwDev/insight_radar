@@ -302,6 +302,35 @@ describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-
     expect(screen.getByRole('columnheader', { name: '搜尋意圖主題' })).toBeInTheDocument();
   });
 
+  it('surfaces a 重試 header + failed cells when the topics content fetch fails, and retry recovers (M7-R26)', async () => {
+    stubQuery([row('running shoes')]);
+    let topicsCalls = 0;
+    server.use(
+      http.get(TOPICS_ROUTE, () => {
+        topicsCalls += 1;
+        // The GET :id/topics content settles ok:false first (500 → fetchTopics ok:false); 重試 succeeds.
+        if (topicsCalls === 1) return new HttpResponse(null, { status: 500 });
+        return HttpResponse.json(
+          topicsBody([
+            { text: 'running shoes', normalizedText: 'running shoes', topicName: '規格探究' },
+          ]),
+        );
+      }),
+    );
+    renderKeywords('', { topics: { status: 'ready' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // A settled failure surfaces an explicit 重試 header + 載入失敗 cells (never the 生成中 shimmer).
+    const retry = await screen.findByRole('button', { name: /搜尋意圖主題/ });
+    expect(retry).toHaveAttribute('title', expect.stringContaining('重試'));
+    expect(screen.getAllByRole('img', { name: '載入失敗' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('img', { name: '生成中' })).not.toBeInTheDocument();
+
+    // Clicking 重試 refetches → the topic pill resolves.
+    fireEvent.click(retry);
+    expect(await screen.findByText('規格探究')).toBeInTheDocument();
+  });
+
   it('masks the column behind a ✦ generate-all trigger when topics are not generated (C13 decoupled)', async () => {
     stubQuery([row('running shoes')]);
     // No GET :id/topics is stubbed — a not_generated gate must NOT fetch topics (query disabled).
@@ -506,6 +535,59 @@ describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-
     await waitFor(() => expect(journeySelects.length).toBeGreaterThan(0));
     expect(journeySelects).not.toContain(undefined);
     expect(journeySelects.every((s) => s?.length === 2)).toBe(true);
+  });
+
+  it('surfaces a 重試 header + failed cells (never a permanent shimmer) when the journey content fetch fails, and retry recovers (M7-R26)', async () => {
+    let journeyCalls = 0;
+    server.use(
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const body = (await request.json()) as { view: string; select?: string[] };
+        if (body.view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        if (body.view === 'journey' && body.select?.length === 2) {
+          journeyCalls += 1;
+          // The all-stages fetch settles ok:false first (500 → postQueryAllPages ok:false); the
+          // 重試 refetch then succeeds.
+          if (journeyCalls === 1) return new HttpResponse(null, { status: 500 });
+          return HttpResponse.json({
+            view: 'journey',
+            columns: [],
+            rows: [
+              { text: 'running shoes', normalizedText: 'running shoes', stage: 'spec_comparison' },
+            ],
+            pagination: { total: 1, page: 1, pageSize: 200, cursor: null },
+          });
+        }
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [row('running shoes')],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        });
+      }),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'j',
+          status: 'completed',
+          progress: null,
+          keywordCount: 1,
+        }),
+      ),
+    );
+    renderKeywords('', { journey: { status: 'ready' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // A settled failure surfaces an explicit 重試 header (not a ready ✦ over eternal shimmer)…
+    const retry = await screen.findByRole('button', { name: /購買歷程主題/ });
+    expect(retry).toHaveAttribute('title', expect.stringContaining('重試'));
+    // …and the cells are a definitive 載入失敗 —, never the 生成中 shimmer (the permanent-freeze bug).
+    expect(screen.getAllByRole('img', { name: '載入失敗' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('img', { name: '生成中' })).not.toBeInTheDocument();
+
+    // Clicking 重試 refetches the stage map → the pill now resolves.
+    fireEvent.click(retry);
+    expect(await screen.findByText('規格比較')).toBeInTheDocument();
   });
 
   it('runs the journey job (POST :id/journey) when the ✦ generate-all trigger is clicked (M7-R2c)', async () => {

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { useMemo, type ReactElement } from 'react';
+import { useCallback, useMemo, type ReactElement } from 'react';
 import { getKeywordsView } from '../../api/keywords';
 import { postQueryAllPages } from '../../api/query';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
@@ -139,12 +139,27 @@ export function KeywordsView({
   });
   const journeyStageRows = journeyStagesQuery.data?.ok ? journeyStagesQuery.data.rows : undefined;
   const journeyMap = useMemo(() => journeyStageByKey(journeyStageRows), [journeyStageRows]);
+  // M7-R26: the all-stages content fetch settled with a FAILURE (data present, ok:false) — distinct
+  // from "still loading" (data undefined) — so the 購買歷程主題 column shows 重試 instead of an eternal
+  // shimmer. `retryJourney` refetches it; useCallback-stable (refetch identity is stable) so it
+  // doesn't churn the columns memo below.
+  const journeyFailed = journeyStagesQuery.data !== undefined && !journeyStagesQuery.data.ok;
+  const refetchJourney = journeyStagesQuery.refetch;
+  const retryJourney = useCallback((): void => {
+    void refetchJourney();
+  }, [refetchJourney]);
   // M7-R24 [c2]: destructure the PRIMITIVE fields the columns read, so the memo caches across
   // renders. The whole `topics`/`journey` hook objects are fresh literals every render — depending
   // on them defeated the memo and rebuilt react-table's columns on every parent render (e.g. each
-  // selection-checkbox toggle). `start` is useCallback-stable; `status`/`topics` change only when
-  // the underlying data does (and destructured locals let exhaustive-deps verify the dep list).
-  const { status: topicsStatus, start: startTopics, topics: topicRows } = topics;
+  // selection-checkbox toggle). `start`/`retry` are useCallback-stable; `status`/`topics`/`failed`
+  // change only when the underlying data does (destructured locals let exhaustive-deps verify deps).
+  const {
+    status: topicsStatus,
+    start: startTopics,
+    topics: topicRows,
+    failed: topicsFailed,
+    retry: retryTopics,
+  } = topics;
   const { status: journeyStatus, start: startJourney } = journey;
   const dimensionColumns = useMemo<DimensionColumnConfig[]>(
     () => [
@@ -154,10 +169,19 @@ export function KeywordsView({
         accent: 'topic',
         phase: dimensionHeaderPhase(topicsStatus),
         onGenerate: () => void startTopics(),
-        // `loaded` = the topics result has arrived (topics defined); until then a classified
-        // keyword shows the generating shimmer, not the definitive — (M7-R15).
+        failed: topicsFailed,
+        onRetry: retryTopics,
+        // `loaded` = the topics result has arrived (topics defined); until then a classified keyword
+        // shows the generating shimmer (M7-R15). A settled `failed` fetch → the failed marker, not a
+        // permanent shimmer (M7-R26).
         cellState: (row) =>
-          cellStateForRow(topicsStatus, row.normalizedText, topicMap, topicRows !== undefined),
+          cellStateForRow(
+            topicsStatus,
+            row.normalizedText,
+            topicMap,
+            topicRows !== undefined,
+            topicsFailed,
+          ),
       },
       {
         id: 'journeyStage',
@@ -165,13 +189,17 @@ export function KeywordsView({
         accent: 'journey',
         phase: dimensionHeaderPhase(journeyStatus),
         onGenerate: () => void startJourney(),
-        // `loaded` = the all-stages query has arrived (M7-R15) — else generating shimmer, not —.
+        failed: journeyFailed,
+        onRetry: retryJourney,
+        // `loaded` = the all-stages query has arrived (M7-R15) — else generating shimmer, not —; a
+        // settled `failed` fetch → the failed marker (M7-R26).
         cellState: (row) =>
           cellStateForRow(
             journeyStatus,
             row.normalizedText,
             journeyMap,
             journeyStageRows !== undefined,
+            journeyFailed,
           ),
       },
     ],
@@ -179,11 +207,15 @@ export function KeywordsView({
       topicsStatus,
       startTopics,
       topicRows,
+      topicsFailed,
+      retryTopics,
       topicMap,
       journeyStatus,
       startJourney,
       journeyMap,
       journeyStageRows,
+      journeyFailed,
+      retryJourney,
     ],
   );
 

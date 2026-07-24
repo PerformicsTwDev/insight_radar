@@ -69,6 +69,10 @@ export interface DimensionColumnConfig {
   readonly phase: DimensionHeaderPhase;
   readonly onGenerate: () => void;
   readonly cellState: (row: KeywordRow) => DimensionCellState;
+  /** The dimension's content fetch settled with a failure (M7-R26) — header shows 重試. */
+  readonly failed?: boolean;
+  /** Retry the failed content fetch. */
+  readonly onRetry?: () => void;
 }
 
 /**
@@ -101,7 +105,15 @@ function buildColumns(
   // its container-supplied header phase + generate handler and per-row client-joined cell state.
   const dimensionCols: ColumnDef<KeywordRow>[] = dimensionColumns.map((dc) => ({
     id: dc.id,
-    header: () => <DimensionHeader label={dc.label} phase={dc.phase} onGenerate={dc.onGenerate} />,
+    header: () => (
+      <DimensionHeader
+        label={dc.label}
+        phase={dc.phase}
+        onGenerate={dc.onGenerate}
+        failed={dc.failed}
+        onRetry={dc.onRetry}
+      />
+    ),
     size: COL_WIDTH.dimension,
     cell: ({ row }) => <DimensionCell state={dc.cellState(row.original)} accent={dc.accent} />,
   }));
