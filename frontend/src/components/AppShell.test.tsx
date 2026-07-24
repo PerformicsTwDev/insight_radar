@@ -1,104 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppShell } from './AppShell';
-import type { ViewNavItem } from '../lib/viewRegistry';
 
 /**
- * TC-37 — the left dimension menu is driven by view metadata (T3.1, FR-1 /
- * AC-1.2): one button per provided view (incl. a newly-registered one), the active
- * view marked with `aria-current`, and a degraded notice when the list is the
- * built-in fallback. AppShell stays presentational (Design §2) — it takes the
- * derived nav list as a prop; the fetch/fallback lives in `useViews`.
+ * AppShell is now the top nav only (M7-R17 v4 fidelity): the left 分析維度 menu +
+ * tracking nav moved into `ResultsLayout` (see `ResultsLayout.test`). These specs cover
+ * what the shell still owns — the v4 three-line top-tab state machine (TC-58〔nav〕), the
+ * Search-tab home nav + 分析設定 control (TC-72), and the page-scroll frame (M7-R17).
  */
-
-const DIMS: readonly ViewNavItem[] = [
-  {
-    name: 'keywords',
-    label: '搜尋詞總表',
-    responseShape: 'table',
-    requiresFeature: 'keyword_metrics',
-  },
-  // a view that is NOT hardcoded anywhere — proves the list is purely metadata-driven (AC-1.2).
-  {
-    name: 'intent_distribution',
-    label: '意圖分佈',
-    responseShape: 'chart',
-    requiresFeature: 'keyword_metrics',
-  },
-];
-
-describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
-  it('renders one dimension button per provided view, including a newly-registered one (AC-1.2)', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
-    const menu = screen.getByRole('navigation', { name: '維度選單' });
-    expect(menu).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '搜尋詞總表' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '意圖分佈' })).toBeInTheDocument();
-  });
-
-  it('marks the active view with aria-current="page"', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext activeView="intent_distribution">
-        content
-      </AppShell>,
-    );
-    expect(screen.getByRole('button', { name: '意圖分佈' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    expect(screen.getByRole('button', { name: '搜尋詞總表' })).not.toHaveAttribute('aria-current');
-  });
-
-  it('shows a degraded notice when the list is the built-in fallback (FR-1)', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext degraded>
-        content
-      </AppShell>,
-    );
-    expect(screen.getByRole('status')).toHaveTextContent(/內建|預設|無法載入/);
-  });
-
-  it('shows no degraded notice in the normal case', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  });
-
-  it('falls back to the built-in registry nav list when no dimensions are provided', () => {
-    render(<AppShell hasAnalysisContext>content</AppShell>);
-    // FALLBACK_REGISTRY includes the keywords view.
-    expect(screen.getByRole('button', { name: '搜尋詞總表' })).toBeInTheDocument();
-  });
-
-  it('leaves the dimension menu disabled when no onSelectView is provided', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
-    expect(screen.getByRole('button', { name: '意圖分佈' })).toBeDisabled();
-  });
-
-  it('enables the dimension menu and reports the selected view when onSelectView is provided (T6.0)', () => {
-    const onSelectView = vi.fn();
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext onSelectView={onSelectView}>
-        content
-      </AppShell>,
-    );
-    const button = screen.getByRole('button', { name: '意圖分佈' });
-    expect(button).toBeEnabled();
-    fireEvent.click(button);
-    expect(onSelectView).toHaveBeenCalledWith('intent_distribution');
-  });
-});
 
 /**
  * TC-58〔nav 部分〕 — the v4 three-line top-tab state machine (T7.1, FR-1). Labels
@@ -111,11 +20,7 @@ describe('TC-37 · AppShell dimension menu (metadata-driven)', () => {
  */
 describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
   it('renders the three v4 top tabs, with Search Insight active', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
+    render(<AppShell>content</AppShell>);
     expect(screen.getByRole('navigation', { name: '主要分頁' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Search Insight' })).toHaveAttribute(
       'aria-current',
@@ -126,11 +31,7 @@ describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
   });
 
   it('AI Search Insight is a roadmap tab: not active, click surfaces 即將推出 without navigating', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
+    render(<AppShell>content</AppShell>);
     const ai = screen.getByRole('button', { name: 'AI Search Insight' });
     expect(ai).not.toHaveAttribute('aria-current');
     // no notice before interaction (not drawn empty)
@@ -140,11 +41,7 @@ describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
   });
 
   it('Social Insight is a roadmap tab and surfaces the same 即將推出 notice on click', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
+    render(<AppShell>content</AppShell>);
     const social = screen.getByRole('button', { name: 'Social Insight' });
     expect(social).not.toHaveAttribute('aria-current');
     fireEvent.click(social);
@@ -153,77 +50,55 @@ describe('TC-58〔nav〕· v4 三線 top-tab 狀態機 (T7.1)', () => {
 });
 
 /**
- * TC-72 (T7.9, FR-1 修訂 / AC-1.3) — the left dimension menu only renders in results
- * context (`hasAnalysisContext`); the Search Insight tab navigates back to the input
+ * TC-72 (T7.9, FR-1 修訂 / AC-1.3) — the Search Insight tab navigates back to the input
  * screen; the top-nav 分析設定 control is present.
  */
-describe('TC-72 · nav results-context menu + Search-tab nav + settings (T7.9)', () => {
-  it('hides the left dimension menu without analysis context, and shows it with', () => {
-    const { rerender } = render(<AppShell dimensions={DIMS}>content</AppShell>);
-    expect(screen.queryByRole('navigation', { name: '維度選單' })).not.toBeInTheDocument();
-
-    rerender(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
-    expect(screen.getByRole('navigation', { name: '維度選單' })).toBeInTheDocument();
-  });
-
+describe('TC-72 · Search-tab home nav + settings (T7.9)', () => {
   it('navigates home when the Search Insight tab is clicked', () => {
     const onNavigateHome = vi.fn();
-    render(
-      <AppShell dimensions={DIMS} onNavigateHome={onNavigateHome}>
-        content
-      </AppShell>,
-    );
+    render(<AppShell onNavigateHome={onNavigateHome}>content</AppShell>);
     fireEvent.click(screen.getByRole('button', { name: 'Search Insight' }));
     expect(onNavigateHome).toHaveBeenCalledTimes(1);
   });
 
   it('renders the top-nav 分析設定 control', () => {
-    render(<AppShell dimensions={DIMS}>content</AppShell>);
+    render(<AppShell>content</AppShell>);
     expect(screen.getByRole('button', { name: '分析設定' })).toBeInTheDocument();
+  });
+
+  it('renders the header context-bar + extra slots when provided', () => {
+    render(
+      <AppShell contextBar={<div>分析字詞：跑鞋</div>} headerExtra={<button>分析歷史</button>}>
+        content
+      </AppShell>,
+    );
+    expect(screen.getByText('分析字詞：跑鞋')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '分析歷史' })).toBeInTheDocument();
   });
 });
 
-describe('TC-59 · AppShell fixed-height frame (viewport-fill, independent scroll, M7-R4)', () => {
-  it('is a fixed-height frame whose left menu + main content scroll independently (no page scroll)', () => {
-    const { container } = render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
-    // Fixed-height viewport frame — h-screen (not min-h-screen), so the whole page never scrolls;
-    // its overflow is clipped and the columns inside manage their own scroll (v4, M7-R4).
+/**
+ * M7-R17 (v4 fidelity) — the shell is a plain page-scroll frame (`min-h-screen`, not the
+ * old `h-screen overflow-hidden` clip): the results area's fixed `lg:h-[2000px]` grid
+ * (owned by `ResultsLayout`) overflows into a normal page scroll (prototype behaviour).
+ * The shell no longer renders a left dimension menu — that assertion lives in
+ * `ResultsLayout.test`.
+ */
+describe('M7-R17 · AppShell page-scroll frame + header wrap', () => {
+  it('is a page-scroll frame (min-h-screen, not a fixed-height overflow clip)', () => {
+    const { container } = render(<AppShell>content</AppShell>);
     const frame = container.firstChild as HTMLElement;
-    expect(frame.className).toContain('h-screen');
-    expect(frame.className).not.toContain('min-h-screen');
-    expect(frame.className).toContain('overflow-hidden');
-    // The center content column fills the remaining height (min-h-0) and scrolls on its own.
-    const main = screen.getByRole('main');
-    expect(main.className).toContain('overflow-y-auto');
-    expect(main.className).toContain('min-h-0');
-    // The body-row wrapper is the ingredient that lets main/left-column shrink to the remaining
-    // height — assert it too, so a future refactor dropping its min-h-0 can't silently regress the
-    // frame (both columns would grow with content again) while this test still passes.
-    const bodyRow = main.parentElement as HTMLElement;
-    expect(bodyRow.className).toContain('flex-1');
-    expect(bodyRow.className).toContain('min-h-0');
-    // The left dimension column scrolls independently too (long tracking lists don't push the page).
-    const leftColumn = screen.getByRole('navigation', { name: '維度選單' })
-      .parentElement as HTMLElement;
-    expect(leftColumn.className).toContain('overflow-y-auto');
+    expect(frame.className).toContain('min-h-screen');
+    expect(frame.className).not.toContain('overflow-hidden');
+  });
+
+  it('does not render the left 維度選單 (it moved into ResultsLayout)', () => {
+    render(<AppShell>content</AppShell>);
+    expect(screen.queryByRole('navigation', { name: '維度選單' })).not.toBeInTheDocument();
   });
 
   it('wraps the header row so its right-side controls stay reachable on narrow viewports (M7-R13)', () => {
-    render(
-      <AppShell dimensions={DIMS} hasAnalysisContext>
-        content
-      </AppShell>,
-    );
-    // The header row wraps (flex-wrap) rather than clipping NavSettings / 登入·登出 off-screen under
-    // the fixed-height frame's overflow-hidden (which removed the page's horizontal-scroll escape).
+    render(<AppShell>content</AppShell>);
     const headerRow = screen.getByRole('navigation', { name: '主要分頁' })
       .parentElement as HTMLElement;
     expect(headerRow.className).toContain('flex-wrap');

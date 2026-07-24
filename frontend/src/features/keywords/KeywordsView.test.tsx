@@ -7,10 +7,11 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
+import { serializeFiltersToUrl } from '../../lib/filterSpec';
 import { deserialize } from '../../lib/urlState';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { KeywordsView } from './KeywordsView';
@@ -86,6 +87,7 @@ function renderKeywords(search = '', features?: unknown) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return router;
 }
 
 describe('KeywordsView · keywords table data wiring', () => {
@@ -99,7 +101,7 @@ describe('KeywordsView · keywords table data wiring', () => {
     expect(screen.getByRole('group', { name: '分頁與排序' })).toBeInTheDocument();
   });
 
-  it('carries the applied filter into the /query request body (Design §5)', async () => {
+  it('carries the URL filter into the /query request body (Design §5)', async () => {
     const seenQ: (string | null)[] = [];
     server.use(
       http.post(QUERY_ROUTE, async ({ request }) => {
@@ -118,16 +120,14 @@ describe('KeywordsView · keywords table data wiring', () => {
         });
       }),
     );
-    renderKeywords();
-    expect(await screen.findByText('running shoes')).toBeInTheDocument();
-
-    // Apply a 搜尋詞 filter through the real FilterBar so the router writes the URL
-    // `filters` param (proven KeywordsFilters path) → KeywordsView re-fetches with it.
-    fireEvent.click(await screen.findByRole('button', { name: /搜尋詞/ }));
-    const pop = within(screen.getByRole('group', { name: '搜尋詞 篩選' }));
-    fireEvent.change(pop.getByLabelText('包含'), { target: { value: 'run' } });
-    fireEvent.click(pop.getByRole('button', { name: '套用' }));
-
+    // The filter bar lives in ResultsLayout now (M7-R17). Drive the same URL write the bar makes
+    // — navigate the `filters` param (the codec's string projection) — and assert KeywordsView
+    // carries it into the /query body (the ResultsLayout→URL→KeywordsView path, Design §5).
+    const router = renderKeywords();
+    await screen.findByText('running shoes');
+    await act(async () => {
+      await router.navigate({ to: '/', search: { filters: serializeFiltersToUrl({ q: 'run' }) } });
+    });
     await waitFor(() => expect(seenQ).toContain('run'));
   });
 
@@ -232,33 +232,18 @@ describe('KeywordsView · TSV copy (FR-13) + per-row selection (FR-19) mount', (
 });
 
 describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
-  it('lays out filter bar + 趨勢 card + table + collapsible AI 洞察 panel', async () => {
+  it('lays out the 趨勢 card + table as the centre content (shell chrome lives in ResultsLayout)', async () => {
     stubQuery([row('running shoes')]);
     renderKeywords();
 
     // Core results grid (with its ✦ AI column + sparklines).
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
-    // Filter bar (FR-6).
-    expect(screen.getByRole('group', { name: '篩選' })).toBeInTheDocument();
-    // 趨勢 card at the top of the results page (T7.3/T7.4).
+    // 趨勢 card at the top of the centre column (T7.3/T7.4).
     expect(screen.getByRole('region', { name: '搜尋趨勢' })).toBeInTheDocument();
-    // Right-side AI 洞察 panel — present, EXPANDED by default (M7-R6, v4), with a header 隱藏 toggle.
-    expect(screen.getByRole('complementary', { name: 'AI 洞察側欄' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /隱藏 AI 洞察/ })).toBeInTheDocument();
-  });
-
-  it('the header 隱藏/顯示 AI 洞察 toggle collapses and re-expands the panel (M7-R6)', async () => {
-    stubQuery([row('running shoes')]);
-    renderKeywords();
-    await screen.findByRole('table', { name: '搜尋詞總表' });
-
-    const hide = screen.getByRole('button', { name: /隱藏 AI 洞察/ });
-    expect(hide).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(hide);
-    expect(screen.getByRole('button', { name: /顯示 AI 洞察/ })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
+    // The shared frame (filter bar + AI 洞察 side-panel) is ResultsLayout's now (M7-R17), NOT this
+    // view's — so a bare KeywordsView renders the centre content only.
+    expect(screen.queryByRole('group', { name: '篩選' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'AI 洞察側欄' })).not.toBeInTheDocument();
   });
 
   it('fills the fixed-height results column: the table flex-fills + scrolls (no fixed cap), M7-R4', async () => {
