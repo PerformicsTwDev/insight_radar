@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
@@ -31,8 +31,10 @@ export interface AiInsightSidebarProps {
   readonly features: unknown;
   /** Heading scope label; defaults to the view's zh label (`labelForView`). */
   readonly scopeLabel?: string;
-  /** Start collapsed (default open). */
-  readonly defaultCollapsed?: boolean;
+  /** Controlled expand state (M7-R6): the results header (KeywordsView) owns it, default open. */
+  readonly expanded: boolean;
+  /** Toggle handler — the header 隱藏/顯示 AI 洞察 button and the in-panel chevron both call it. */
+  readonly onToggle: () => void;
 }
 
 /** FR-17 gated placeholder — shown when the view's underlying analysis is not ready. */
@@ -45,9 +47,9 @@ export function AiInsightSidebar({
   requiresFeature,
   features,
   scopeLabel,
-  defaultCollapsed = false,
+  expanded,
+  onToggle,
 }: AiInsightSidebarProps): ReactElement {
-  const [expanded, setExpanded] = useState(!defaultCollapsed);
   const ready = featureStatusOf(features, requiresFeature) === 'ready';
   const scope = scopeLabel ?? labelForView(view);
 
@@ -74,7 +76,7 @@ export function AiInsightSidebar({
         ) : null}
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={onToggle}
           aria-expanded={expanded}
           aria-controls="ai-insight-panel"
           aria-label={expanded ? '收合 AI 洞察側欄' : '展開 AI 洞察側欄'}

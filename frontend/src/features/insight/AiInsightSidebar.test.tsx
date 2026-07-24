@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
 import { AiInsightSidebar } from './AiInsightSidebar';
@@ -63,6 +63,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         requiresFeature="keyword_metrics"
         features={READY}
         scopeLabel="搜尋詞總表"
+        expanded
+        onToggle={() => {}}
       />,
       { wrapper: wrapper() },
     );
@@ -85,6 +87,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         filters={{ volumeMin: 100 }}
         requiresFeature="keyword_metrics"
         features={READY}
+        expanded
+        onToggle={() => {}}
       />,
       { wrapper: wrapper() },
     );
@@ -97,6 +101,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         filters={{ volumeMin: 500 }}
         requiresFeature="keyword_metrics"
         features={READY}
+        expanded
+        onToggle={() => {}}
       />,
     );
     await waitFor(() => expect(calls.length).toBe(2));
@@ -121,6 +127,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         filters={{}}
         requiresFeature="keyword_metrics"
         features={READY}
+        expanded
+        onToggle={() => {}}
       />,
       { wrapper: wrapper() },
     );
@@ -147,6 +155,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         filters={{}}
         requiresFeature="topics"
         features={{ topics: { status: 'not_generated' } }}
+        expanded
+        onToggle={() => {}}
       />,
       { wrapper: wrapper() },
     );
@@ -169,6 +179,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         filters={{}}
         requiresFeature="keyword_metrics"
         features={READY}
+        expanded
+        onToggle={() => {}}
       />,
       { wrapper: wrapper() },
     );
@@ -179,20 +191,24 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
     expect(screen.queryByRole('button', { name: /複製/ })).not.toBeInTheDocument();
   });
 
-  it('collapsible: default collapsed → no fetch; toggle expands (aria-expanded) then re-collapses to hide the panel (水平 wipe)', async () => {
+  it('collapsible (controlled): from the `expanded` prop; the chevron calls onToggle, expand → fetch, collapse → wipe', async () => {
     const calls = recordInsight();
 
-    render(
-      <AiInsightSidebar
-        analysisId={ID}
-        view="keywords"
-        filters={{}}
-        requiresFeature="keyword_metrics"
-        features={READY}
-        defaultCollapsed
-      />,
-      { wrapper: wrapper() },
-    );
+    function Harness(): ReactNode {
+      const [expanded, setExpanded] = useState(false);
+      return (
+        <AiInsightSidebar
+          analysisId={ID}
+          view="keywords"
+          filters={{}}
+          requiresFeature="keyword_metrics"
+          features={READY}
+          expanded={expanded}
+          onToggle={() => setExpanded((v) => !v)}
+        />
+      );
+    }
+    render(<Harness />, { wrapper: wrapper() });
 
     // Collapsed: only the toggle rail — no heading, no insight, no request.
     const toggle = screen.getByRole('button', { name: /AI 洞察側欄/ });
@@ -233,6 +249,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
         filters={{}}
         requiresFeature="keyword_metrics"
         features={READY}
+        expanded
+        onToggle={() => {}}
       />,
       { wrapper: wrapper() },
     );

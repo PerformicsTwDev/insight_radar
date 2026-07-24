@@ -213,8 +213,29 @@ describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
     expect(screen.getByRole('group', { name: '篩選' })).toBeInTheDocument();
     // 趨勢 card at the top of the results page (T7.3/T7.4).
     expect(screen.getByRole('region', { name: '搜尋趨勢' })).toBeInTheDocument();
-    // Right-side AI 洞察 panel — present, collapsible, collapsed by default (expand affordance).
+    // Right-side AI 洞察 panel — present, EXPANDED by default (M7-R6, v4), with a header 隱藏 toggle.
     expect(screen.getByRole('complementary', { name: 'AI 洞察側欄' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '展開 AI 洞察側欄' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /隱藏 AI 洞察/ })).toBeInTheDocument();
+  });
+
+  it('the header 隱藏/顯示 AI 洞察 toggle collapses and re-expands the panel (M7-R6)', async () => {
+    server.use(
+      http.get(KEYWORDS_ROUTE, () =>
+        HttpResponse.json({
+          data: [row('running shoes')],
+          meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
+    renderKeywords();
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    const hide = screen.getByRole('button', { name: /隱藏 AI 洞察/ });
+    expect(hide).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(hide);
+    expect(screen.getByRole('button', { name: /顯示 AI 洞察/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 });
