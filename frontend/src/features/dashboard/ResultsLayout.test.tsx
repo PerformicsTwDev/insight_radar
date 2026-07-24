@@ -27,13 +27,13 @@ import { ResultsLayout } from './ResultsLayout';
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const READY_FEATURES = { keyword_metrics: { status: 'ready' } };
 
-function renderLayout(initialPath = '/?view=keywords') {
+function renderLayout(initialPath = '/?view=keywords', view: string | undefined = 'keywords') {
   const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
     component: () => (
-      <ResultsLayout analysisId={ANALYSIS_ID} view="keywords" features={READY_FEATURES}>
+      <ResultsLayout analysisId={ANALYSIS_ID} view={view} features={READY_FEATURES}>
         <div>centre content</div>
       </ResultsLayout>
     ),
@@ -72,6 +72,21 @@ describe('TC-37 · ResultsLayout dimension menu (metadata-driven)', () => {
     await waitFor(() =>
       expect(router.state.location.search).toMatchObject({ view: 'intent_topics' }),
     );
+  });
+});
+
+describe('M7-R22 · filter bar gated to filter-applying views (xhigh [3/11])', () => {
+  it('renders the filter chips bar on the 搜尋詞總表 (keywords) view', async () => {
+    renderLayout('/?view=keywords', 'keywords');
+    expect(await screen.findByRole('group', { name: '篩選' })).toBeInTheDocument();
+  });
+
+  it('does NOT render the inert filter bar on a non-keyword dimension view (they ignore filters)', async () => {
+    renderLayout('/?view=journey', 'journey');
+    // The shared frame still mounts (menu present) — but the filter bar must not, since the
+    // journey/intent/custom views never read s.filters (would be a no-op control + AI mis-key).
+    await screen.findByRole('navigation', { name: '維度選單' });
+    expect(screen.queryByRole('group', { name: '篩選' })).not.toBeInTheDocument();
   });
 });
 

@@ -108,3 +108,12 @@ export const DEFAULT_ALLOWED_FILTERS: readonly FilterFieldKey[] = [
   'cpc',
   'aiIntent',
 ];
+
+/**
+ * Display chips that are shown for v4 fidelity but have **no backend filter support yet** — the
+ * `FilterSpec` codec ignores them, so an interactive popover with a working 套用 would filter
+ * NOTHING silently (FR-6 forbids decorative no-op filters; M7-R22 / xhigh finding [6]). Rendered
+ * disabled with a「即將推出」roadmap hint until backend filtering lands (#777). (The `menukw` topic
+ * chips are a separate M3 forward-stub and keep their own placeholder.)
+ */
+export const ROADMAP_FILTER_FIELDS: ReadonlySet<FilterFieldKey> = new Set(['trend', 'aiIntent']);

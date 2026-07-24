@@ -65,6 +65,21 @@ describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
     expect(screen.queryByRole('button', { name: /自訂分類/ })).not.toBeInTheDocument();
   });
 
+  it('the 搜尋趨勢 + AI 歸納搜尋意圖 display chips are disabled roadmap chips — not silent no-ops (M7-R22 [6])', () => {
+    render(<Harness />);
+    // These two chips have no FilterSpec field (chipsToSpec ignores them) → applying them filtered
+    // nothing silently. Disable them (roadmap, #777) so they can't masquerade as live filters.
+    for (const label of ['搜尋趨勢', 'AI 歸納搜尋意圖']) {
+      const chip = screen.getByRole('button', { name: new RegExp(label) });
+      expect(chip).toBeDisabled();
+      // No popover opens for a disabled chip.
+      fireEvent.click(chip);
+      expect(screen.queryByRole('group', { name: `${label} 篩選` })).not.toBeInTheDocument();
+    }
+    // Backend-representable chips stay fully interactive.
+    expect(screen.getByRole('button', { name: /意圖類別/ })).toBeEnabled();
+  });
+
   it('renders only the single explicitly-allowed filter', () => {
     render(<Harness allowedFilters={['keyword']} />);
     expect(screen.getByRole('button', { name: /搜尋詞/ })).toBeInTheDocument();

@@ -98,6 +98,18 @@ export function labelForView(name: string): string {
   return VIEW_LABELS[name] ?? name;
 }
 
+/**
+ * Which dimension views actually READ + apply the URL `filters` (FR-6, M7-R22 / xhigh [3/11]).
+ * Only the 搜尋詞總表 (`keywords`, the URL default) consumes `s.filters` today; the 意圖主題 /
+ * 購買歷程 / 自訂分類 views group server-side and ignore it. Gating the shared filter bar AND the
+ * AI-insight `filters` on this prevents inert no-op chips on those views and an AI summary keyed on
+ * filters the view never applied. Per-view filtering (the mockup's `VIEW_FILTERS`) is backend
+ * roadmap (#777) — when a view starts applying filters, add it here.
+ */
+export function viewAppliesFilters(view: string | undefined): boolean {
+  return (view ?? 'keywords') === 'keywords';
+}
+
 /** Derive the registry (nav list + per-view config) from view metadata. */
 export function buildViewRegistry(views: readonly ViewMetadata[]): ViewRegistry {
   const configs: ViewConfig[] = views.map((view) => ({
