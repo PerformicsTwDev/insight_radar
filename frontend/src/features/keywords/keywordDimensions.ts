@@ -66,9 +66,17 @@ export function dimensionHeaderPhase(status: FeatureStatus): DimensionHeaderPhas
 export function dimensionCellState(
   status: FeatureStatus,
   label: string | undefined,
+  loaded = true,
 ): DimensionCellState {
   if (status === 'running') return { kind: 'generating' };
-  if (status === 'ready') return label ? { kind: 'value', label } : { kind: 'empty' };
+  if (status === 'ready') {
+    // A label always wins (the keyword is classified). Otherwise distinguish a still-loading result
+    // (`loaded` false → the dimension's own query hasn't resolved yet, M7-R15) from a genuinely
+    // unclassified keyword: the former is a generating shimmer, only the latter is the definitive —
+    // (never flash — for a classified keyword during the fetch window, C12).
+    if (label) return { kind: 'value', label };
+    return loaded ? { kind: 'empty' } : { kind: 'generating' };
+  }
   return { kind: 'masked' };
 }
 
@@ -81,7 +89,8 @@ export function cellStateForRow(
   status: FeatureStatus,
   normalizedText: string | undefined,
   labels: ReadonlyMap<string, string>,
+  loaded: boolean,
 ): DimensionCellState {
   const label = normalizedText !== undefined ? labels.get(normalizedText) : undefined;
-  return dimensionCellState(status, label);
+  return dimensionCellState(status, label, loaded);
 }

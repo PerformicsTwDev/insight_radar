@@ -344,6 +344,19 @@ describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-
     fireEvent.click(await screen.findByRole('button', { name: /搜尋意圖主題/ }));
     await waitFor(() => expect(started).toBe(true));
   });
+
+  it('shows a generating shimmer (not —) while the topics result is still fetching (M7-R15)', async () => {
+    stubQuery([row('running shoes')]);
+    // topics feature is server-ready, but hold GET :id/topics in flight (never resolves) so the
+    // client-join map stays empty during the fetch window.
+    server.use(http.get('/api/v1/keyword-analyses/:id/topics', () => new Promise<never>(() => {})));
+    renderKeywords('', { topics: { status: 'ready' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // The 意圖主題 cell must render the generating shimmer (aria 生成中), never the definitive — that
+    // would misread the classified keyword as unclassified before the pills arrive (C12).
+    expect(screen.getAllByRole('img', { name: '生成中' }).length).toBeGreaterThan(0);
+  });
 });
 
 describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18)', () => {

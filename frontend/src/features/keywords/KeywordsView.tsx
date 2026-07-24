@@ -159,7 +159,10 @@ export function KeywordsView({
         accent: 'topic',
         phase: dimensionHeaderPhase(topics.status),
         onGenerate: () => void topics.start(),
-        cellState: (row) => cellStateForRow(topics.status, row.normalizedText, topicMap),
+        // `loaded` = the topics result has arrived (topics.topics defined); until then a classified
+        // keyword shows the generating shimmer, not the definitive — (M7-R15).
+        cellState: (row) =>
+          cellStateForRow(topics.status, row.normalizedText, topicMap, topics.topics !== undefined),
       },
       {
         id: 'journeyStage',
@@ -167,10 +170,17 @@ export function KeywordsView({
         accent: 'journey',
         phase: dimensionHeaderPhase(journey.status),
         onGenerate: () => void journey.start(),
-        cellState: (row) => cellStateForRow(journey.status, row.normalizedText, journeyMap),
+        // `loaded` = the all-stages query has arrived (M7-R15) — else generating shimmer, not —.
+        cellState: (row) =>
+          cellStateForRow(
+            journey.status,
+            row.normalizedText,
+            journeyMap,
+            journeyStageRows !== undefined,
+          ),
       },
     ],
-    [topics, topicMap, journey, journeyMap],
+    [topics, topicMap, journey, journeyMap, journeyStageRows],
   );
 
   // AI 洞察面板 open state (M7-R6) — default EXPANDED (v4). One handler drives both the header

@@ -114,9 +114,22 @@ describe('TC-28 · dimensionCellState (gate status + label → cell state, M7-R2
     expect(dimensionCellState('running', undefined)).toEqual({ kind: 'generating' });
   });
 
-  it('is a value pill for a classified keyword once ready, else — (empty)', () => {
+  it('is a value pill for a classified keyword once ready+loaded, else — (empty)', () => {
     expect(dimensionCellState('ready', '規格探究')).toEqual({ kind: 'value', label: '規格探究' });
     expect(dimensionCellState('ready', undefined)).toEqual({ kind: 'empty' });
+  });
+
+  it('is a generating shimmer (not —) at ready while the result is still loading (M7-R15)', () => {
+    // ready but the dimension query hasn't resolved → no label yet ≠ unclassified: show the shimmer,
+    // never the definitive — (which would misread a classified keyword as having no topic/stage).
+    expect(dimensionCellState('ready', undefined, false)).toEqual({ kind: 'generating' });
+    // once loaded, a still-absent label IS a genuinely unclassified keyword → — (empty).
+    expect(dimensionCellState('ready', undefined, true)).toEqual({ kind: 'empty' });
+    // a label always wins (classified) regardless of the loaded flag.
+    expect(dimensionCellState('ready', '規格探究', false)).toEqual({
+      kind: 'value',
+      label: '規格探究',
+    });
   });
 
   it('is masked before generation (not_generated / failed)', () => {
@@ -128,19 +141,27 @@ describe('TC-28 · dimensionCellState (gate status + label → cell state, M7-R2
 describe('TC-28 · cellStateForRow (normalizedText lookup → cell state, M7-R2b/c)', () => {
   const labels = new Map([['running shoes', '規格探究']]);
 
-  it('looks the label up by normalizedText and derives a value pill when ready', () => {
-    expect(cellStateForRow('ready', 'running shoes', labels)).toEqual({
+  it('looks the label up by normalizedText and derives a value pill when ready+loaded', () => {
+    expect(cellStateForRow('ready', 'running shoes', labels, true)).toEqual({
       kind: 'value',
       label: '規格探究',
     });
   });
 
-  it('is empty (—) at ready when the keyword is not in the joined map', () => {
-    expect(cellStateForRow('ready', 'unknown kw', labels)).toEqual({ kind: 'empty' });
+  it('is empty (—) at ready+loaded when the keyword is not in the joined map', () => {
+    expect(cellStateForRow('ready', 'unknown kw', labels, true)).toEqual({ kind: 'empty' });
+  });
+
+  it('is a generating shimmer (not —) while the map is still loading (M7-R15)', () => {
+    // Before the dimension query resolves, EVERY keyword is absent from the (empty) map — that must
+    // read as loading, not unclassified.
+    expect(cellStateForRow('ready', 'running shoes', new Map(), false)).toEqual({
+      kind: 'generating',
+    });
   });
 
   it('treats a row without a normalizedText join key as having no label (— / masked)', () => {
-    expect(cellStateForRow('ready', undefined, labels)).toEqual({ kind: 'empty' });
-    expect(cellStateForRow('not_generated', undefined, labels)).toEqual({ kind: 'masked' });
+    expect(cellStateForRow('ready', undefined, labels, true)).toEqual({ kind: 'empty' });
+    expect(cellStateForRow('not_generated', undefined, labels, true)).toEqual({ kind: 'masked' });
   });
 });
