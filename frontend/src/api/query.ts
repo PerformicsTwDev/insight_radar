@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { api } from './client';
+import { config } from '../config/env';
 import type { FilterSpec } from '../lib/filterSpec';
 import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
 
@@ -149,13 +150,10 @@ export async function postQuery(id: string, request: QueryRequest): Promise<Post
 }
 
 /**
- * The backend `/query` single-page cap (`QUERY_MAX_PAGE_SIZE`, Design §6.5, default 200):
- * `pageSize > this → 400` (query-view.service.ts / snapshot-query.service.ts). The frontend can't
- * read the backend env, so we page at exactly the documented default — safe because the check is
- * strict `>` (200 is allowed).
+ * Runaway guard for cursor-follow — far above any real snapshot (~3,686 rows). The per-page size
+ * comes from {@link config.maxPageSize} (the `VITE_MAX_PAGE_SIZE` mirror of backend
+ * `QUERY_MAX_PAGE_SIZE`), NOT a literal, so it can never disagree with the operator-configured cap.
  */
-const MAX_QUERY_PAGE_SIZE = 200;
-/** Runaway guard for cursor-follow (500 × 200 = 100k rows, far above any real snapshot ~3,686). */
 const MAX_QUERY_PAGES = 500;
 
 /** The result of {@link postQueryAllPages}: every accumulated table row, or a fail-loud `ok:false`. */
@@ -168,11 +166,12 @@ export type PostQueryAllPagesResult =
  * per-page cap (M7-R20, xhigh finding [0]). Needed by the 購買歷程主題 all-stages client-join, which
  * must cover every keyword's stage — the prior single `pageSize: 100_000` request was silently 400'd
  * by the cap, leaving the column stuck on shimmer. The helper fully owns pagination: each page
- * requests exactly {@link MAX_QUERY_PAGE_SIZE} and rows accumulate until `cursor` is null. Any page
- * failing (`ok:false` or a non-table shape), or the runaway guard (`maxPages`, {@link MAX_QUERY_PAGES})
- * tripping, → the whole call fails loud (`ok:false`) rather than returning a partial/truncated map
- * (which would reintroduce the M7-R12 "later-page keyword shows —" bug). Never throws (delegates to
- * {@link postQuery}). `maxPages` is injectable so the runaway guard is unit-testable.
+ * requests exactly `config.maxPageSize` (M7-R25 — the `QUERY_MAX_PAGE_SIZE` mirror, so an operator
+ * lowering the backend cap can never make the request 400) and rows accumulate until `cursor` is
+ * null. Any page failing (`ok:false` or a non-table shape), or the runaway guard (`maxPages`,
+ * {@link MAX_QUERY_PAGES}) tripping, → the whole call fails loud (`ok:false`) rather than returning a
+ * partial/truncated map (which would reintroduce the M7-R12 "later-page keyword shows —" bug). Never
+ * throws (delegates to {@link postQuery}). `maxPages` is injectable so the runaway guard is testable.
  */
 export async function postQueryAllPages(
   id: string,
@@ -185,7 +184,7 @@ export async function postQueryAllPages(
   for (let page = 0; page < maxPages; page += 1) {
     const res = await postQuery(id, {
       ...request,
-      pagination: { pageSize: MAX_QUERY_PAGE_SIZE, cursor },
+      pagination: { pageSize: config.maxPageSize, cursor },
     });
     if (!res.ok || res.view.kind !== 'table') {
       return { ok: false, status: res.ok ? 200 : res.status };
