@@ -1,6 +1,6 @@
 {
   "name": "insight_radar",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Keyword-analysis dashboard backend (NestJS).",
   "private": true,
   "license": "UNLICENSED",
