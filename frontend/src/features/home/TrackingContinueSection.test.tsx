@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { server } from '../../api/msw/server';
 import { TrackingContinueSection } from './TrackingContinueSection';
@@ -104,6 +104,28 @@ describe('TC-71 · TrackingContinueSection (從追蹤清單繼續)', () => {
     await waitFor(() =>
       expect(onContinue).toHaveBeenCalledWith(['dyson 吸塵器', '小米吸塵器'], 'US', 'en'),
     );
+  });
+
+  it('guards against a concurrent second fetch while one 繼續 is in flight (M7-R10)', async () => {
+    stubLists([
+      summary({ listId: 'a', name: '清單A', memberCount: 2 }),
+      summary({ listId: 'b', name: '清單B', memberCount: 2 }),
+    ]);
+    let calls = 0;
+    server.use(
+      http.get('/api/v1/tracking-lists/:id', async () => {
+        calls += 1;
+        await delay('infinite'); // first fetch stays in flight
+        return HttpResponse.json({});
+      }),
+    );
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '從「清單A」繼續' }));
+    await waitFor(() => expect(calls).toBe(1)); // A's detail fetch fired
+    fireEvent.click(screen.getByRole('button', { name: '從「清單B」繼續' }));
+    await Promise.resolve();
+    expect(calls).toBe(1); // B's click is ignored while A is in flight — no duplicate fetch
   });
 
   it('leaves the form untouched when 繼續 fails to load the members', async () => {
