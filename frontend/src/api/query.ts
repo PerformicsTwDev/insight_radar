@@ -167,22 +167,25 @@ export type PostQueryAllPagesResult =
  * Fetch EVERY page of a table-view `/query` by following `pagination.cursor` within the backend's
  * per-page cap (M7-R20, xhigh finding [0]). Needed by the 購買歷程主題 all-stages client-join, which
  * must cover every keyword's stage — the prior single `pageSize: 100_000` request was silently 400'd
- * by the cap, leaving the column stuck on shimmer. Each page requests exactly {@link
- * MAX_QUERY_PAGE_SIZE}; rows accumulate until `cursor` is null. Any page failing (`ok:false` or a
- * non-table shape), or the runaway guard tripping, → the whole call fails loud (`ok:false`) rather
- * than returning a partial/truncated map (which would reintroduce the M7-R12 "later-page keyword
- * shows —" bug). Never throws (delegates to {@link postQuery}).
+ * by the cap, leaving the column stuck on shimmer. The helper fully owns pagination: each page
+ * requests exactly {@link MAX_QUERY_PAGE_SIZE} and rows accumulate until `cursor` is null. Any page
+ * failing (`ok:false` or a non-table shape), or the runaway guard (`maxPages`, {@link MAX_QUERY_PAGES})
+ * tripping, → the whole call fails loud (`ok:false`) rather than returning a partial/truncated map
+ * (which would reintroduce the M7-R12 "later-page keyword shows —" bug). Never throws (delegates to
+ * {@link postQuery}). `maxPages` is injectable so the runaway guard is unit-testable.
  */
 export async function postQueryAllPages(
   id: string,
   request: QueryRequest,
+  maxPages: number = MAX_QUERY_PAGES,
 ): Promise<PostQueryAllPagesResult> {
   const rows: Record<string, unknown>[] = [];
-  let cursor: string | undefined = request.pagination?.cursor;
-  for (let page = 0; page < MAX_QUERY_PAGES; page += 1) {
+  // The helper drives pagination — always start at the first page (ignore any caller cursor).
+  let cursor: string | undefined;
+  for (let page = 0; page < maxPages; page += 1) {
     const res = await postQuery(id, {
       ...request,
-      pagination: { ...request.pagination, pageSize: MAX_QUERY_PAGE_SIZE, cursor },
+      pagination: { pageSize: MAX_QUERY_PAGE_SIZE, cursor },
     });
     if (!res.ok || res.view.kind !== 'table') {
       return { ok: false, status: res.ok ? 200 : res.status };
@@ -192,6 +195,6 @@ export async function postQueryAllPages(
     if (next === null) return { ok: true, rows };
     cursor = next;
   }
-  // Runaway guard tripped (cursor never settled) — fail loud, never a truncated map.
+  // Runaway guard tripped (cursor never settled within maxPages) — fail loud, never a truncated map.
   return { ok: false, status: 200 };
 }

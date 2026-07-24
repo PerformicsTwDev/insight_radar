@@ -277,4 +277,34 @@ describe('M7-R20 · postQueryAllPages (cursor-follow within backend pageSize cap
     if (result.ok) expect(result.rows).toHaveLength(1);
     expect(calls).toBe(1);
   });
+
+  it('a non-table view shape → ok:false status 200 (fail loud, never a wrong-shape map)', async () => {
+    // A page that parses to a non-table shape (trend) must abort, not silently yield an empty map.
+    server.use(
+      http.post(PATH, () =>
+        HttpResponse.json({ view: 'journey', axis: [], total: [], series: [] }),
+      ),
+    );
+    expect(await postQueryAllPages(ID, { view: 'journey' })).toEqual({ ok: false, status: 200 });
+  });
+
+  it('runaway guard: a never-settling cursor stops at maxPages → ok:false (no infinite loop)', async () => {
+    let calls = 0;
+    server.use(
+      http.post(PATH, () => {
+        calls += 1;
+        return HttpResponse.json({
+          view: 'journey',
+          columns: [{ key: 'normalizedText', label: 'kw', type: 'text' }],
+          rows: [{ normalizedText: `kw${calls}`, stage: 'awareness' }],
+          // cursor never null → the guard, not the cursor, must terminate the loop.
+          pagination: { total: 9999, page: calls, pageSize: 200, cursor: 'never-null' },
+        });
+      }),
+    );
+
+    const result = await postQueryAllPages(ID, { view: 'journey' }, 2);
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(2);
+  });
 });
