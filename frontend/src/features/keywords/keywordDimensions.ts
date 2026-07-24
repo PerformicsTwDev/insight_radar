@@ -1,5 +1,6 @@
 import type { TopicsResponse } from '../../api/topics';
 import type { FeatureStatus } from '../../lib/featureGate';
+import { resolveJourneyStage } from '../../lib/journeyStages';
 import type { DimensionCellState, DimensionHeaderPhase } from './DimensionColumn';
 
 /**
@@ -27,6 +28,27 @@ export function topicLabelByKey(topics: TopicsResponse | undefined): Map<string,
 }
 
 /**
+ * normalizedText → 購買歷程 stage **zh label** from the `POST /query {view:'journey'}` rows (D2
+ * client-join; the journey view's default select includes `normalizedText`). Unclassified rows
+ * (stage missing / not one of the 7 canonical stages) are omitted → their cell renders `—`. The
+ * label is resolved via the {@link resolveJourneyStage} SSOT (enum↔zh 鎖死映射). STUB (M7-R2c).
+ */
+export function journeyStageByKey(
+  rows: readonly Record<string, unknown>[] | undefined,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!rows) return map;
+  for (const row of rows) {
+    const normalizedText = typeof row.normalizedText === 'string' ? row.normalizedText : undefined;
+    const stage = resolveJourneyStage(row.stage);
+    if (normalizedText && stage.known) {
+      map.set(normalizedText, stage.label);
+    }
+  }
+  return map;
+}
+
+/**
  * Gate status → column header phase: `running` → generating (progress marker), `ready` → ready
  * (plain label), and `not_generated` / `failed` → generatable (the ✦ generate-all / retry trigger).
  */
@@ -48,4 +70,18 @@ export function dimensionCellState(
   if (status === 'running') return { kind: 'generating' };
   if (status === 'ready') return label ? { kind: 'value', label } : { kind: 'empty' };
   return { kind: 'masked' };
+}
+
+/**
+ * A grand-table row's dimension cell state: look its label up by `normalizedText` (the C7 join key)
+ * in the client-joined `labels` map, then derive the state via {@link dimensionCellState}. A row
+ * without a `normalizedText` (the lean list DTO may omit it) has no join key → no label → `—`/masked.
+ */
+export function cellStateForRow(
+  status: FeatureStatus,
+  normalizedText: string | undefined,
+  labels: ReadonlyMap<string, string>,
+): DimensionCellState {
+  const label = normalizedText !== undefined ? labels.get(normalizedText) : undefined;
+  return dimensionCellState(status, label);
 }

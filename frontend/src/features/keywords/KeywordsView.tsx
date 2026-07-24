@@ -9,11 +9,17 @@ import { featureStatusOf } from '../../lib/featureGate';
 import { keywordsToTsv } from '../../lib/keywordsTsv';
 import { selectionKey } from '../../lib/selection';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useJourney } from '../journey/useJourney';
 import { useTopics } from '../topics/useTopics';
 import { AiInsightSidebar } from '../insight/AiInsightSidebar';
 import { TrendView } from '../trend/TrendView';
 import { BulkSelectBar } from '../tracking/BulkSelectBar';
-import { dimensionCellState, dimensionHeaderPhase, topicLabelByKey } from './keywordDimensions';
+import {
+  cellStateForRow,
+  dimensionHeaderPhase,
+  journeyStageByKey,
+  topicLabelByKey,
+} from './keywordDimensions';
 import { KeywordsFilters } from './filters/KeywordsFilters';
 import { KeywordsPagination } from './KeywordsPagination';
 import {
@@ -113,6 +119,11 @@ export function KeywordsView({
   // 意圖主題 view (useTopics.start only enqueues + tracks the run).
   const topics = useTopics(analysisId, featureStatusOf(features, 'topics'));
   const topicMap = useMemo(() => topicLabelByKey(topics.topics), [topics.topics]);
+  // 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18): each keyword's stage comes from the journey
+  // job's stage 表 (`POST /query {view:journey}`, default select carries normalizedText), client-joined
+  // by normalizedText (D2). Same C13 gate-decoupling — generating runs the journey run, no view unlock.
+  const journey = useJourney(analysisId, featureStatusOf(features, 'journey'));
+  const journeyMap = useMemo(() => journeyStageByKey(journey.rows), [journey.rows]);
   const dimensionColumns = useMemo<DimensionColumnConfig[]>(
     () => [
       {
@@ -121,14 +132,18 @@ export function KeywordsView({
         accent: 'topic',
         phase: dimensionHeaderPhase(topics.status),
         onGenerate: () => void topics.start(),
-        cellState: (row) =>
-          dimensionCellState(
-            topics.status,
-            row.normalizedText ? topicMap.get(row.normalizedText) : undefined,
-          ),
+        cellState: (row) => cellStateForRow(topics.status, row.normalizedText, topicMap),
+      },
+      {
+        id: 'journeyStage',
+        label: '購買歷程主題',
+        accent: 'journey',
+        phase: dimensionHeaderPhase(journey.status),
+        onGenerate: () => void journey.start(),
+        cellState: (row) => cellStateForRow(journey.status, row.normalizedText, journeyMap),
       },
     ],
-    [topics, topicMap],
+    [topics, topicMap, journey, journeyMap],
   );
 
   // AI 洞察面板 open state (M7-R6) — default EXPANDED (v4). One handler drives both the header

@@ -316,3 +316,47 @@ describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-
     expect(screen.getAllByRole('img', { name: '尚未生成' }).length).toBeGreaterThan(0);
   });
 });
+
+describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18)', () => {
+  it('shows the client-joined journey stage pill for a ready analysis (join by normalizedText, D2)', async () => {
+    server.use(
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const { view } = (await request.json()) as { view: string };
+        if (view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        if (view === 'journey') {
+          // The journey view carries `stage` + `normalizedText` (default select) per keyword.
+          return HttpResponse.json({
+            view: 'journey',
+            columns: [],
+            rows: [
+              { text: 'running shoes', normalizedText: 'running shoes', stage: 'spec_comparison' },
+            ],
+            pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+          });
+        }
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [row('running shoes')],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        });
+      }),
+      // useJourney also probes the run status (partial notice) once ready — completed here.
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'j-1',
+          status: 'completed',
+          progress: null,
+          keywordCount: 1,
+        }),
+      ),
+    );
+    renderKeywords('', { journey: { status: 'ready' } });
+
+    // The stage enum is resolved to its zh label (規格比較) via the SSOT and shown as a blue pill.
+    expect(await screen.findByText('規格比較')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '購買歷程主題' })).toBeInTheDocument();
+  });
+});

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { dimensionCellState, dimensionHeaderPhase, topicLabelByKey } from './keywordDimensions';
+import {
+  cellStateForRow,
+  dimensionCellState,
+  dimensionHeaderPhase,
+  journeyStageByKey,
+  topicLabelByKey,
+} from './keywordDimensions';
 import type { TopicsResponse } from '../../api/topics';
 
 /**
@@ -56,6 +62,33 @@ describe('TC-28 · topicLabelByKey (normalizedText → topicName client-join, M7
   });
 });
 
+describe('TC-28 · journeyStageByKey (normalizedText → stage zh label client-join, M7-R2c)', () => {
+  it('maps each classified keyword to its stage zh label (via the resolveJourneyStage SSOT)', () => {
+    const map = journeyStageByKey([
+      { text: 'running shoes', normalizedText: 'running shoes', stage: 'spec_comparison' },
+      { text: 'buy shoes', normalizedText: 'buy shoes', stage: 'final_decision' },
+    ]);
+    expect(map.get('running shoes')).toBe('規格比較');
+    expect(map.get('buy shoes')).toBe('最終決策');
+    expect(map.size).toBe(2);
+  });
+
+  it('omits rows with a missing / non-canonical stage (they render — , C12)', () => {
+    const map = journeyStageByKey([
+      { normalizedText: 'unstaged', stage: null },
+      { normalizedText: 'bogus', stage: 'not_a_stage' },
+      { normalizedText: 'ok', stage: 'pain_awareness' },
+    ]);
+    expect(map.has('unstaged')).toBe(false);
+    expect(map.has('bogus')).toBe(false);
+    expect(map.get('ok')).toBe('痛點覺察');
+  });
+
+  it('returns an empty map for undefined rows (journey not yet fetched)', () => {
+    expect(journeyStageByKey(undefined).size).toBe(0);
+  });
+});
+
 describe('TC-28 · dimensionHeaderPhase (gate status → header phase, M7-R2b)', () => {
   it('maps running → generating, ready → ready, and not_generated / failed → generatable', () => {
     expect(dimensionHeaderPhase('running')).toBe('generating');
@@ -78,5 +111,25 @@ describe('TC-28 · dimensionCellState (gate status + label → cell state, M7-R2
   it('is masked before generation (not_generated / failed)', () => {
     expect(dimensionCellState('not_generated', undefined)).toEqual({ kind: 'masked' });
     expect(dimensionCellState('failed', '規格探究')).toEqual({ kind: 'masked' });
+  });
+});
+
+describe('TC-28 · cellStateForRow (normalizedText lookup → cell state, M7-R2b/c)', () => {
+  const labels = new Map([['running shoes', '規格探究']]);
+
+  it('looks the label up by normalizedText and derives a value pill when ready', () => {
+    expect(cellStateForRow('ready', 'running shoes', labels)).toEqual({
+      kind: 'value',
+      label: '規格探究',
+    });
+  });
+
+  it('is empty (—) at ready when the keyword is not in the joined map', () => {
+    expect(cellStateForRow('ready', 'unknown kw', labels)).toEqual({ kind: 'empty' });
+  });
+
+  it('treats a row without a normalizedText join key as having no label (— / masked)', () => {
+    expect(cellStateForRow('ready', undefined, labels)).toEqual({ kind: 'empty' });
+    expect(cellStateForRow('not_generated', undefined, labels)).toEqual({ kind: 'masked' });
   });
 });
