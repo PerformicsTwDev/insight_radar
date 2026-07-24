@@ -204,6 +204,12 @@ describe('TC-59 · AppShell fixed-height frame (viewport-fill, independent scrol
     const main = screen.getByRole('main');
     expect(main.className).toContain('overflow-y-auto');
     expect(main.className).toContain('min-h-0');
+    // The body-row wrapper is the ingredient that lets main/left-column shrink to the remaining
+    // height — assert it too, so a future refactor dropping its min-h-0 can't silently regress the
+    // frame (both columns would grow with content again) while this test still passes.
+    const bodyRow = main.parentElement as HTMLElement;
+    expect(bodyRow.className).toContain('flex-1');
+    expect(bodyRow.className).toContain('min-h-0');
     // The left dimension column scrolls independently too (long tracking lists don't push the page).
     const leftColumn = screen.getByRole('navigation', { name: '維度選單' })
       .parentElement as HTMLElement;
