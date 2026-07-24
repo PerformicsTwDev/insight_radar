@@ -24,6 +24,22 @@ export const VIEW_LABELS: Readonly<Record<string, string>> = {
   intent_topics: '意圖主題',
   journey: '購買歷程主題',
   journey_funnel: '購買歷程漏斗',
+  custom: '自訂分類',
+};
+
+/**
+ * The 自訂分類 dimension (M7-R7b, TC-58): a synthetic top-level nav item. Custom
+ * classifications are dynamic (`custom:{cid}`), so `GET /views` never lists a bare `custom`
+ * view — but the dimension must still appear in the left menu; selecting it opens
+ * {@link CustomClassifyView}'s empty create-state (`?view=custom`, resolved by `resolveView`).
+ */
+const CUSTOM_NAV_ITEM: ViewNavItem = {
+  name: 'custom',
+  label: VIEW_LABELS.custom,
+  responseShape: 'table',
+  // Custom classification needs the base keyword analysis; the per-classification run is gated
+  // dynamically inside CustomClassifyView (409 per cid), not by a static feature here.
+  requiresFeature: 'keyword_metrics',
 };
 
 /**
@@ -96,14 +112,19 @@ export function buildViewRegistry(views: readonly ViewMetadata[]): ViewRegistry 
   return {
     // Nav LIST collapses to the top-level v4 dimensions (embedded views hidden, T7.3);
     // `byName` keeps EVERY view so embedded ones stay URL-resolvable / T7.4-embeddable.
-    navItems: configs
-      .filter((config) => !EMBEDDED_VIEWS.has(config.name))
-      .map(({ name, label, responseShape, requiresFeature }) => ({
-        name,
-        label,
-        responseShape,
-        requiresFeature,
-      })),
+    navItems: [
+      ...configs
+        .filter((config) => !EMBEDDED_VIEWS.has(config.name))
+        .map(({ name, label, responseShape, requiresFeature }) => ({
+          name,
+          label,
+          responseShape,
+          requiresFeature,
+        })),
+      // Append the synthetic 自訂分類 dimension unless the backend already lists a `custom` view
+      // (dedupe keeps AC-1.2: a real backend `custom` view would win, no double entry).
+      ...(configs.some((config) => config.name === 'custom') ? [] : [CUSTOM_NAV_ITEM]),
+    ],
     byName: new Map(configs.map((config) => [config.name, config])),
   };
 }
