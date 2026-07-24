@@ -134,7 +134,15 @@ function buildColumns(
     },
     {
       id: 'intent',
-      header: '意圖',
+      // v4 搜尋意圖類別 (M7-R17): the first of the 3 green ✦ AI columns. Unlike 搜尋意圖主題 /
+      // 購買歷程主題 (on-demand, gated) this is the intent the backend always classifies (FR-4),
+      // so it renders populated (its own IntentCell), not a generatable/shimmer dimension.
+      header: () => (
+        <span className="flex items-center gap-1 text-brand">
+          搜尋意圖類別
+          <span aria-hidden="true">✦</span>
+        </span>
+      ),
       size: COL_WIDTH.intent,
       cell: ({ row }) => <IntentCell labels={row.original.intentLabels} />,
     },

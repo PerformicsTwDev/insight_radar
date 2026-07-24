@@ -38,9 +38,13 @@ export interface FilterSpec {
 }
 
 // ── Chip UI model (the four chip types) ──────────────────────────────────────
-export type InexFieldKey = 'keyword';
+// `aiIntent` (inex) + `trend` (options) are v4 display chips (M7-R17): they reuse the
+// inex/options bodies but carry no base FilterSpec field — the backend can't filter by
+// AI-summarised intent or trend type (see #777). `chipsToSpec` deliberately ignores them,
+// so, like `menukw`, they never round-trip and stay visual until backend support lands.
+export type InexFieldKey = 'keyword' | 'aiIntent';
 export type RangeFieldKey = 'volume' | 'competitionIndex' | 'cpc';
-export type OptionsFieldKey = 'intent' | 'competition';
+export type OptionsFieldKey = 'intent' | 'competition' | 'trend';
 export type MenuKwFieldKey = 'intentTopic' | 'journeyTopic' | 'customTopic';
 export type FilterFieldKey = InexFieldKey | RangeFieldKey | OptionsFieldKey | MenuKwFieldKey;
 
@@ -183,8 +187,9 @@ export function chipsToSpec(chips: readonly Chip[]): FilterSpec {
   for (const chip of chips) {
     switch (chip.type) {
       case 'inex':
-        // The include term maps to the backend `q` (case-insensitive contains).
-        if (chip.include !== undefined) raw.q = chip.include;
+        // The 搜尋詞 include term maps to the backend `q` (case-insensitive contains).
+        // `aiIntent` is a display chip (no FilterSpec field) — it contributes nothing.
+        if (chip.field === 'keyword' && chip.include !== undefined) raw.q = chip.include;
         break;
       case 'range':
         if (chip.field === 'volume') {
@@ -202,9 +207,10 @@ export function chipsToSpec(chips: readonly Chip[]): FilterSpec {
         if (chip.field === 'intent') {
           raw.intent = chip.values;
           if (chip.mode !== undefined) raw.intentMode = chip.mode;
-        } else {
+        } else if (chip.field === 'competition') {
           raw.competition = chip.values;
         }
+        // `trend` is a display chip (no FilterSpec field) — it contributes nothing.
         break;
       case 'menukw':
         // 主題 dimension — routed at the view level (M3+), not part of the flat

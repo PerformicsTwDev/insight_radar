@@ -122,13 +122,34 @@ describe('TC-16 · TrendChart (aggregate line + axis-aligned multi-line)', () =>
     expect(lastConfig().data.datasets).toHaveLength(1);
   });
 
-  it('shows a 加總 N badge on the trigger reflecting the number of selected terms (M7-R3)', () => {
+  it('shows the 加總趨勢 / 已選 N label on the trigger (M7-R3 / M7-R17)', () => {
     render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
     const trigger = screen.getByRole('button', { name: /篩選搜尋詞/ });
-    expect(trigger).not.toHaveTextContent('加總');
+    // v4: default (nothing selected) reads 加總趨勢; selecting a term switches to 已選 N.
+    expect(trigger).toHaveTextContent('加總趨勢');
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('checkbox', { name: 'running shoes' }));
-    expect(trigger).toHaveTextContent('加總 1');
+    expect(trigger).toHaveTextContent('已選 1');
+    expect(trigger).not.toHaveTextContent('加總趨勢');
+  });
+
+  it('全選 / 清除 select or clear every listed keyword, and the search box filters the list (M7-R17, #7)', () => {
+    render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
+    const trigger = screen.getByRole('button', { name: /篩選搜尋詞/ });
+    fireEvent.click(trigger);
+
+    // 全選 selects every keyword; 清除 clears them.
+    fireEvent.click(screen.getByRole('button', { name: '全選' }));
+    expect(lastConfig().data.datasets).toHaveLength(1 + KEYWORDS.length);
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+    expect(lastConfig().data.datasets).toHaveLength(1);
+
+    // The search box narrows the checkbox list.
+    fireEvent.change(screen.getByRole('textbox', { name: '搜尋關鍵字' }), {
+      target: { value: 'trail' },
+    });
+    expect(screen.getByRole('checkbox', { name: 'trail shoes' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'running shoes' })).not.toBeInTheDocument();
   });
 
   it('closes the 篩選搜尋詞 popover on an outside pointer-down (M7-R3)', () => {

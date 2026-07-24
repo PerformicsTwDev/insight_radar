@@ -1,47 +1,24 @@
 import { Link, Outlet, useNavigate, useSearch } from '@tanstack/react-router';
 import { useUnauthorizedRedirect } from '../features/auth/unauthorizedRedirect';
 import { AnalysisContextBar } from '../features/dashboard/AnalysisContextBar';
-import { LeftTrackingNav } from '../features/tracking/LeftTrackingNav';
-import { useViews } from '../features/views/useViews';
 import { AppShell } from './AppShell';
 
 /**
  * Root route layout: the app shell wrapping the active route's outlet (T1.1).
- * Also wires the global 401 → /login redirect once, app-wide (T1.4, FR-12), and
- * drives the left dimension menu from `GET /views` metadata (T3.1, FR-1 / AC-1.2)
- * — a new backend view surfaces with no shared-component change; a `/views`
- * failure degrades to the built-in list with a notice.
+ * Also wires the global 401 → /login redirect once, app-wide (T1.4, FR-12).
+ *
+ * The left 分析維度 menu + tracking-list nav no longer live in the shell (M7-R17 v4
+ * fidelity): the results dashboard ({@link ResultsLayout}, rendered by
+ * `AnalysisDashboard`) owns the whole 3-column frame — menu, filters, centre content
+ * and AI 洞察 panel — so here we only feed the shell the top-nav slots: the analysis
+ * 語境列 (T7.8), the 追蹤清單 / 分析歷史 header entries, and the Search-tab home nav (T7.9).
  */
 export function RootLayout() {
   useUnauthorizedRedirect();
   const navigate = useNavigate();
-  const { registry, degraded } = useViews();
   const analysisId = useSearch({ strict: false, select: (search) => search.analysisId });
-  const activeView = useSearch({ strict: false, select: (search) => search.view });
-  // The dimension menu is interactive only when an analysis is in view: selecting a
-  // dimension navigates to `/` with the chosen `view` (URL is state, Design §5), which
-  // re-resolves the dashboard content (T6.0). Switching view starts a fresh page (the
-  // old page/cursor belong to the previous view's row set); filters carry over.
-  const onSelectView = analysisId
-    ? (view: string) =>
-        void navigate({
-          to: '/',
-          search: (prev) => ({ ...prev, view, page: undefined, cursor: undefined }),
-        })
-    : undefined;
   return (
     <AppShell
-      dimensions={registry.navItems}
-      activeView={activeView}
-      // The "無法載入視圖清單" fallback notice is a views-loading error — only meaningful
-      // while an analysis is in context (T7.5, TC-60). On a cold open the left menu is
-      // disabled and there is nothing to view, so a `GET /views` failure must not paint
-      // that misleading error; surface it only once an `analysisId` is present.
-      degraded={degraded && analysisId !== undefined}
-      onSelectView={onSelectView}
-      // Results context (T7.9, AC-1.3): the left dimension menu shows only while an
-      // analysis is in view. On the input / cold screen it is hidden entirely.
-      hasAnalysisContext={analysisId !== undefined}
       // Search Insight tab → back to the input screen: clear the analysis context (and
       // per-view URL state) so a fresh analysis can be started (T7.9).
       onNavigateHome={() => void navigate({ to: '/', search: {} })}
@@ -49,14 +26,6 @@ export function RootLayout() {
       // subscriber to the dashboard's `GET :id` snapshot (no extra request).
       contextBar={
         analysisId !== undefined ? <AnalysisContextBar analysisId={analysisId} /> : undefined
-      }
-      // Left-column 追蹤清單 section (M7-R5) — only mounted in results context (AppShell renders
-      // the left column, and thus this slot, only when hasAnalysisContext), so it never fetches
-      // on the cold / input screen. Navigation is injected to keep LeftTrackingNav router-free.
-      trackingNav={
-        <LeftTrackingNav
-          onSelect={(listId) => void navigate({ to: '/tracking/$listId', params: { listId } })}
-        />
       }
       headerExtra={
         <div className="flex items-center gap-2">

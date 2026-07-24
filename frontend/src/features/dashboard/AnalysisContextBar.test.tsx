@@ -27,21 +27,18 @@ function renderBar(cached: { seeds?: string[] } | null): ReactElement {
 describe('TC-56 · AnalysisContextBar (top-nav analysis context bar)', () => {
   it('shows a seeds preview (first VITE_CONTEXT_BAR_PREVIEW_N=3) + total count from the shared snapshot', () => {
     render(renderBar({ seeds: SEEDS }));
-    const bar = screen.getByRole('button', { name: /分析字詞/ });
-    // Preview = first 3 seeds; total count = 4.
-    expect(bar).toHaveTextContent('吸塵器');
-    expect(bar).toHaveTextContent('掃地機器人');
-    expect(bar).toHaveTextContent('除濕機');
-    expect(bar).toHaveTextContent('4 個字詞');
-    // The 4th seed is NOT in the collapsed preview (only the popover reveals it).
+    // v4: preview = first 3 seeds (、-joined) as static inline text; total count on the toggle.
+    expect(screen.getByText('吸塵器、掃地機器人、除濕機')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /個字詞/ })).toHaveTextContent('4 個字詞');
+    // The 4th seed is NOT in the collapsed preview (only the tooltip reveals it).
     expect(screen.queryByText('空氣清淨機')).not.toBeInTheDocument();
   });
 
-  it('reveals ALL seeds in a popover on click (ⓘ)', () => {
+  it('reveals ALL seeds in a tooltip on click (ⓘ)', () => {
     render(renderBar({ seeds: SEEDS }));
-    fireEvent.click(screen.getByRole('button', { name: /分析字詞/ }));
-    const popover = screen.getByRole('list', { name: '分析字詞清單' });
-    for (const seed of SEEDS) expect(popover).toHaveTextContent(seed);
+    fireEvent.click(screen.getByRole('button', { name: /個字詞/ }));
+    const list = screen.getByRole('list', { name: '分析字詞清單' });
+    for (const seed of SEEDS) expect(list).toHaveTextContent(seed);
   });
 
   it('renders nothing when there is no cached snapshot (cold open / no analysis context)', () => {

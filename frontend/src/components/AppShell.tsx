@@ -1,35 +1,24 @@
 import { useState, type ReactNode } from 'react';
-import { FALLBACK_REGISTRY, type ViewNavItem } from '../lib/viewRegistry';
 import { NavSettings } from './NavSettings';
 
 /**
- * App shell layout (T1.1) — presentational only, no router/API dependency.
- * v4 three-line top-tab bar (T7.1, FR-1 / TC-58〔nav〕): `Search Insight` is the
- * active product area; `AI Search Insight` / `Social Insight` are roadmap tabs
- * (M8 T8.4 enables AI Search) — clicking a roadmap tab surfaces an ephemeral
- * 即將推出 notice and never navigates / 404s (the hint is internal state, so the
- * shell keeps zero router dependency). Plus a left dimension menu (T3.1: driven by
- * `GET /views` metadata, passed in as `dimensions`; the fetch/fallback lives in
- * `useViews`) + a main content slot. All colours come from the design tokens in
- * `src/index.css` (Tailwind utilities / `var(--color-*)`) — no hardcoded hex
- * (single-source rule, Design §6 / FR-14).
+ * App shell (T1.1; M7-R17 v4 fidelity stage 1) — presentational, no router/API
+ * dependency. Just the v4 three-line top-tab bar (T7.1, FR-1 / TC-58〔nav〕):
+ * `Search Insight` is the active product area; `AI Search Insight` / `Social Insight`
+ * are roadmap tabs (M8 T8.4 enables AI Search) — clicking one surfaces an ephemeral
+ * 即將推出 notice and never navigates / 404s (the hint is internal state, so the shell
+ * keeps zero router dependency). The analysis context bar (T7.8) fills a header slot.
+ *
+ * The prototype (`#view-results`) owns its own 3-column layout (分析維度 menu + centre
+ * + AI 洞察 panel) inside the view, so the shell no longer renders a left dimension
+ * menu — {@link ResultsLayout} does, in results context. The shell is a plain
+ * page-scroll frame (`min-h-screen`): the results area's fixed `lg:h-[2000px]` grid
+ * overflows into a normal page scroll (prototype behaviour). Colours come from the
+ * `src/index.css` design tokens — no hardcoded hex (Design §6 / FR-14).
  */
 
 export interface AppShellProps {
   readonly children: ReactNode;
-  /** Left dimension-menu items, derived from view metadata (T3.1, AC-1.2). */
-  readonly dimensions?: readonly ViewNavItem[];
-  /** The currently-selected `view` (URL state); marked with `aria-current`. */
-  readonly activeView?: string;
-  /** True when `dimensions` is the built-in fallback (`GET /views` failed) → show a notice (FR-1). */
-  readonly degraded?: boolean;
-  /**
-   * Select a dimension → switch the active `view` (T6.0, FR-1). When provided the
-   * left menu is interactive (a router-aware container maps it to a URL `view`
-   * navigation); when omitted (no analysis in view, or a standalone shell render)
-   * the menu stays disabled — clicking a dimension with nothing to show is a no-op.
-   */
-  readonly onSelectView?: (view: string) => void;
   /**
    * Navigate the `Search Insight` tab back to the input screen (T7.9, `/`, clearing
    * the analysis context). Router-aware container supplies it; when omitted the tab
@@ -37,30 +26,17 @@ export interface AppShellProps {
    */
   readonly onNavigateHome?: () => void;
   /**
-   * True when an analysis is in view (`analysisId` present) — the left dimension menu
-   * only renders in this "results context" (T7.9, AC-1.3); on the input / cold screen
-   * it is hidden entirely and the main content takes full width.
-   */
-  readonly hasAnalysisContext?: boolean;
-  /**
-   * Optional right-aligned header slot (e.g. the 分析歷史 entry, T3.5). A container
-   * fills it with router-aware nodes; the presentational shell just renders it, so
-   * standalone shell renders stay router-free.
+   * Optional right-aligned header slot (e.g. the 追蹤清單 / 分析歷史 entries, T3.5). A
+   * container fills it with router-aware nodes; the presentational shell just renders it.
    */
   readonly headerExtra?: ReactNode;
   /**
    * Optional top-nav analysis context bar (T7.8): the analysis's 搜尋詞 preview + ⓘ popover.
    * A container supplies `<AnalysisContextBar>` only while an analysis is in view; the
    * component itself renders nothing when there is no snapshot, so on the cold screen this
-   * slot is empty. Kept out of `main` so no visual golden captures it.
+   * slot is empty.
    */
   readonly contextBar?: ReactNode;
-  /**
-   * Optional left-column tracking-list section (M7-R5, TC-58), stacked below the dimension
-   * menu in the results context. A container supplies `<LeftTrackingNav>`; it renders nothing
-   * when the owner has no lists, so on the cold screen this slot stays empty.
-   */
-  readonly trackingNav?: ReactNode;
 }
 
 /**
@@ -78,30 +54,17 @@ const TAB_ACTIVE =
   'rounded-lg border border-brand/50 bg-brand/10 px-4 py-4 text-sm font-medium text-brand';
 const TAB_ROADMAP = 'px-4 py-4 text-sm text-white/40 hover:text-white/60';
 
-export function AppShell({
-  children,
-  dimensions = FALLBACK_REGISTRY.navItems,
-  activeView,
-  degraded = false,
-  onSelectView,
-  onNavigateHome,
-  hasAnalysisContext = false,
-  headerExtra,
-  contextBar,
-  trackingNav,
-}: AppShellProps) {
+export function AppShell({ children, onNavigateHome, headerExtra, contextBar }: AppShellProps) {
   // Roadmap tabs (AI Search / Social) are not navigable yet: clicking one flips this
   // to show an ephemeral 即將推出 notice — never a route change / 404 (TC-58〔nav〕).
   const [roadmapHint, setRoadmapHint] = useState(false);
   return (
-    // v4 fixed-height frame (M7-R4): a viewport-tall column (header + body) whose overflow is
-    // clipped, so the page itself never scrolls — the left menu + main content each scroll on
-    // their own inside the remaining height (independent-scroll 三欄).
-    <div className="flex h-screen flex-col overflow-hidden bg-bg-body text-white">
-      <header className="shrink-0 border-b border-border-topbar bg-bg-card">
-        {/* M7-R13: wrap on narrow viewports so the right-side NavSettings / 登入·登出 controls drop to a
-            second line and stay reachable — the fixed-height frame's overflow-hidden would otherwise
-            clip them off-screen with no page scroll. No effect at desktop widths (nothing wraps). */}
+    // Page-scroll frame (M7-R17): the results area's fixed 2000px grid overflows into a
+    // normal page scroll (prototype behaviour), not a viewport-tall clip.
+    <div className="min-h-screen bg-bg-body text-white">
+      <header className="border-b border-border-topbar bg-bg-card">
+        {/* Wrap on narrow viewports so the right-side NavSettings / 登入·登出 controls stay
+            reachable (M7-R13). No effect at desktop widths (nothing wraps). */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-6">
           <h1 className="py-4 text-lg font-semibold text-brand">Insight Radar</h1>
           <nav aria-label="主要分頁" className="flex items-center gap-1">
@@ -143,54 +106,7 @@ export function AppShell({
           </div>
         </div>
       </header>
-      {/* Body row fills the remaining viewport height (min-h-0 lets the flex children scroll). */}
-      <div className="flex min-h-0 flex-1">
-        {/* Left dimension menu — only in results context (T7.9, AC-1.3). On the input /
-            cold screen it is hidden entirely and the main content takes full width. Scrolls
-            independently (overflow-y-auto) so long tracking lists don't grow the frame (M7-R4). */}
-        {hasAnalysisContext ? (
-          <div className="w-56 shrink-0 overflow-y-auto border-r border-white/10 p-3">
-            <nav aria-label="維度選單">
-              {degraded ? (
-                <p
-                  role="status"
-                  className="mb-2 rounded-md bg-white/5 px-3 py-2 text-xs text-white/50"
-                >
-                  無法載入視圖清單，改用內建預設
-                </p>
-              ) : null}
-              <ul className="flex flex-col gap-1">
-                {dimensions.map((dim) => {
-                  const isActive = dim.name === activeView;
-                  const interactive = onSelectView !== undefined;
-                  return (
-                    <li key={dim.name}>
-                      <button
-                        type="button"
-                        disabled={!interactive}
-                        aria-current={isActive ? 'page' : undefined}
-                        onClick={interactive ? () => onSelectView(dim.name) : undefined}
-                        className={
-                          isActive
-                            ? 'w-full rounded-lg bg-white/10 px-3 py-2 text-left text-sm text-white'
-                            : interactive
-                              ? 'w-full rounded-lg px-3 py-2 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white'
-                              : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
-                        }
-                      >
-                        {dim.label}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
-            {trackingNav}
-          </div>
-        ) : null}
-        {/* Center content column — fills the remaining width, scrolls independently (M7-R4). */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
+      <main className="p-6">{children}</main>
     </div>
   );
 }

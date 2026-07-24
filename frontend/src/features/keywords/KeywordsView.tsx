@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { useMemo, useState, type ReactElement } from 'react';
+import { useMemo, type ReactElement } from 'react';
 import { getKeywordsView } from '../../api/keywords';
 import { postQuery } from '../../api/query';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
@@ -12,7 +12,6 @@ import { selectionKey } from '../../lib/selection';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useJourney } from '../journey/useJourney';
 import { useTopics } from '../topics/useTopics';
-import { AiInsightSidebar } from '../insight/AiInsightSidebar';
 import { TrendView } from '../trend/TrendView';
 import { BulkSelectBar } from '../tracking/BulkSelectBar';
 import {
@@ -21,7 +20,6 @@ import {
   journeyStageByKey,
   topicLabelByKey,
 } from './keywordDimensions';
-import { KeywordsFilters } from './filters/KeywordsFilters';
 import { KeywordsPagination } from './KeywordsPagination';
 import {
   KeywordsTable,
@@ -183,75 +181,42 @@ export function KeywordsView({
     [topics, topicMap, journey, journeyMap, journeyStageRows],
   );
 
-  // AI 洞察面板 open state (M7-R6) — default EXPANDED (v4). One handler drives both the header
-  // 隱藏/顯示 button and the in-panel chevron.
-  const [aiExpanded, setAiExpanded] = useState(true);
-  const toggleAi = (): void => setAiExpanded((v) => !v);
   return (
-    // v4 fixed-height results layout (M7-R4): fill the (fixed-height) main column, keep the filter
-    // bar + 趨勢 card pinned, and let the 表格 + AI 側欄 row take the rest with independent scroll.
-    <div className="flex h-full flex-col gap-4">
-      {/* Filter bar (FR-6) + 複製表格 (FR-13) + 隱藏/顯示 AI 洞察 header toggle (M7-R6). */}
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <KeywordsFilters />
-        <div className="flex items-center gap-2">
-          {rows.length > 0 ? <CopyTsvButton getTsv={() => keywordsToTsv(rows)} /> : null}
-          <button
-            type="button"
-            aria-expanded={aiExpanded}
-            // Only reference the panel when it's rendered (M7-R14/#11) — it exists only while expanded.
-            aria-controls={aiExpanded ? 'ai-insight-panel' : undefined}
-            onClick={toggleAi}
-            className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
-          >
-            {aiExpanded ? '✕ 隱藏 AI 洞察' : '💡 顯示 AI 洞察'}
-          </button>
-        </div>
-      </div>
+    // 搜尋詞總表 centre content (M7-R17): the shared results frame ({@link ResultsLayout})
+    // supplies the 分析維度 menu, filter bar and AI 洞察 panel; this view just fills the centre
+    // column — the 趨勢 card pinned on top, then the data card (table + pagination) taking the
+    // rest with the table scrolling internally.
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* v4: 趨勢圖卡置於總表頁頂（TrendView/TrendChart 自帶卡片外框 + 載入/錯誤/空態）。固定高。 */}
+      <TrendView analysisId={analysisId} />
 
-      {/* v4: 趨勢圖卡置於總表頁頂（非獨立左選單維度，T7.3/T7.4）。TrendView/TrendChart 自帶
-          卡片外框（`region 搜尋趨勢`）+ 載入/錯誤/空態，故此處直接掛、不重複包卡。固定高（shrink-0）。 */}
-      <div className="shrink-0">
-        <TrendView analysisId={analysisId} />
-      </div>
-
-      {/* 表（✦ AI 欄 + sparklines）+ 右側可收合 AI 洞察面板（T7.4；v4 預設展開，M7-R6 header toggle 控制）。
-          此列填滿剩餘高度（min-h-0 + flex-1），內部表格與側欄各自獨立捲動（M7-R4）。 */}
-      <div className="flex min-h-0 flex-1 gap-4">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-          {query.isPending ? (
-            <LoadingState label="載入搜尋詞…" />
-          ) : !result || !result.ok ? (
-            <ErrorState
-              message="無法載入搜尋詞，請稍後再試。"
-              onRetry={() => void query.refetch()}
-            />
-          ) : result.rows.length === 0 ? (
-            <EmptyState message="沒有符合條件的搜尋詞。" />
-          ) : (
-            <>
-              <KeywordsTable
-                rows={result.rows}
-                analysisId={analysisId}
-                selection={selection}
-                dimensionColumns={dimensionColumns}
-              />
-              {/* Pagination stays pinned below the filling table (shrink-0), M7-R4. */}
-              <div className="shrink-0">
-                <KeywordsPagination meta={result.meta} />
+      {/* Data card: 複製表格 (FR-13) + 表格（✦ AI 欄 + sparklines）+ 分頁；填滿剩餘高度、表格獨立捲動。 */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        {query.isPending ? (
+          <LoadingState label="載入搜尋詞…" />
+        ) : !result || !result.ok ? (
+          <ErrorState message="無法載入搜尋詞，請稍後再試。" onRetry={() => void query.refetch()} />
+        ) : result.rows.length === 0 ? (
+          <EmptyState message="沒有符合條件的搜尋詞。" />
+        ) : (
+          <>
+            {rows.length > 0 ? (
+              <div className="flex shrink-0 justify-end">
+                <CopyTsvButton getTsv={() => keywordsToTsv(rows)} />
               </div>
-            </>
-          )}
-        </div>
-        <AiInsightSidebar
-          analysisId={analysisId}
-          view="keywords"
-          filters={filters}
-          requiresFeature="keyword_metrics"
-          features={features}
-          expanded={aiExpanded}
-          onToggle={toggleAi}
-        />
+            ) : null}
+            <KeywordsTable
+              rows={result.rows}
+              analysisId={analysisId}
+              selection={selection}
+              dimensionColumns={dimensionColumns}
+            />
+            {/* Pagination stays pinned below the filling table (shrink-0). */}
+            <div className="shrink-0">
+              <KeywordsPagination meta={result.meta} />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Floating bulk bar (renders null when nothing is selected) — the write side of FR-19. */}

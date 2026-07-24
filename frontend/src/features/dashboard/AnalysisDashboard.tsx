@@ -8,6 +8,7 @@ import type { JobState, JobStatus } from '../../lib/jobState';
 import { JobTrackingPanel } from '../job/JobTrackingPanel';
 import { jobStateQueryKey } from '../job/useJobTracking';
 import { analysisStatusQueryKey } from './analysisStatusQuery';
+import { ResultsLayout } from './ResultsLayout';
 import { AnalysisNotFound } from './ViewStates';
 import { ViewContent } from './ViewContent';
 
@@ -99,9 +100,15 @@ export function AnalysisDashboard({ analysisId }: { analysisId: string }): React
     return <AnalysisNotFound />;
   }
 
-  // Ready (viewable): route the active view to content, gated by the snapshot's features.
+  // Ready (viewable): the v4 results shell (M7-R17) — 分析維度 menu + filters + AI 洞察 panel
+  // as the shared 3-column frame — wraps the active view's centre content, gated by the
+  // snapshot's features (Design §5 / FR-1).
   if (snapshot?.kind === 'ok' && isViewable(snapshot.status.status)) {
-    return <ViewContent analysisId={analysisId} view={view} features={snapshot.status.features} />;
+    return (
+      <ResultsLayout analysisId={analysisId} view={view} features={snapshot.status.features}>
+        <ViewContent analysisId={analysisId} view={view} features={snapshot.status.features} />
+      </ResultsLayout>
+    );
   }
 
   // First-load transient failure — the snapshot never resolved (throw-retained to

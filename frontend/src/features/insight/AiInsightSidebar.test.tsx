@@ -103,7 +103,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
     expect(screen.getByRole('status')).toHaveTextContent(/洞察生成中/);
 
     await waitFor(() => expect(screen.getByText(INSIGHT)).toBeInTheDocument());
-    expect(screen.getByText(/AI 數據洞察總結/)).toHaveTextContent('搜尋詞總表');
+    // v4 (M7-R17): the scope moved to its own `— {scope}` line under the 💡 title.
+    expect(screen.getByText(/搜尋詞總表/)).toBeInTheDocument();
     expect(calls).toEqual([{ view: 'keywords', filters: { volumeMin: 100 } }]);
   });
 
@@ -230,39 +231,47 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
 
     function Harness(): ReactNode {
       const [expanded, setExpanded] = useState(false);
+      const toggle = (): void => setExpanded((v) => !v);
       return (
-        <AiInsightSidebar
-          analysisId={ID}
-          view="keywords"
-          filters={{}}
-          requiresFeature="keyword_metrics"
-          features={READY}
-          expanded={expanded}
-          onToggle={() => setExpanded((v) => !v)}
-        />
+        <>
+          {/* Stands in for the action-row 隱藏/顯示 button — ResultsLayout owns `expanded` (M7-R17). */}
+          <button type="button" aria-label="外部切換" onClick={toggle}>
+            toggle
+          </button>
+          <AiInsightSidebar
+            analysisId={ID}
+            view="keywords"
+            filters={{}}
+            requiresFeature="keyword_metrics"
+            features={READY}
+            expanded={expanded}
+            onToggle={toggle}
+          />
+        </>
       );
     }
     render(<Harness />, { wrapper: wrapper() });
+    const externalToggle = screen.getByRole('button', { name: '外部切換' });
 
-    // Collapsed: only the toggle rail — no heading, no insight, no request.
-    const toggle = screen.getByRole('button', { name: /AI 洞察側欄/ });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Collapsed (v4 wipe): the panel is gone — no heading, no in-panel chevron, no insight, no request.
     expect(screen.queryByText(/AI 數據洞察總結/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /AI 洞察側欄/ })).not.toBeInTheDocument();
     await Promise.resolve();
     expect(calls.length).toBe(0);
 
-    // Expand → the 生成 CTA appears; clicking it → POST + insight (generation is user-initiated, R14).
-    fireEvent.click(toggle);
+    // Expand via the external toggle → the 生成 CTA appears; clicking it → POST + insight (R14).
+    fireEvent.click(externalToggle);
     clickGenerate();
     await waitFor(() => expect(screen.getByText(INSIGHT)).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /AI 洞察側欄/ })).toHaveAttribute(
+    // The in-panel collapse chevron is now present, reflecting the expanded state.
+    expect(screen.getByRole('button', { name: /收合 AI 洞察側欄/ })).toHaveAttribute(
       'aria-expanded',
       'true',
     );
     expect(calls.length).toBe(1);
 
-    // Collapse again → the panel content is wiped away.
-    fireEvent.click(screen.getByRole('button', { name: /AI 洞察側欄/ }));
+    // Collapse again via the in-panel chevron → the panel content is wiped away.
+    fireEvent.click(screen.getByRole('button', { name: /收合 AI 洞察側欄/ }));
     await waitFor(() => expect(screen.queryByText(INSIGHT)).not.toBeInTheDocument());
   });
 
