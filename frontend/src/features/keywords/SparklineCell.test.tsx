@@ -103,4 +103,18 @@ describe('TC-7 · SparklineCell FR-21 inline signed % (↑/↓ + type colour, M7
     expect(screen.getByRole('img', { name: '無趨勢資料' })).toBeInTheDocument();
     expect(screen.queryByText(/[↑↓]/)).not.toBeInTheDocument();
   });
+
+  it('suppresses the trend %/tooltip (keeps the sparkline) when showTrend is false (M7-R23 [9])', () => {
+    // The 追蹤清單 detail 走勢 column passes showTrend={false}: its series is per-fetchedAt snapshot
+    // revisions, not intra-year monthly TTM, so the 12-mo-calibrated trend %/type/colour don't apply.
+    const { container } = render(
+      <SparklineCell volumes={[vol(100), vol(200)]} showTrend={false} />,
+    );
+    // The sparkline still draws…
+    expect(screen.getByRole('img', { name: '搜尋趨勢走勢' })).toBeInTheDocument();
+    // …but no inline signed %, no trend-type tag, and no classification tooltip.
+    expect(screen.queryByText(/[↑↓]/)).not.toBeInTheDocument();
+    expect(container.querySelector('[data-trend-type]')).toBeNull();
+    expect(container.querySelector('title')).toBeNull();
+  });
 });
