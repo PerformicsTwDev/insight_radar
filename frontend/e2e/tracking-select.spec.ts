@@ -1,11 +1,5 @@
 import { expect, test, type Route } from '@playwright/test';
-import {
-  keywordRow,
-  keywordsBody,
-  stubAnalysisStatus,
-  stubQuery,
-  stubViews,
-} from './support/stubs';
+import { keywordViewRow, stubAnalysisStatus, stubKeywordsQuery, stubViews } from './support/stubs';
 
 /**
  * TC-47 results-page segment (e2e, FR-19) — the write-side bulk-add flow that T5.7
@@ -23,18 +17,14 @@ import {
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const LIST_ID = 'a1b2c3d4-0000-4000-8000-000000000001';
 const LIST_NAME = 'E2E 選取清單';
-const KEYWORDS_URL = new RegExp(`/api/v1/keyword-analyses/${ANALYSIS_ID}/keywords`);
 const DASHBOARD = `/?analysisId=${ANALYSIS_ID}&view=keywords&geo=TW&language=zh-TW`;
 
 test('select results rows → bulk-create a tracking list → open its detail (TC-47)', async ({
   page,
 }) => {
   await stubViews(page);
-  await stubQuery(page);
   await stubAnalysisStatus(page, ANALYSIS_ID, { status: 'completed', features: {} });
-  await page.route(KEYWORDS_URL, (route) =>
-    route.fulfill({ json: keywordsBody([keywordRow('running shoes'), keywordRow('trail shoes')]) }),
-  );
+  await stubKeywordsQuery(page, [keywordViewRow('running shoes'), keywordViewRow('trail shoes')]);
 
   // Tracking-lists collection: GET is empty until the POST create, then lists the new one.
   let created = false;

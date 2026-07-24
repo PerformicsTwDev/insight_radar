@@ -17,20 +17,32 @@ import { routeTree } from '../../router';
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const STATUS_ROUTE = '/api/v1/keyword-analyses/:id';
-const KEYWORDS_ROUTE = '/api/v1/keyword-analyses/:id/keywords';
+const QUERY_ROUTE = '/api/v1/keyword-analyses/:id/query';
 const LIST_ROUTE = '/api/v1/keyword-analyses';
 
 function completedStatus(features: Record<string, unknown> = {}) {
   return http.get(STATUS_ROUTE, () => HttpResponse.json({ status: 'completed', features }));
 }
 
+/**
+ * View-aware `POST /query` handler (M7-R1): the 搜尋詞總表 now reads via the view-router, and the
+ * co-mounted 趨勢 card fires its own `view:'trend'` request — keep it healthy (empty axis) while the
+ * keywords view returns one row (raw `intent`, mapped to `intentLabels` by the egress).
+ */
 function keywordsHandler() {
-  return http.get(KEYWORDS_ROUTE, () =>
-    HttpResponse.json({
-      data: [
+  return http.post(QUERY_ROUTE, async ({ request }) => {
+    const { view } = (await request.json()) as { view: string };
+    if (view === 'trend') {
+      return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+    }
+    return HttpResponse.json({
+      view: 'keywords',
+      columns: [],
+      rows: [
         {
           text: 'running shoes',
-          intentLabels: [],
+          normalizedText: 'running shoes',
+          intent: [],
           avgMonthlySearches: 1000,
           competition: 'HIGH',
           competitionIndex: 80,
@@ -39,9 +51,9 @@ function keywordsHandler() {
           monthlyVolumes: [],
         },
       ],
-      meta: { total: 1, page: 1, pageSize: 25, cursor: null },
-    }),
-  );
+      pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+    });
+  });
 }
 
 function renderAt(path: string) {

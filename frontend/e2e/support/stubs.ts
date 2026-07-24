@@ -37,12 +37,17 @@ export const DEFAULT_VIEWS = [
   },
 ] as const;
 
-/** One `GET :id/keywords` row (backend `KeywordListRow` shape; nulls kept, never 0). */
-export function keywordRow(text: string, overrides: Record<string, unknown> = {}) {
+/**
+ * One `keywords`-VIEW row (backend `pick(SnapshotRowData, select)`): raw `intent` (array), NOT the
+ * lean list DTO's renamed `intentLabels`, plus `normalizedText` + `monthlyVolumes` — the shape the
+ * 搜尋詞總表 now reads via the view-router (M7-R1). The egress maps `intent`→`intentLabels`, so the
+ * rendered table (and its visual goldens) are unchanged. Nulls kept verbatim, never 0.
+ */
+export function keywordViewRow(text: string, overrides: Record<string, unknown> = {}) {
   return {
     text,
     normalizedText: text.trim().toLowerCase(),
-    intentLabels: ['commercial'],
+    intent: ['commercial'],
     avgMonthlySearches: 12000,
     competition: 'HIGH',
     competitionIndex: 80,
@@ -53,17 +58,6 @@ export function keywordRow(text: string, overrides: Record<string, unknown> = {}
       { year: 2026, month: 2, searches: 1400 },
     ],
     ...overrides,
-  };
-}
-
-/** `{ data, meta }` keywords envelope. */
-export function keywordsBody(
-  rows: ReturnType<typeof keywordRow>[],
-  meta: Partial<{ total: number; page: number; pageSize: number; cursor: string | null }> = {},
-) {
-  return {
-    data: rows,
-    meta: { total: rows.length, page: 1, pageSize: 25, cursor: null, ...meta },
   };
 }
 
@@ -93,6 +87,56 @@ export async function stubQuery(page: Page): Promise<void> {
         columns: [],
         rows: [],
         pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
+      },
+    });
+  });
+}
+
+/** The parsed `POST :id/query` request body — only the fields the keyword stubs branch on. */
+interface KeywordsQueryBody {
+  view?: string;
+  select?: string[];
+  filters?: { intent?: string[]; q?: string } & Record<string, unknown>;
+  pagination?: { page?: number; pageSize?: number; cursor?: string | null };
+  sort?: { field: string; direction: string }[];
+}
+
+type KeywordsMeta = Partial<{
+  total: number;
+  page: number;
+  pageSize: number;
+  cursor: string | null;
+}>;
+
+/**
+ * `POST :id/query` view-router stub carrying keyword rows (M7-R1: the 搜尋詞總表 reads via the
+ * view-router, so rows carry monthlyVolumes + normalizedText). The co-mounted 趨勢 card's
+ * `view:'trend'` request always gets an empty-but-valid axis; a keywords request is answered by
+ * `resolve` — pass a static row array for the common single-page case, or a `(body) => { rows, meta }`
+ * fn to branch on the applied filter / pagination (now carried in the POST body, not the URL query).
+ * Register per-spec before the generic {@link stubQuery} so this more specific handler wins.
+ */
+export async function stubKeywordsQuery(
+  page: Page,
+  resolve:
+    | ReturnType<typeof keywordViewRow>[]
+    | ((body: KeywordsQueryBody) => {
+        rows: ReturnType<typeof keywordViewRow>[];
+        meta?: KeywordsMeta;
+      }),
+): Promise<void> {
+  await page.route(new RegExp(`${V1}/keyword-analyses/[^/]+/query(\\?|$)`), (route: Route) => {
+    const body = (route.request().postDataJSON() ?? {}) as KeywordsQueryBody;
+    if (body.view === 'trend') {
+      return route.fulfill({ json: { view: 'trend', axis: [], total: [], series: [] } });
+    }
+    const { rows, meta = {} } = typeof resolve === 'function' ? resolve(body) : { rows: resolve };
+    return route.fulfill({
+      json: {
+        view: body.view ?? 'keywords',
+        columns: [],
+        rows,
+        pagination: { total: rows.length, page: 1, pageSize: 25, cursor: null, ...meta },
       },
     });
   });

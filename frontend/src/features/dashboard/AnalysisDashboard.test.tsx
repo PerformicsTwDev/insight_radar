@@ -27,24 +27,38 @@ import { AnalysisDashboard } from './AnalysisDashboard';
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const STATUS_ROUTE = '/api/v1/keyword-analyses/:id';
-const KEYWORDS_ROUTE = '/api/v1/keyword-analyses/:id/keywords';
+const QUERY_ROUTE = '/api/v1/keyword-analyses/:id/query';
 
-function keywordsBody() {
-  return {
-    data: [
-      {
-        text: 'running shoes',
-        intentLabels: [],
-        avgMonthlySearches: 1000,
-        competition: 'HIGH',
-        competitionIndex: 80,
-        cpcLow: 0.5,
-        cpcHigh: 1.5,
-        monthlyVolumes: [],
-      },
-    ],
-    meta: { total: 1, page: 1, pageSize: 25, cursor: null },
-  };
+/**
+ * View-aware `POST /query` handler (M7-R1): the dashboard reads the 搜尋詞總表 via the view-router
+ * (carries monthlyVolumes), and the co-mounted 趨勢 card fires its own `view:'trend'` request — keep
+ * it healthy (empty axis) and return the keyword row (raw `intent`) for the keywords view.
+ */
+function keywordsHandler() {
+  return http.post(QUERY_ROUTE, async ({ request }) => {
+    const { view } = (await request.json()) as { view: string };
+    if (view === 'trend') {
+      return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+    }
+    return HttpResponse.json({
+      view: 'keywords',
+      columns: [],
+      rows: [
+        {
+          text: 'running shoes',
+          normalizedText: 'running shoes',
+          intent: [],
+          avgMonthlySearches: 1000,
+          competition: 'HIGH',
+          competitionIndex: 80,
+          cpcLow: 0.5,
+          cpcHigh: 1.5,
+          monthlyVolumes: [],
+        },
+      ],
+      pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+    });
+  });
 }
 
 function renderDashboard(search = '') {
@@ -122,7 +136,7 @@ describe('AnalysisDashboard · readiness → content routing', () => {
   it('routes a completed analysis to the default keywords table', async () => {
     server.use(
       http.get(STATUS_ROUTE, () => HttpResponse.json({ status: 'completed', features: {} })),
-      http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+      keywordsHandler(),
     );
     renderDashboard();
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
@@ -131,7 +145,7 @@ describe('AnalysisDashboard · readiness → content routing', () => {
   it('routes a partial analysis to view content too (partial is viewable, C3)', async () => {
     server.use(
       http.get(STATUS_ROUTE, () => HttpResponse.json({ status: 'partial', features: {} })),
-      http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+      keywordsHandler(),
     );
     renderDashboard();
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
@@ -206,7 +220,7 @@ describe('AnalysisDashboard · §7 completed-view retain (#645)', () => {
           ? new HttpResponse(null, { status: 500 })
           : HttpResponse.json({ status: 'completed', features: {} }),
       ),
-      http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+      keywordsHandler(),
     );
     const { queryClient } = renderDashboard();
 
@@ -244,7 +258,7 @@ describe('AnalysisDashboard · §7 completed-view retain (#645)', () => {
           ? new HttpResponse(null, { status: 404 })
           : HttpResponse.json({ status: 'completed', features: {} }),
       ),
-      http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+      keywordsHandler(),
     );
     const { queryClient } = renderDashboard();
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
@@ -326,7 +340,7 @@ describe('AnalysisDashboard · §7 single authoritative transport (M6-R1, TC-55)
             ? HttpResponse.json({ status: 'completed', features: {}, result: { count: 2 } })
             : HttpResponse.json({ status: 'running' }),
         ),
-        http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+        keywordsHandler(),
       );
       renderDashboard();
 
@@ -375,7 +389,7 @@ describe('AnalysisDashboard · §7 single authoritative transport (M6-R1, TC-55)
     await withFakeEventSource(async () => {
       server.use(
         http.get(STATUS_ROUTE, () => HttpResponse.json({ status: 'completed', features: {} })),
-        http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())),
+        keywordsHandler(),
         // The topics sub-resource is gone → fetchTopicsStatus maps its 404 → not_found.
         http.get(
           '/api/v1/keyword-analyses/:id/topics',

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { keywordRow, keywordsBody, stubAnalysisStatus } from '../support/stubs';
+import { keywordViewRow, stubAnalysisStatus, stubKeywordsQuery } from '../support/stubs';
 import { completedSnapshot, stubFullViews } from './support';
 
 // Visual regression — TC-54 (NFR-6, FR-6/9/14): the two dashboard controls goldens —
@@ -9,14 +9,11 @@ import { completedSnapshot, stubFullViews } from './support';
 // inside `mcr.microsoft.com/playwright:v1.61.1-noble` (rule §1/§2 — never macOS/arm64).
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEYWORDS_URL = new RegExp(`/api/v1/keyword-analyses/${ANALYSIS_ID}/keywords`);
 
 test('篩選 chips bar matches visual baseline (TC-54)', async ({ page }) => {
   await stubFullViews(page);
   await stubAnalysisStatus(page, ANALYSIS_ID, completedSnapshot());
-  await page.route(KEYWORDS_URL, (route) =>
-    route.fulfill({ json: keywordsBody([keywordRow('running shoes')], { total: 1 }) }),
-  );
+  await stubKeywordsQuery(page, [keywordViewRow('running shoes')]);
 
   await page.goto(`/?analysisId=${ANALYSIS_ID}&view=keywords`);
 
