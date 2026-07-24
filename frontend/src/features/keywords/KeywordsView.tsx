@@ -189,7 +189,8 @@ export function KeywordsView({
           <button
             type="button"
             aria-expanded={aiExpanded}
-            aria-controls="ai-insight-panel"
+            // Only reference the panel when it's rendered (M7-R14/#11) — it exists only while expanded.
+            aria-controls={aiExpanded ? 'ai-insight-panel' : undefined}
             onClick={toggleAi}
             className="rounded-lg px-3 py-1.5 text-sm text-white/70 ring-1 ring-white/10 hover:text-white hover:ring-white/20"
           >
