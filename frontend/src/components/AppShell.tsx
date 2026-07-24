@@ -55,6 +55,12 @@ export interface AppShellProps {
    * slot is empty. Kept out of `main` so no visual golden captures it.
    */
   readonly contextBar?: ReactNode;
+  /**
+   * Optional left-column tracking-list section (M7-R5, TC-58), stacked below the dimension
+   * menu in the results context. A container supplies `<LeftTrackingNav>`; it renders nothing
+   * when the owner has no lists, so on the cold screen this slot stays empty.
+   */
+  readonly trackingNav?: ReactNode;
 }
 
 /**
@@ -82,6 +88,7 @@ export function AppShell({
   hasAnalysisContext = false,
   headerExtra,
   contextBar,
+  trackingNav,
 }: AppShellProps) {
   // Roadmap tabs (AI Search / Social) are not navigable yet: clicking one flips this
   // to show an ephemeral 即將推出 notice — never a route change / 404 (TC-58〔nav〕).
@@ -134,41 +141,44 @@ export function AppShell({
         {/* Left dimension menu — only in results context (T7.9, AC-1.3). On the input /
             cold screen it is hidden entirely and the main content takes full width. */}
         {hasAnalysisContext ? (
-          <nav aria-label="維度選單" className="w-56 shrink-0 border-r border-white/10 p-3">
-            {degraded ? (
-              <p
-                role="status"
-                className="mb-2 rounded-md bg-white/5 px-3 py-2 text-xs text-white/50"
-              >
-                無法載入視圖清單，改用內建預設
-              </p>
-            ) : null}
-            <ul className="flex flex-col gap-1">
-              {dimensions.map((dim) => {
-                const isActive = dim.name === activeView;
-                const interactive = onSelectView !== undefined;
-                return (
-                  <li key={dim.name}>
-                    <button
-                      type="button"
-                      disabled={!interactive}
-                      aria-current={isActive ? 'page' : undefined}
-                      onClick={interactive ? () => onSelectView(dim.name) : undefined}
-                      className={
-                        isActive
-                          ? 'w-full rounded-lg bg-white/10 px-3 py-2 text-left text-sm text-white'
-                          : interactive
-                            ? 'w-full rounded-lg px-3 py-2 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white'
-                            : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
-                      }
-                    >
-                      {dim.label}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
+          <div className="w-56 shrink-0 border-r border-white/10 p-3">
+            <nav aria-label="維度選單">
+              {degraded ? (
+                <p
+                  role="status"
+                  className="mb-2 rounded-md bg-white/5 px-3 py-2 text-xs text-white/50"
+                >
+                  無法載入視圖清單，改用內建預設
+                </p>
+              ) : null}
+              <ul className="flex flex-col gap-1">
+                {dimensions.map((dim) => {
+                  const isActive = dim.name === activeView;
+                  const interactive = onSelectView !== undefined;
+                  return (
+                    <li key={dim.name}>
+                      <button
+                        type="button"
+                        disabled={!interactive}
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={interactive ? () => onSelectView(dim.name) : undefined}
+                        className={
+                          isActive
+                            ? 'w-full rounded-lg bg-white/10 px-3 py-2 text-left text-sm text-white'
+                            : interactive
+                              ? 'w-full rounded-lg px-3 py-2 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white'
+                              : 'w-full cursor-not-allowed rounded-lg px-3 py-2 text-left text-sm text-white/40'
+                        }
+                      >
+                        {dim.label}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+            {trackingNav}
+          </div>
         ) : null}
         <main className="flex-1 p-6">{children}</main>
       </div>

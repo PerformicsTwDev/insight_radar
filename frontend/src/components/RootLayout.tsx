@@ -1,6 +1,7 @@
 import { Link, Outlet, useNavigate, useSearch } from '@tanstack/react-router';
 import { useUnauthorizedRedirect } from '../features/auth/unauthorizedRedirect';
 import { AnalysisContextBar } from '../features/dashboard/AnalysisContextBar';
+import { LeftTrackingNav } from '../features/tracking/LeftTrackingNav';
 import { useViews } from '../features/views/useViews';
 import { AppShell } from './AppShell';
 
@@ -48,6 +49,14 @@ export function RootLayout() {
       // subscriber to the dashboard's `GET :id` snapshot (no extra request).
       contextBar={
         analysisId !== undefined ? <AnalysisContextBar analysisId={analysisId} /> : undefined
+      }
+      // Left-column 追蹤清單 section (M7-R5) — only mounted in results context (AppShell renders
+      // the left column, and thus this slot, only when hasAnalysisContext), so it never fetches
+      // on the cold / input screen. Navigation is injected to keep LeftTrackingNav router-free.
+      trackingNav={
+        <LeftTrackingNav
+          onSelect={(listId) => void navigate({ to: '/tracking/$listId', params: { listId } })}
+        />
       }
       headerExtra={
         <div className="flex items-center gap-2">

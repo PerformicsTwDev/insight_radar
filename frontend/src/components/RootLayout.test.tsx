@@ -85,3 +85,26 @@ describe('TC-72 · Search Insight tab navigates home (T7.9)', () => {
     expect(router.state.location.search).not.toHaveProperty('analysisId');
   });
 });
+
+describe('M7-R5 · left-column 追蹤清單 nav', () => {
+  it('navigates to a list detail when its left-nav entry is clicked', async () => {
+    server.use(
+      http.get('/api/v1/tracking-lists', () =>
+        HttpResponse.json([
+          {
+            listId: 'l1',
+            name: '競品觀察清單',
+            geo: 'geoTargetConstants/2158',
+            language: 'languageConstants/1018',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            memberCount: 3,
+          },
+        ]),
+      ),
+    );
+    const router = renderRoot(`/?analysisId=${ANALYSIS_ID}&view=keywords`);
+    const entry = await screen.findByRole('button', { name: /競品觀察清單/ });
+    fireEvent.click(entry);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/tracking/l1'));
+  });
+});
