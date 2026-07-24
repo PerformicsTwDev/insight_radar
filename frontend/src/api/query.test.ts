@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { describe, it, expect } from 'vitest';
-import { postQuery } from './query';
+import { postQuery, postQueryAllPages, type QueryRequest } from './query';
 import { server } from './msw/server';
 
 const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
@@ -171,5 +171,110 @@ describe('TC-34 · postQuery (request body + view-shape union parsing)', () => {
     const table = await postQuery(ID, { view: 'intent_distribution' });
     expect(table.ok).toBe(true);
     if (table.ok && table.view.kind === 'table') expect(table.view.rows).toEqual([]);
+  });
+});
+
+/**
+ * M7-R20 (xhigh finding [0]) — `postQueryAllPages`: the 購買歷程主題 all-stages client-join
+ * (KeywordsView) needs EVERY keyword's stage, but the backend `/query` hard-caps a single page at
+ * `QUERY_MAX_PAGE_SIZE` (default 200): `pageSize > 200 → 400` (query-view.service.ts / snapshot-
+ * query.service.ts). The prior `pageSize: 100_000` was silently rejected → the column stuck on
+ * shimmer forever. This helper fetches the whole set by following the cursor within the cap, and
+ * fails loud (never a partial/truncated map) if any page errors.
+ */
+describe('M7-R20 · postQueryAllPages (cursor-follow within backend pageSize cap)', () => {
+  it('follows the cursor across pages, never exceeds the 200 cap, accumulates every row', async () => {
+    const seenPageSizes: number[] = [];
+    const seenCursors: (string | undefined)[] = [];
+    server.use(
+      http.post(PATH, async ({ request }) => {
+        const body = (await request.json()) as QueryRequest;
+        seenPageSizes.push(body.pagination?.pageSize ?? -1);
+        seenCursors.push(body.pagination?.cursor);
+        const table = (rows: Record<string, unknown>[], page: number, cursor: string | null) =>
+          HttpResponse.json({
+            view: 'journey',
+            columns: [
+              { key: 'normalizedText', label: 'kw', type: 'text' },
+              { key: 'stage', label: 'stage', type: 'text' },
+            ],
+            rows,
+            pagination: { total: 250, page, pageSize: 200, cursor },
+          });
+        if (body.pagination?.cursor === undefined) {
+          return table(
+            Array.from({ length: 200 }, (_, i) => ({
+              normalizedText: `kw${i}`,
+              stage: 'awareness',
+            })),
+            1,
+            'c1',
+          );
+        }
+        return table(
+          Array.from({ length: 50 }, (_, i) => ({
+            normalizedText: `kw${200 + i}`,
+            stage: 'consideration',
+          })),
+          2,
+          null,
+        );
+      }),
+    );
+
+    const result = await postQueryAllPages(ID, {
+      view: 'journey',
+      select: ['normalizedText', 'stage'],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    // Every stage row across both pages — the 201st+ keyword (dropped by the old first-page cap) is joined.
+    expect(result.rows).toHaveLength(250);
+    expect(result.rows[249]).toEqual({ normalizedText: 'kw249', stage: 'consideration' });
+    // The [0] regression guard: never requests more than the backend cap (100_000 would 400).
+    expect(Math.max(...seenPageSizes)).toBeLessThanOrEqual(200);
+    expect(seenCursors).toEqual([undefined, 'c1']);
+  });
+
+  it('fails loud (ok:false) when a page errors mid-pagination — no partial map', async () => {
+    let call = 0;
+    server.use(
+      http.post(PATH, () => {
+        call += 1;
+        if (call === 1) {
+          return HttpResponse.json({
+            view: 'journey',
+            columns: [{ key: 'normalizedText', label: 'kw', type: 'text' }],
+            rows: [{ normalizedText: 'kw0', stage: 'awareness' }],
+            pagination: { total: 250, page: 1, pageSize: 200, cursor: 'c1' },
+          });
+        }
+        return HttpResponse.json({ statusCode: 500, message: 'boom' }, { status: 500 });
+      }),
+    );
+
+    const result = await postQueryAllPages(ID, { view: 'journey' });
+    expect(result.ok).toBe(false);
+  });
+
+  it('single-page result (cursor null on page 1) returns immediately with one request', async () => {
+    let calls = 0;
+    server.use(
+      http.post(PATH, () => {
+        calls += 1;
+        return HttpResponse.json({
+          view: 'journey',
+          columns: [{ key: 'normalizedText', label: 'kw', type: 'text' }],
+          rows: [{ normalizedText: 'only', stage: 'awareness' }],
+          pagination: { total: 1, page: 1, pageSize: 200, cursor: null },
+        });
+      }),
+    );
+
+    const result = await postQueryAllPages(ID, { view: 'journey' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.rows).toHaveLength(1);
+    expect(calls).toBe(1);
   });
 });

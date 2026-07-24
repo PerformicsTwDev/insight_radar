@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { useMemo, type ReactElement } from 'react';
 import { getKeywordsView } from '../../api/keywords';
-import { postQuery } from '../../api/query';
+import { postQueryAllPages } from '../../api/query';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 import { deserializeFiltersFromUrl } from '../../lib/filterSpec';
@@ -43,13 +43,6 @@ import {
  * reopen carry it, Design §5) — a picked keyword must know its list-layer-fixed context;
  * without it the table stays selection-free rather than seeding an empty context.
  */
-
-/**
- * pageSize for the 購買歷程主題 all-stages join query (M7-R12): large enough to return every keyword's
- * stage in one page (the grand table maxes ~3,686 rows; the view-router applies no upper cap), so the
- * client-join covers any table page. Only `normalizedText`+`stage` are selected → a Map, not a render.
- */
-const ALL_STAGES_PAGE_SIZE = 100_000;
 
 export function KeywordsView({
   analysisId,
@@ -130,24 +123,18 @@ export function KeywordsView({
   // job's stage 表 (`POST /query {view:journey}`, default select carries normalizedText), client-joined
   // by normalizedText (D2). Same C13 gate-decoupling — generating runs the journey run, no view unlock.
   const journey = useJourney(analysisId, featureStatusOf(features, 'journey'));
-  // M7-R12: the column's stage map must cover EVERY keyword, not `useJourney.rows` (the journey view's
-  // default first-50 page) — otherwise a classified keyword surfaced by a later table page / sort /
-  // filter renders `—` as if unclassified. Fetch all stages in one lightweight query (only
-  // normalizedText + stage → a Map, no DOM render), parity with topics (GET :id/topics returns all).
+  // M7-R12/R20: the column's stage map must cover EVERY keyword, not `useJourney.rows` (the journey
+  // view's default first-50 page) — otherwise a classified keyword surfaced by a later table page /
+  // sort / filter renders `—` as if unclassified. The backend `/query` caps a single page at 200
+  // (Design §6.5) — the old single 100k-row page was silently 400'd — so `postQueryAllPages` follows
+  // the cursor to gather all stages (M7-R20). Light normalizedText+stage select → a Map, no DOM render.
   const journeyStagesQuery = useQuery({
     queryKey: ['journey-stages', analysisId],
     queryFn: () =>
-      postQuery(analysisId, {
-        view: 'journey',
-        select: ['normalizedText', 'stage'],
-        pagination: { pageSize: ALL_STAGES_PAGE_SIZE },
-      }),
+      postQueryAllPages(analysisId, { view: 'journey', select: ['normalizedText', 'stage'] }),
     enabled: journey.status === 'ready',
   });
-  const journeyStageRows =
-    journeyStagesQuery.data?.ok && journeyStagesQuery.data.view.kind === 'table'
-      ? journeyStagesQuery.data.view.rows
-      : undefined;
+  const journeyStageRows = journeyStagesQuery.data?.ok ? journeyStagesQuery.data.rows : undefined;
   const journeyMap = useMemo(() => journeyStageByKey(journeyStageRows), [journeyStageRows]);
   const dimensionColumns = useMemo<DimensionColumnConfig[]>(
     () => [
