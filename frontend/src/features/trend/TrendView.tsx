@@ -16,7 +16,7 @@ import { TrendChart } from './TrendChart';
  * a **consistent card height** (T7.4 fidelity).
  */
 
-const TREND_CARD = 'flex min-h-[22rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10';
+const TREND_CARD = 'flex min-h-[16rem] flex-col rounded-xl bg-bg-card p-4 ring-1 ring-white/10';
 
 /** One month of a keyword's series from the `keywords` view (backend `MonthlySearchVolume`). */
 const MonthlyVolumeSchema = z.object({

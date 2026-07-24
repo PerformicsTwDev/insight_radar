@@ -285,7 +285,10 @@ export function KeywordsTable({
       role="table"
       aria-label="搜尋詞總表"
       aria-rowcount={rows.length}
-      className="max-h-[600px] overflow-auto rounded-xl bg-bg-card ring-1 ring-white/10"
+      // M7-R4: fill the results row's remaining height (min-h-0 + flex-1) and scroll internally —
+      // the virtualizer's scroll element — rather than a fixed 600px cap, so the 三欄 scroll
+      // independently inside the fixed-height frame.
+      className="min-h-0 flex-1 overflow-auto rounded-xl bg-bg-card ring-1 ring-white/10"
     >
       <div role="presentation" style={{ width: totalWidth, minWidth: '100%' }}>
         <div
