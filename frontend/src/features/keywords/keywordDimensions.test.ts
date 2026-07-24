@@ -136,6 +136,17 @@ describe('TC-28 · dimensionCellState (gate status + label → cell state, M7-R2
     expect(dimensionCellState('not_generated', undefined)).toEqual({ kind: 'masked' });
     expect(dimensionCellState('failed', '規格探究')).toEqual({ kind: 'masked' });
   });
+
+  it('is a failed marker (never a permanent shimmer) at ready when the content fetch failed (M7-R26)', () => {
+    // ready + no label + not-yet-loaded but FAILED → the definitive failed state, NOT the loading
+    // shimmer (which would freeze forever, since a settled ok:false query never retries on its own).
+    expect(dimensionCellState('ready', undefined, false, true)).toEqual({ kind: 'failed' });
+    // A classified keyword still shows its label — a failed overall fetch never blanks a known value.
+    expect(dimensionCellState('ready', '規格探究', false, true)).toEqual({
+      kind: 'value',
+      label: '規格探究',
+    });
+  });
 });
 
 describe('TC-28 · cellStateForRow (normalizedText lookup → cell state, M7-R2b/c)', () => {
@@ -163,5 +174,12 @@ describe('TC-28 · cellStateForRow (normalizedText lookup → cell state, M7-R2b
   it('treats a row without a normalizedText join key as having no label (— / masked)', () => {
     expect(cellStateForRow('ready', undefined, labels, true)).toEqual({ kind: 'empty' });
     expect(cellStateForRow('not_generated', undefined, labels, true)).toEqual({ kind: 'masked' });
+  });
+
+  it('is a failed marker (not a shimmer) when the content fetch failed, M7-R26', () => {
+    // failed=true with an unresolved map (loaded=false) → failed, never the eternal loading shimmer.
+    expect(cellStateForRow('ready', 'running shoes', new Map(), false, true)).toEqual({
+      kind: 'failed',
+    });
   });
 });

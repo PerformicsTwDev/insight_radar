@@ -22,12 +22,17 @@ export const DIMENSION_ACCENT_COLOR = {
 
 export type DimensionAccent = keyof typeof DIMENSION_ACCENT_COLOR;
 
-/** Per-cell state: not-generated (masked), job running (generating), a value (pill), or unclassified (—). */
+/**
+ * Per-cell state: not-generated (masked), job running (generating), a value (pill), unclassified
+ * (—), or a settled content-fetch FAILURE (— but definitively failed, never an eternal shimmer —
+ * M7-R26; the column header carries the 重試 affordance).
+ */
 export type DimensionCellState =
   | { readonly kind: 'masked' }
   | { readonly kind: 'generating' }
   | { readonly kind: 'value'; readonly label: string }
-  | { readonly kind: 'empty' };
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'failed' };
 
 /** Header phase: generated (plain label), generatable (✦ trigger), or running (progress marker). */
 export type DimensionHeaderPhase = 'ready' | 'generatable' | 'generating';
@@ -66,6 +71,15 @@ export function DimensionCell({
     // Generated, but this keyword is unclassified (noise) — — (never a fabricated topic, C12).
     return <span className="text-white/40">{EM_DASH}</span>;
   }
+  if (state.kind === 'failed') {
+    // The dimension's content fetch settled with a failure (M7-R26): a definitive — with a distinct
+    // a11y label + faint error tint — NOT the eternal 生成中 shimmer. The header offers 重試.
+    return (
+      <span role="img" aria-label="載入失敗" className="text-trend-negative/60">
+        {EM_DASH}
+      </span>
+    );
+  }
   // masked / generating → an accessible shimmer bar (no value leaks before generation; the
   // running variant pulses). The label distinguishes the two for screen readers.
   const generating = state.kind === 'generating';
@@ -82,11 +96,32 @@ export function DimensionHeader({
   label,
   phase,
   onGenerate,
+  failed = false,
+  onRetry,
 }: {
   label: string;
   phase: DimensionHeaderPhase;
   onGenerate: () => void;
+  /** The dimension's content fetch settled with a failure (M7-R26) — overrides `phase` to a 重試. */
+  readonly failed?: boolean;
+  /** Retry the failed content fetch (refetch the topics/journey stage query). */
+  readonly onRetry?: () => void;
 }): ReactElement {
+  if (failed && onRetry) {
+    // Content fetch failed — surface an explicit 重試 (parity with the main table's ErrorState+retry,
+    // M7-R26), instead of a ready ✦ header sitting over cells that would otherwise shimmer forever.
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        title={`${label}載入失敗，點擊重試`}
+        className="flex items-center gap-1 text-trend-negative hover:opacity-80"
+      >
+        {label}
+        <span aria-hidden="true">⟳</span>
+      </button>
+    );
+  }
   if (phase === 'ready') {
     // v4 (M7-R17): a generated AI dimension keeps its green ✦ marker in the header, so the
     // 搜尋意圖類別 / 搜尋意圖主題 / 購買歷程主題 columns read as one green ✦ group.

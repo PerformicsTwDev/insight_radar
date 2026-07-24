@@ -46,6 +46,13 @@ describe('TC-28 · DimensionCell (masked / generating / value pill / — states,
     const mask = screen.getByRole('img', { name: '生成中' });
     expect(mask.className).toContain('animate-pulse');
   });
+
+  it('renders a failed cell as a definitive — (載入失敗), never a pulsing shimmer (M7-R26)', () => {
+    render(<DimensionCell state={{ kind: 'failed' }} accent="topic" />);
+    const cell = screen.getByRole('img', { name: '載入失敗' });
+    expect(cell).toHaveTextContent(EM_DASH);
+    expect(cell.className).not.toContain('animate-pulse');
+  });
 });
 
 describe('TC-28 · DimensionHeader (ready / generatable ✦ / generating, M7-R2b)', () => {
@@ -70,5 +77,24 @@ describe('TC-28 · DimensionHeader (ready / generatable ✦ / generating, M7-R2b
     render(<DimensionHeader label="購買歷程主題" phase="generating" onGenerate={onGenerate} />);
     expect(screen.getByRole('status', { name: '生成中' })).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('overrides the phase with a 重試 trigger when the content fetch failed (M7-R26)', () => {
+    const onRetry = vi.fn();
+    // Even at gate phase `ready`, a failed content fetch surfaces an explicit retry (not a ✦ header
+    // over permanently-shimmering cells) — parity with the main table's ErrorState+retry.
+    render(
+      <DimensionHeader
+        label="購買歷程主題"
+        phase="ready"
+        onGenerate={noop}
+        failed
+        onRetry={onRetry}
+      />,
+    );
+    const retry = screen.getByRole('button', { name: /購買歷程主題/ });
+    expect(retry).toHaveAttribute('title', expect.stringContaining('重試'));
+    fireEvent.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });
