@@ -205,6 +205,9 @@ function MemberTable({
                 </td>
                 <td className="py-2">
                   <SparklineCell
+                    // Snapshot-revision series over the fetchedAt axis — NOT monthly TTM, so the
+                    // 12-mo-calibrated trend %/type/colour don't apply here (M7-R23 / xhigh [9]).
+                    showTrend={false}
                     volumes={member.series.map((point) => ({
                       searches: point.avgMonthlySearches,
                     }))}

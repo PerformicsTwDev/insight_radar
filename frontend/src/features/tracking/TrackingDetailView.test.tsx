@@ -208,6 +208,10 @@ describe('TC-30 · member table (latest volume / sparkline / addedAt / remove)',
     expect(within(row).getByText('140')).toBeInTheDocument();
     // reused SVG sparkline (lib/sparkline via SparklineCell).
     expect(within(row).getByRole('img', { name: '搜尋趨勢走勢' })).toBeInTheDocument();
+    // M7-R23 [9]: the sparkline draws, but NO 12-mo-TTM trend % — this series is per-fetchedAt
+    // snapshot revisions, not monthly TTM, so the classification %/colour don't apply here.
+    expect(within(row).queryByText(/[↑↓]/)).not.toBeInTheDocument();
+    expect(row.querySelector('[data-trend-type]')).toBeNull();
   });
 
   it('removes a member behind a confirm dialog then refetches the reduced series', async () => {

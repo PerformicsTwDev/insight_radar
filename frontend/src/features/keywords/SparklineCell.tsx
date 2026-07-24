@@ -24,9 +24,17 @@ const DOT_RADIUS = 1.5;
 
 export interface SparklineCellProps {
   readonly volumes: readonly MonthlyVolumePoint[];
+  /**
+   * Render the trend CLASSIFICATION annotations — the inline signed TTM % (M7-R2a) + the hover
+   * type/% `<title>` tooltip (FR-21). Default true. The 追蹤清單 detail 走勢 column passes `false`
+   * (M7-R23 / xhigh [9]): its series is per-`fetchedAt` metric-revision snapshots, not intra-year
+   * monthly TTM, so the 12-month-calibrated trend type/%/colour would be miscalibrated there — the
+   * sparkline line still draws, only the classification is dropped.
+   */
+  readonly showTrend?: boolean;
 }
 
-export function SparklineCell({ volumes }: SparklineCellProps): ReactElement {
+export function SparklineCell({ volumes, showTrend = true }: SparklineCellProps): ReactElement {
   const result = buildSparkline(volumes);
 
   if (!result.hasData) {
@@ -39,12 +47,16 @@ export function SparklineCell({ volumes }: SparklineCellProps): ReactElement {
   }
 
   const { width, height, segments } = result.geometry;
-  // FR-21: the hover tooltip shows the trend 型別 + %. Null when the series can't be
-  // classified (e.g. first non-null is 0) → draw the sparkline without a trend label.
-  const tooltip = trendTooltip(volumes, config.trendStableMax, config.trendSurgeMin);
+  // FR-21: the hover tooltip shows the trend 型別 + %. Null when the series can't be classified
+  // (e.g. first non-null is 0) OR when trend classification is suppressed (M7-R23, non-TTM series).
+  const tooltip = showTrend
+    ? trendTooltip(volumes, config.trendStableMax, config.trendSurgeMin)
+    : null;
   // M7-R2a: the signed % renders inline beside the sparkline, coloured by trend type; an
   // unclassifiable % (÷0) shows — inline (never a fabricated %) while the sparkline still draws.
-  const inline = trendInline(volumes, config.trendStableMax, config.trendSurgeMin);
+  const inline = showTrend
+    ? trendInline(volumes, config.trendStableMax, config.trendSurgeMin)
+    : null;
   return (
     <span className="flex items-center gap-2">
       <svg
@@ -79,7 +91,7 @@ export function SparklineCell({ volumes }: SparklineCellProps): ReactElement {
           ),
         )}
       </svg>
-      {inline ? (
+      {!showTrend ? null : inline ? (
         // Colour from the TREND_TYPE_COLOR SSOT (a type→colour lookup can't be JIT-safelisted
         // into a static Tailwind class without a safelist) — applied inline, like the intent chips.
         <span
