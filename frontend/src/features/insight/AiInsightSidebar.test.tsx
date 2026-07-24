@@ -81,6 +81,45 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
     expect(posted).toBe(false);
   });
 
+  it('opt-in is PER-VIEW: switching view re-shows the CTA and does NOT auto-fire (M7-R19)', async () => {
+    // M7-R19 regression guard: ResultsLayout keeps one persistent AiInsightSidebar across dimension
+    // switches, so a boolean `requested` would stay true and auto-fire generateAiInsight for the new
+    // view with no click (undoing M7-R14). The opt-in must be scoped to the requested view.
+    const calls = recordInsight();
+    function Harness(): ReactNode {
+      const [view, setView] = useState('keywords');
+      return (
+        <>
+          <button type="button" aria-label="切換維度" onClick={() => setView('intent_topics')}>
+            next
+          </button>
+          <AiInsightSidebar
+            analysisId={ID}
+            view={view}
+            filters={{}}
+            requiresFeature="keyword_metrics"
+            features={READY}
+            expanded
+            onToggle={() => {}}
+          />
+        </>
+      );
+    }
+    render(<Harness />, { wrapper: wrapper() });
+
+    // Opt in on view A → exactly one fire (the correct M7-R14 behaviour).
+    clickGenerate();
+    await waitFor(() => expect(screen.getByText(INSIGHT)).toBeInTheDocument());
+    expect(calls).toHaveLength(1);
+
+    // Switch to a different dimension view on the SAME mounted instance → the opt-in does not carry
+    // over: the ✦生成 CTA re-appears and NO new POST fires without another explicit click.
+    fireEvent.click(screen.getByRole('button', { name: '切換維度' }));
+    expect(await screen.findByRole('button', { name: /生成 AI 洞察/ })).toBeInTheDocument();
+    await Promise.resolve();
+    expect(calls).toHaveLength(1);
+  });
+
   it('ready + open → 生成 click POSTs :id/ai-insight { view, filters } and renders the scoped insight', async () => {
     const calls = recordInsight();
 
