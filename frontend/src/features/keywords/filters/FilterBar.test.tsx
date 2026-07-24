@@ -284,3 +284,33 @@ describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
     expect(readSpec()).toEqual({ intent: ['commercial'] });
   });
 });
+
+describe('TC-17 / M7-R9 · FilterBar popover dismiss on outside pointer-down', () => {
+  it('closes the open popover when the pointer goes down outside it', () => {
+    render(<Harness />);
+    openChip('搜尋量');
+    expect(screen.getByRole('group', { name: '搜尋量 篩選' })).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByTestId('spec')); // an element outside the popover + trigger
+    expect(screen.queryByRole('group', { name: '搜尋量 篩選' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the popover open when the pointer goes down inside it', () => {
+    render(<Harness />);
+    const pop = openChip('搜尋量');
+    fireEvent.pointerDown(pop.getByLabelText('最低'));
+    expect(screen.getByRole('group', { name: '搜尋量 篩選' })).toBeInTheDocument();
+  });
+
+  it('opening a second chip closes the first (effective single-open)', () => {
+    render(<Harness />);
+    openChip('搜尋量');
+    expect(screen.getByRole('group', { name: '搜尋量 篩選' })).toBeInTheDocument();
+
+    // Pressing another chip's trigger is outside the first popover → it closes; the second opens.
+    fireEvent.pointerDown(screen.getByRole('button', { name: /CPC/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CPC/ }));
+    expect(screen.queryByRole('group', { name: '搜尋量 篩選' })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'CPC 篩選' })).toBeInTheDocument();
+  });
+});
