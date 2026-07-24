@@ -1,10 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
-  keywordRow,
-  keywordsBody,
+  keywordViewRow,
   stubAnalysisStatus,
   stubCreateAnalysis,
-  stubQuery,
+  stubKeywordsQuery,
   stubStreamsOffline,
   stubViews,
 } from './support/stubs';
@@ -18,11 +17,9 @@ import {
  */
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEYWORDS_URL = new RegExp(`/api/v1/keyword-analyses/${ANALYSIS_ID}/keywords`);
 
 test('create an analysis → job progress → keywords grand table (TC-43)', async ({ page }) => {
   await stubViews(page);
-  await stubQuery(page);
   await stubStreamsOffline(page);
   await stubCreateAnalysis(page, ANALYSIS_ID);
 
@@ -33,9 +30,7 @@ test('create an analysis → job progress → keywords grand table (TC-43)', asy
       ? { status: 'running', progress: { phase: '擴充關鍵字', percent: 40 } }
       : { status: 'completed', features: {}, result: { resultSnapshotId: 'snap-1', count: 2 } },
   );
-  await page.route(KEYWORDS_URL, (route) =>
-    route.fulfill({ json: keywordsBody([keywordRow('running shoes'), keywordRow('trail shoes')]) }),
-  );
+  await stubKeywordsQuery(page, [keywordViewRow('running shoes'), keywordViewRow('trail shoes')]);
 
   await page.goto('/');
 

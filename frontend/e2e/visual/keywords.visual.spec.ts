@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { keywordRow, keywordsBody, stubAnalysisStatus } from '../support/stubs';
+import { keywordViewRow, stubAnalysisStatus, stubKeywordsQuery } from '../support/stubs';
 import { completedSnapshot, stubFullViews } from './support';
 
 // Visual regression — TC-49 (NFR-6, FR-4/14): the 搜尋詞總表 (keywords grand table).
@@ -13,37 +13,29 @@ import { completedSnapshot, stubFullViews } from './support';
 // `mcr.microsoft.com/playwright:v1.61.1-noble` (rule §1/§2 — never macOS/arm64).
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEYWORDS_URL = new RegExp(`/api/v1/keyword-analyses/${ANALYSIS_ID}/keywords`);
 const DASHBOARD = `/?analysisId=${ANALYSIS_ID}&view=keywords`;
 
 test('搜尋詞總表 matches visual baseline (TC-49)', async ({ page }) => {
   await stubFullViews(page);
   await stubAnalysisStatus(page, ANALYSIS_ID, completedSnapshot());
-  await page.route(KEYWORDS_URL, (route) =>
-    route.fulfill({
-      json: keywordsBody(
-        [
-          keywordRow('running shoes'),
-          keywordRow('trail shoes', {
-            avgMonthlySearches: 8600,
-            competition: 'MEDIUM',
-            competitionIndex: 55,
-            cpcLow: 0.9,
-            cpcHigh: 2.1,
-          }),
-          keywordRow('waterproof hiking boots', {
-            intentLabels: ['transactional'],
-            avgMonthlySearches: 4200,
-            competition: 'LOW',
-            competitionIndex: 22,
-            cpcLow: 0.6,
-            cpcHigh: 1.4,
-          }),
-        ],
-        { total: 3 },
-      ),
+  await stubKeywordsQuery(page, [
+    keywordViewRow('running shoes'),
+    keywordViewRow('trail shoes', {
+      avgMonthlySearches: 8600,
+      competition: 'MEDIUM',
+      competitionIndex: 55,
+      cpcLow: 0.9,
+      cpcHigh: 2.1,
     }),
-  );
+    keywordViewRow('waterproof hiking boots', {
+      intent: ['transactional'],
+      avgMonthlySearches: 4200,
+      competition: 'LOW',
+      competitionIndex: 22,
+      cpcLow: 0.6,
+      cpcHigh: 1.4,
+    }),
+  ]);
 
   await page.goto(DASHBOARD);
 

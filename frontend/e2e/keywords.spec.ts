@@ -1,11 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  keywordRow,
-  keywordsBody,
-  stubAnalysisStatus,
-  stubQuery,
-  stubViews,
-} from './support/stubs';
+import { keywordViewRow, stubAnalysisStatus, stubKeywordsQuery, stubViews } from './support/stubs';
 
 /**
  * TC-44 (e2e, FR-6/7/13) — the 搜尋詞總表 filter → paginate → copy flow against the
@@ -15,27 +9,27 @@ import {
  */
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEYWORDS_URL = new RegExp(`/api/v1/keyword-analyses/${ANALYSIS_ID}/keywords`);
 const DASHBOARD = `/?analysisId=${ANALYSIS_ID}&view=keywords`;
 
-/** Keywords stub that mirrors filter (`intent`) + pagination (`page`) into the row set. */
+/**
+ * Keywords stub that mirrors the applied filter (`intent`) + pagination (`page`) — now carried in the
+ * `POST :id/query` body (Design §5), not the URL query — into the returned row set, so a URL-driven
+ * re-fetch is observable. The co-mounted 趨勢 card's `view:'trend'` request is served empty.
+ */
 async function stubKeywords(page: import('@playwright/test').Page): Promise<void> {
   await stubViews(page);
-  await stubQuery(page);
   await stubAnalysisStatus(page, ANALYSIS_ID, { status: 'completed', features: {} });
-  await page.route(KEYWORDS_URL, (route) => {
-    const q = new URL(route.request().url()).searchParams;
-    if (q.get('page') === '2') {
-      return route.fulfill({
-        json: keywordsBody([keywordRow('page-two shoes')], { total: 50, page: 2 }),
-      });
+  await stubKeywordsQuery(page, (body) => {
+    if (body.pagination?.page === 2) {
+      return { rows: [keywordViewRow('page-two shoes')], meta: { total: 50, page: 2 } };
     }
-    if (q.get('intent') === 'commercial') {
-      return route.fulfill({ json: keywordsBody([keywordRow('running shoes')], { total: 1 }) });
+    if (body.filters?.intent?.includes('commercial')) {
+      return { rows: [keywordViewRow('running shoes')], meta: { total: 1 } };
     }
-    return route.fulfill({
-      json: keywordsBody([keywordRow('running shoes'), keywordRow('trail shoes')], { total: 50 }),
-    });
+    return {
+      rows: [keywordViewRow('running shoes'), keywordViewRow('trail shoes')],
+      meta: { total: 50 },
+    };
   });
 }
 
