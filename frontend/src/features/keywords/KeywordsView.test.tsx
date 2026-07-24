@@ -315,6 +315,23 @@ describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-
     expect(screen.getByRole('button', { name: /搜尋意圖主題/ })).toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: '尚未生成' }).length).toBeGreaterThan(0);
   });
+
+  it('runs the topics job (POST :id/topics) when the ✦ generate-all trigger is clicked (M7-R2b)', async () => {
+    stubQuery([row('running shoes')]);
+    let started = false;
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/topics', () => {
+        started = true;
+        return HttpResponse.json({ topicJobId: 'tj-1' }, { status: 202 });
+      }),
+    );
+    renderKeywords('', { topics: { status: 'not_generated' } });
+
+    // Clicking the column-header ✦ starts the topics run via useTopics.start (the wiring the
+    // coverage ratchet flagged) — it does NOT unlock the left 意圖主題 view (C13, verified in review).
+    fireEvent.click(await screen.findByRole('button', { name: /搜尋意圖主題/ }));
+    await waitFor(() => expect(started).toBe(true));
+  });
 });
 
 describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18)', () => {
@@ -358,5 +375,22 @@ describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-
     // The stage enum is resolved to its zh label (規格比較) via the SSOT and shown as a blue pill.
     expect(await screen.findByText('規格比較')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '購買歷程主題' })).toBeInTheDocument();
+  });
+
+  it('runs the journey job (POST :id/journey) when the ✦ generate-all trigger is clicked (M7-R2c)', async () => {
+    stubQuery([row('running shoes')]);
+    let started = false;
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/journey', () => {
+        started = true;
+        return HttpResponse.json({ journeyJobId: 'jj-1' }, { status: 202 });
+      }),
+    );
+    renderKeywords('', { journey: { status: 'not_generated' } });
+
+    // Clicking the column-header ✦ starts the journey run via useJourney.start (the wiring the
+    // coverage ratchet flagged) — gate-decoupled from the left 購買歷程 view (C13).
+    fireEvent.click(await screen.findByRole('button', { name: /購買歷程主題/ }));
+    await waitFor(() => expect(started).toBe(true));
   });
 });

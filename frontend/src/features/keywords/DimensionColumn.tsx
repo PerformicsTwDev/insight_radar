@@ -32,9 +32,9 @@ export type DimensionCellState =
 /** Header phase: generated (plain label), generatable (✦ trigger), or running (progress marker). */
 export type DimensionHeaderPhase = 'ready' | 'generatable' | 'generating';
 
-/** 8-digit-hex alpha suffixes for the pill fill / ring off the accent's 6-digit hex (≈12% / ≈33%). */
+/** 8-digit-hex alpha suffixes for the pill fill / border off the accent's 6-digit hex (≈12% / ≈33%). */
 const PILL_FILL_ALPHA = '1f';
-const PILL_RING_ALPHA = '55';
+const PILL_BORDER_ALPHA = '55';
 
 export function DimensionCell({
   state,
@@ -48,11 +48,13 @@ export function DimensionCell({
     const color = DIMENSION_ACCENT_COLOR[accent];
     return (
       <span
-        className="inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-xs font-medium ring-1"
+        // border (not ring) so the accent colour applies via the typed `borderColor` CSSProperties
+        // key — a `--tw-ring-color` custom property isn't in React's CSSProperties (fails tsc -b).
+        className="inline-block max-w-full truncate rounded-full border px-2.5 py-0.5 text-xs font-medium"
         style={{
           color,
           backgroundColor: `${color}${PILL_FILL_ALPHA}`,
-          '--tw-ring-color': `${color}${PILL_RING_ALPHA}`,
+          borderColor: `${color}${PILL_BORDER_ALPHA}`,
         }}
         data-accent={accent}
       >

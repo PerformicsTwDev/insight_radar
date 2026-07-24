@@ -84,6 +84,17 @@ describe('TC-28 · journeyStageByKey (normalizedText → stage zh label client-j
     expect(map.get('ok')).toBe('痛點覺察');
   });
 
+  it('omits a row that carries no normalizedText join key (even with a valid stage)', () => {
+    // A journey-view row missing normalizedText has no C7 key → it cannot be joined, so it is dropped
+    // (never keyed by `undefined`); the map holds only the joinable row.
+    const map = journeyStageByKey([
+      { text: 'no key', stage: 'final_decision' },
+      { text: 'keyed', normalizedText: 'keyed', stage: 'final_decision' },
+    ]);
+    expect(map.size).toBe(1);
+    expect(map.get('keyed')).toBe('最終決策');
+  });
+
   it('returns an empty map for undefined rows (journey not yet fetched)', () => {
     expect(journeyStageByKey(undefined).size).toBe(0);
   });
