@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { KeywordsTable } from './KeywordsTable';
+import { KeywordsTable, type DimensionColumnConfig } from './KeywordsTable';
 import { EM_DASH } from '../../lib/keywordsTable';
 import type { KeywordRow } from '../../api/keywords';
 
@@ -120,6 +120,47 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
     const trendCell = missingRowCells()[COL.trend];
     expect(within(trendCell).getByRole('img', { name: '無趨勢資料' })).toBeInTheDocument();
     expect(trendCell.querySelector('polyline')).toBeNull();
+  });
+});
+
+describe('TC-28 · KeywordsTable on-demand dimension columns (搜尋意圖主題 / 購買歷程主題, M7-R2b/c)', () => {
+  const topicColumn: DimensionColumnConfig = {
+    id: 'intentTopic',
+    label: '搜尋意圖主題',
+    accent: 'topic',
+    phase: 'ready',
+    onGenerate: () => {},
+    cellState: (row) =>
+      row.text === 'running shoes' ? { kind: 'value', label: '規格探究' } : { kind: 'empty' },
+  };
+
+  it('inserts the dimension column right after 意圖 with its header + per-row client-joined pills', () => {
+    render(<KeywordsTable rows={rows} dimensionColumns={[topicColumn]} />);
+    // Column order: 搜尋詞(0) 意圖(1) 搜尋意圖主題(2) 搜尋量(3) …
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers[2]).toBe('搜尋意圖主題');
+    expect(headers[3]).toBe('搜尋量');
+    // the classified row shows its pill; an unclassified row shows — (never a fabricated topic).
+    expect(screen.getByText('規格探究')).toBeInTheDocument();
+  });
+
+  it('fires the container generate handler from the header ✦ trigger when generatable', () => {
+    let generateCalls = 0;
+    render(
+      <KeywordsTable
+        rows={rows}
+        dimensionColumns={[
+          { ...topicColumn, phase: 'generatable', onGenerate: () => (generateCalls += 1) },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /搜尋意圖主題/ }));
+    expect(generateCalls).toBe(1);
+  });
+
+  it('renders no dimension column when none is supplied (unchanged base shape)', () => {
+    render(<KeywordsTable rows={rows} />);
+    expect(screen.queryByRole('columnheader', { name: '搜尋意圖主題' })).not.toBeInTheDocument();
   });
 });
 

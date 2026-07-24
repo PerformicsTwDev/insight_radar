@@ -69,12 +69,12 @@ function stubQuery(
   );
 }
 
-function renderKeywords(search = '') {
+function renderKeywords(search = '', features?: unknown) {
   const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
-    component: () => <KeywordsView analysisId={ANALYSIS_ID} />,
+    component: () => <KeywordsView analysisId={ANALYSIS_ID} features={features} />,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -259,5 +259,60 @@ describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
       'aria-expanded',
       'false',
     );
+  });
+});
+
+describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-18)', () => {
+  const TOPICS_ROUTE = '/api/v1/keyword-analyses/:id/topics';
+
+  /** A `GET :id/topics` body carrying the given classified keywords (rest of the shape is inert). */
+  const topicsBody = (
+    keywords: {
+      text: string;
+      normalizedText: string;
+      topicName: string | null;
+      isNoise?: boolean;
+    }[],
+  ) => ({
+    status: 'completed',
+    progress: null,
+    clusters: [],
+    keywords: keywords.map((k) => ({
+      parentTopic: null,
+      intentLabel: null,
+      confidence: 1,
+      isNoise: false,
+      ...k,
+    })),
+    meta: { runId: 'r', snapshotId: 's', clusterCount: 1, noiseCount: 0 },
+  });
+
+  it('shows the client-joined topic pill for a ready analysis (join by normalizedText, D2)', async () => {
+    stubQuery([row('running shoes'), row('trail shoes')]);
+    server.use(
+      http.get(TOPICS_ROUTE, () =>
+        HttpResponse.json(
+          topicsBody([
+            { text: 'running shoes', normalizedText: 'running shoes', topicName: '規格探究' },
+          ]),
+        ),
+      ),
+    );
+    renderKeywords('', { topics: { status: 'ready' } });
+
+    // The classified keyword renders its topic pill; the header is a plain label (ready phase).
+    expect(await screen.findByText('規格探究')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '搜尋意圖主題' })).toBeInTheDocument();
+  });
+
+  it('masks the column behind a ✦ generate-all trigger when topics are not generated (C13 decoupled)', async () => {
+    stubQuery([row('running shoes')]);
+    // No GET :id/topics is stubbed — a not_generated gate must NOT fetch topics (query disabled).
+    renderKeywords('', { topics: { status: 'not_generated' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // Header offers the 「generate all」 ✦ trigger (generatable); the cells stay masked.
+    expect(screen.getByRole('button', { name: /搜尋意圖主題/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: '尚未生成' }).length).toBeGreaterThan(0);
   });
 });
