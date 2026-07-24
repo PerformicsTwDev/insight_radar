@@ -5,7 +5,9 @@ import type { KeywordsMeta } from '../../api/keywords';
 import {
   SORT_DIRS,
   SORT_FIELDS,
+  pageWindow,
   paginationReducer,
+  showingRange,
   toPaginationState,
   totalPages,
   type PaginationAction,
@@ -124,6 +126,9 @@ export function KeywordsPagination({ meta }: { readonly meta: KeywordsMeta }): R
   const prevDisabled = mode === 'keyset' ? history.length === 0 : state.page <= 1;
   const nextDisabled = mode === 'keyset' ? meta.cursor === null : state.page >= pages;
   const currentPage = mode === 'keyset' ? meta.page : state.page;
+  const range = showingRange(currentPage, state.pageSize, meta.total);
+  // Windowed page list capped at the offset zone (deep pages go via keyset 下一頁).
+  const window = pageWindow(currentPage, Math.min(pages, config.offsetMaxPage));
 
   return (
     <div
@@ -141,7 +146,9 @@ export function KeywordsPagination({ meta }: { readonly meta: KeywordsMeta }): R
 
       <div className="flex items-center gap-2">
         {mode === 'offset' ? (
-          <span className="tabular-nums text-white/50">共 {meta.total} 筆</span>
+          <span className="tabular-nums text-white/50">
+            顯示 {range.from}–{range.to} 筆，共 {meta.total} 筆
+          </span>
         ) : (
           <span className="tabular-nums text-white/50">第 {currentPage} 頁</span>
         )}
@@ -158,18 +165,24 @@ export function KeywordsPagination({ meta }: { readonly meta: KeywordsMeta }): R
 
         {mode === 'offset' ? (
           <div className="flex items-center gap-1">
-            {offsetPageNumbers(pages, config.offsetMaxPage).map((p) => (
-              <button
-                key={p}
-                type="button"
-                aria-label={`第 ${p} 頁`}
-                aria-current={p === currentPage ? 'page' : undefined}
-                onClick={() => handleGoto(p)}
-                className={p === currentPage ? PAGE_BTN_ACTIVE : PAGE_BTN}
-              >
-                {p}
-              </button>
-            ))}
+            {window.map((p, i) =>
+              p === 'ellipsis' ? (
+                <span key={`ellipsis-${i}`} aria-hidden="true" className="px-1 text-white/40">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={p}
+                  type="button"
+                  aria-label={`第 ${p} 頁`}
+                  aria-current={p === currentPage ? 'page' : undefined}
+                  onClick={() => handleGoto(p)}
+                  className={p === currentPage ? PAGE_BTN_ACTIVE : PAGE_BTN}
+                >
+                  {p}
+                </button>
+              ),
+            )}
           </div>
         ) : null}
 
@@ -185,12 +198,6 @@ export function KeywordsPagination({ meta }: { readonly meta: KeywordsMeta }): R
       </div>
     </div>
   );
-}
-
-/** Offset-zone page numbers: 1..min(totalPages, cap). Deep pages are reached via keyset `下一頁`. */
-function offsetPageNumbers(pages: number, offsetMaxPage: number): number[] {
-  const count = Math.min(pages, offsetMaxPage);
-  return Array.from({ length: count }, (_, i) => i + 1);
 }
 
 const SORT_LABELS: Record<SortBy, string> = {
