@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type ReactElement } from 'react';
+import { useOutsideClick } from '../../../hooks/useOutsideClick';
 import {
   applyChip,
   clearField,
@@ -62,6 +63,10 @@ function FilterChip({
   const current = specToChips(spec).find((c) => c.field === field);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Click away closes the popover (M7-R9): a pointer-down outside it (and outside its own
+  // trigger) dismisses. Pressing another chip's trigger is "outside" here, so only one
+  // popover stays open at a time.
+  const popoverRef = useOutsideClick<HTMLDivElement>(open, () => setOpen(false), triggerRef);
 
   // Esc dismisses the popover and returns focus to its chip trigger (NFR-7 / TC-24).
   function closeToTrigger(): void {
@@ -140,6 +145,7 @@ function FilterChip({
 
       {open ? (
         <div
+          ref={popoverRef}
           role="group"
           aria-label={`${def.label} 篩選`}
           onKeyDown={(e) => {
