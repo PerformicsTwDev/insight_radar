@@ -389,6 +389,59 @@ describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-
     expect(screen.getByRole('columnheader', { name: '購買歷程主題' })).toBeInTheDocument();
   });
 
+  it('fetches ALL journey stages (large pageSize, light select) for the column join, not the default first-50 page (M7-R12)', async () => {
+    let stagesBody: { select?: string[]; pagination?: { pageSize?: number } } | undefined;
+    server.use(
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const body = (await request.json()) as {
+          view: string;
+          select?: string[];
+          pagination?: { pageSize?: number };
+        };
+        if (body.view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        if (body.view === 'journey') {
+          // Capture the column's dedicated all-stages query (the one selecting normalizedText+stage).
+          if (body.select?.length === 2) stagesBody = body;
+          return HttpResponse.json({
+            view: 'journey',
+            columns: [],
+            rows: [],
+            pagination: {
+              total: 0,
+              page: 1,
+              pageSize: body.pagination?.pageSize ?? 50,
+              cursor: null,
+            },
+          });
+        }
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [row('running shoes')],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        });
+      }),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'j',
+          status: 'completed',
+          progress: null,
+          keywordCount: 0,
+        }),
+      ),
+    );
+    renderKeywords('', { journey: { status: 'ready' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // The join must cover every keyword (a keyword surfaced on a later table page/sort must not show
+    // — as if unclassified) → a large pageSize + a normalizedText/stage-only select (Map, no render).
+    await waitFor(() => expect(stagesBody).toBeDefined());
+    expect(stagesBody?.select).toEqual(['normalizedText', 'stage']);
+    expect(stagesBody?.pagination?.pageSize ?? 50).toBeGreaterThan(1000);
+  });
+
   it('runs the journey job (POST :id/journey) when the ✦ generate-all trigger is clicked (M7-R2c)', async () => {
     stubQuery([row('running shoes')]);
     let started = false;
