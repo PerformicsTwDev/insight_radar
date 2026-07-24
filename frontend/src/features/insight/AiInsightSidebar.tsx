@@ -54,10 +54,14 @@ export function AiInsightSidebar({
 }: AiInsightSidebarProps): ReactElement {
   const ready = featureStatusOf(features, requiresFeature) === 'ready';
   const scope = scopeLabel ?? labelForView(view);
-  // M7-R14: the LLM generation is user-initiated — the default-expanded panel (M7-R6/v4) must NOT
-  // auto-fire generateAiInsight on every dashboard load (unprompted cost/latency). Stay expanded but
-  // show a 生成 CTA until the user opts in; after that a filter change refetches (they've opted in).
-  const [requested, setRequested] = useState(false);
+  // M7-R14/R19: the LLM generation is user-initiated — the default-expanded panel (M7-R6/v4) must
+  // NOT auto-fire generateAiInsight (unprompted cost/latency). The opt-in is PER-VIEW: we remember
+  // WHICH view was requested (not a boolean), so switching dimension on the same persistent instance
+  // (ResultsLayout keeps one AiInsightSidebar across view changes) re-shows the ✦生成 CTA rather than
+  // auto-firing for the new view (M7-R19 regression fix). Post opt-in, a filter change on the SAME
+  // view still refetches (they opted into it); a view change resets to the CTA.
+  const [requestedView, setRequestedView] = useState<string | null>(null);
+  const requested = requestedView === view;
 
   // Fetch only while open, ready, AND explicitly requested. The key carries the C4 canonical filters
   // string → equal filters share the cache, a change refetches (backend caches on
@@ -111,7 +115,7 @@ export function AiInsightSidebar({
                 <p className="text-white/60">{GENERATE_HINT}</p>
                 <button
                   type="button"
-                  onClick={() => setRequested(true)}
+                  onClick={() => setRequestedView(view)}
                   className="rounded-lg bg-brand/15 px-3 py-1.5 text-brand ring-1 ring-brand/30 hover:bg-brand/25"
                 >
                   ✦ 生成 AI 洞察
