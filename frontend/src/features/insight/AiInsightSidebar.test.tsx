@@ -51,8 +51,37 @@ function recordInsight(
   return calls;
 }
 
+/** Click the 生成 CTA to start the (now user-initiated, M7-R14) LLM generation. */
+const clickGenerate = () => fireEvent.click(screen.getByRole('button', { name: /生成 AI 洞察/ }));
+
 describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + gated + 失敗態)', () => {
-  it('ready + open → POSTs :id/ai-insight { view, filters } and renders the scoped insight', async () => {
+  it('ready + open but NOT requested → shows the 生成 CTA and does NOT auto-fire the LLM (M7-R14)', async () => {
+    let posted = false;
+    server.use(
+      http.post(ROUTE, () => {
+        posted = true;
+        return HttpResponse.json(OK_BODY, { status: 200 });
+      }),
+    );
+    render(
+      <AiInsightSidebar
+        analysisId={ID}
+        view="keywords"
+        filters={{}}
+        requiresFeature="keyword_metrics"
+        features={READY}
+        expanded
+        onToggle={() => {}}
+      />,
+      { wrapper: wrapper() },
+    );
+    // Panel is open (v4 default-expanded) but generation is user-initiated: a CTA, no auto-POST.
+    expect(screen.getByRole('button', { name: /生成 AI 洞察/ })).toBeInTheDocument();
+    await Promise.resolve();
+    expect(posted).toBe(false);
+  });
+
+  it('ready + open → 生成 click POSTs :id/ai-insight { view, filters } and renders the scoped insight', async () => {
     const calls = recordInsight();
 
     render(
@@ -69,6 +98,7 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
       { wrapper: wrapper() },
     );
 
+    clickGenerate();
     // In-flight → 生成中 status (covers the loading branch deterministically).
     expect(screen.getByRole('status')).toHaveTextContent(/洞察生成中/);
 
@@ -92,6 +122,8 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
       />,
       { wrapper: wrapper() },
     );
+    // Once the user opts in, later filter changes refetch automatically (they've opted in).
+    clickGenerate();
     await waitFor(() => expect(calls.length).toBe(1));
 
     rerender(
@@ -132,6 +164,7 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
       />,
       { wrapper: wrapper() },
     );
+    clickGenerate();
     await waitFor(() => expect(screen.getByText('COPY-ME insight')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /複製/ }));
@@ -185,6 +218,7 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
       { wrapper: wrapper() },
     );
 
+    clickGenerate();
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/生成失敗/));
     // No insight, no copy button — the error must not render a partial summary.
     expect(screen.queryByText(INSIGHT)).not.toBeInTheDocument();
@@ -217,8 +251,9 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
     await Promise.resolve();
     expect(calls.length).toBe(0);
 
-    // Expand → POST + insight.
+    // Expand → the 生成 CTA appears; clicking it → POST + insight (generation is user-initiated, R14).
     fireEvent.click(toggle);
+    clickGenerate();
     await waitFor(() => expect(screen.getByText(INSIGHT)).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /AI 洞察側欄/ })).toHaveAttribute(
       'aria-expanded',
@@ -255,6 +290,7 @@ describe('TC-27 · AiInsightSidebar (per-view 洞察 + 篩選重取 + 複製 + g
       { wrapper: wrapper() },
     );
 
+    clickGenerate();
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/生成失敗/));
     fireEvent.click(screen.getByRole('button', { name: '重試' }));
     expect(await screen.findByText(INSIGHT)).toBeInTheDocument();
