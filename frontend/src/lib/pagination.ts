@@ -102,6 +102,47 @@ export function totalPages(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
 }
 
+/**
+ * The "顯示 X–Y 筆，共 N 筆" footer range (M7-R8, FR-7 / TC-18). `from` is 1-based; an empty
+ * result reads as `0–0`. `to` is clamped to `total` so the last page never over-counts.
+ */
+export function showingRange(
+  page: number,
+  pageSize: number,
+  total: number,
+): { readonly from: number; readonly to: number } {
+  if (total <= 0) return { from: 0, to: 0 };
+  const from = Math.min((page - 1) * pageSize + 1, total);
+  const to = Math.min(page * pageSize, total);
+  return { from, to };
+}
+
+/**
+ * Windowed page list with `…` gaps (M7-R8): always shows page 1 and the last page, plus a
+ * `windowSize`-wide run centred on `current` (clamped to the ends), e.g. `[1,2,3,'…',12]` for
+ * page 1 of 12. Returns `[1..total]` verbatim when it already fits. Pure; unit-tested.
+ */
+export function pageWindow(
+  current: number,
+  total: number,
+  windowSize = 3,
+): readonly (number | 'ellipsis')[] {
+  if (total <= 1) return total === 1 ? [1] : [];
+  const end = Math.min(total, Math.max(1, current - Math.floor(windowSize / 2)) + windowSize - 1);
+  const start = Math.max(1, end - windowSize + 1);
+  const items: (number | 'ellipsis')[] = [];
+  if (start > 1) {
+    items.push(1);
+    if (start > 2) items.push('ellipsis');
+  }
+  for (let p = start; p <= end; p += 1) items.push(p);
+  if (end < total) {
+    if (end < total - 1) items.push('ellipsis');
+    items.push(total);
+  }
+  return items;
+}
+
 /** C5 switch: keyset iff the sort is stable **and** the page is strictly deeper than the offset cap. */
 export function resolveMode(page: number, offsetMaxPage: number, sortStable: boolean): PageMode {
   return sortStable && page > offsetMaxPage ? 'keyset' : 'offset';

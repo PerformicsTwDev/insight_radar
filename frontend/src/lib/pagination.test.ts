@@ -1,8 +1,10 @@
 import {
   buildPageParams,
   clampPageSize,
+  pageWindow,
   paginationReducer,
   resolveMode,
+  showingRange,
   toPaginationState,
   totalPages,
   type PaginationState,
@@ -261,5 +263,34 @@ describe('TC-12 · pagination (keyset/offset switch rule)', () => {
         ).toBe(deep);
       });
     });
+  });
+});
+
+describe('showingRange (M7-R8 · FR-7)', () => {
+  it('computes the 1-based from/to, clamped to total', () => {
+    expect(showingRange(1, 25, 300)).toEqual({ from: 1, to: 25 });
+    expect(showingRange(2, 25, 300)).toEqual({ from: 26, to: 50 });
+    expect(showingRange(12, 25, 300)).toEqual({ from: 276, to: 300 });
+    expect(showingRange(12, 25, 290)).toEqual({ from: 276, to: 290 }); // partial last page
+  });
+  it('reads as 0–0 for an empty result', () => {
+    expect(showingRange(1, 25, 0)).toEqual({ from: 0, to: 0 });
+  });
+});
+
+describe('pageWindow (M7-R8)', () => {
+  it('returns all pages verbatim when they already fit', () => {
+    expect(pageWindow(1, 3)).toEqual([1, 2, 3]);
+    expect(pageWindow(1, 1)).toEqual([1]);
+    expect(pageWindow(1, 0)).toEqual([]);
+  });
+  it('windows to the last page with a trailing ellipsis near the start (1 2 3 … 12)', () => {
+    expect(pageWindow(1, 12)).toEqual([1, 2, 3, 'ellipsis', 12]);
+  });
+  it('windows with ellipsis on both sides in the middle', () => {
+    expect(pageWindow(6, 12)).toEqual([1, 'ellipsis', 5, 6, 7, 'ellipsis', 12]);
+  });
+  it('windows with a leading ellipsis near the end', () => {
+    expect(pageWindow(12, 12)).toEqual([1, 'ellipsis', 10, 11, 12]);
   });
 });

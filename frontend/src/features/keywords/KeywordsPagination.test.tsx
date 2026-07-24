@@ -76,9 +76,18 @@ describe('TC-18 · KeywordsPagination (footer: meta.total + pageSize clamp)', ()
         'page',
       );
       expect(screen.getByRole('button', { name: '第 2 頁' })).not.toHaveAttribute('aria-current');
-      fireEvent.click(screen.getByRole('button', { name: '第 4 頁' }));
-      await waitFor(() => expect(router.state.location.search.page).toBe(4));
+      // 200/25 = 8 pages; the last page is always in the window (1 2 3 … 8) — jump to it.
+      fireEvent.click(screen.getByRole('button', { name: '第 8 頁' }));
+      await waitFor(() => expect(router.state.location.search.page).toBe(8));
       expect(router.state.location.search.cursor).toBeUndefined();
+    });
+
+    it('shows the 顯示 X–Y 筆 range and an ellipsis window to the last page (M7-R8)', async () => {
+      renderFooter(meta({ total: 300, page: 1 })); // 300/25 = 12 pages
+      const footer = await screen.findByRole('group', { name: '分頁與排序' });
+      expect(footer).toHaveTextContent(/顯示 1[–-]25 筆，共 300 筆/);
+      expect(screen.getByRole('button', { name: '第 12 頁' })).toBeInTheDocument(); // last page shown
+      expect(screen.queryByRole('button', { name: '第 6 頁' })).not.toBeInTheDocument(); // windowed out
     });
 
     it('disables 下一頁 on the last (single) page', async () => {
