@@ -114,13 +114,17 @@ export function TrendChart({ axis, total, keywords }: TrendChartProps): ReactEle
       return next;
     });
 
-  // 全選 / 清除 (v4): select every keyword currently in the (search-filtered) list, or clear all.
+  // 全選 / 清除 (v4): 全選 adds every keyword in the (search-filtered) list to the selection; 清除
+  // clears all. M7-R21 ([4/5]): 全選 must UNION with the prior selection, not replace it — replacing
+  // silently dropped already-selected keywords that don't match the current search box.
   const filteredKeywords = useMemo(
     () => keywords.filter((k) => k.keyword.toLowerCase().includes(search.trim().toLowerCase())),
     [keywords, search],
   );
   const setAll = (on: boolean): void =>
-    setSelected(on ? new Set(filteredKeywords.map((k) => k.keyword)) : new Set());
+    setSelected((prev) =>
+      on ? new Set([...prev, ...filteredKeywords.map((k) => k.keyword)]) : new Set(),
+    );
 
   if (!hasData) {
     return (
