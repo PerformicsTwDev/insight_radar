@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getTrackingListDetail, type TrackingListSummary } from '../../api/trackingLists';
 import { config } from '../../config/env';
+import { useInFlightGuard } from '../../hooks/useInFlightGuard';
 import { useTrackingLists } from '../tracking/useTrackingLists';
 
 /**
@@ -33,6 +34,10 @@ export interface TrackingContinueSectionProps {
 export function TrackingContinueSection({ onContinue, onSeeMore }: TrackingContinueSectionProps) {
   const { lists, loading, failed } = useTrackingLists();
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  // Re-entrancy guard (M7-R10): a single `loadingId` disables only the clicked card, so a
+  // second card's click could launch a concurrent duplicate fetch. This ref-based guard
+  // ignores any 繼續 click while one is already in flight (mirrors the ✦ cell / topics start).
+  const guardContinue = useInFlightGuard();
 
   // Nothing to continue → render nothing (AC-2.3: hidden, not drawn empty / faked).
   if (loading || failed || lists.length === 0) return null;
@@ -41,18 +46,20 @@ export function TrackingContinueSection({ onContinue, onSeeMore }: TrackingConti
   const remaining = lists.length - shown.length;
 
   // Only reachable for non-empty lists — the 繼續 button is `disabled` when memberCount === 0.
-  async function handleContinue(list: TrackingListSummary) {
-    setLoadingId(list.listId);
-    const res = await getTrackingListDetail(list.listId);
-    setLoadingId(null);
-    // On failure leave the form untouched (spec: 載入 members 失敗 → 不改動現有 seeds).
-    if (res.ok) {
-      onContinue(
-        res.detail.members.map((m) => m.normalizedText),
-        list.geo,
-        list.language,
-      );
-    }
+  function handleContinue(list: TrackingListSummary): Promise<void> {
+    return guardContinue(async () => {
+      setLoadingId(list.listId);
+      const res = await getTrackingListDetail(list.listId);
+      setLoadingId(null);
+      // On failure leave the form untouched (spec: 載入 members 失敗 → 不改動現有 seeds).
+      if (res.ok) {
+        onContinue(
+          res.detail.members.map((m) => m.normalizedText),
+          list.geo,
+          list.language,
+        );
+      }
+    });
   }
 
   return (
