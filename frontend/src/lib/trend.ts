@@ -68,6 +68,40 @@ export const TREND_TYPE_ZH: Record<TrendType, string> = {
 };
 
 /**
+ * Per-type display colour SSOT (M7-R2a, FR-21). **JS-authoritative**, mirrors the
+ * `@theme --color-trend-*` tokens in `src/index.css` (change one → change both, C2 — same
+ * discipline as {@link intentMap}). Applied inline on the `搜尋趨勢TTM` cell's signed-% so a
+ * label→colour lookup needn't be JIT-safelisted into a purge-unsafe dynamic Tailwind class.
+ */
+export const TREND_TYPE_COLOR: Record<TrendType, string> = {
+  decline: '#ef6f6c', // --color-trend-negative
+  stable: '#9aa0a6', // --color-trend-stable
+  growth: '#52b788', // --color-trend-growth (= brand green)
+  surge: '#f4845f', // --color-trend-surge
+};
+
+/**
+ * Inline `搜尋趨勢TTM` display (M7-R2a, FR-21): `{ text, type }` for a classifiable series,
+ * else `null` (the cell then shows `—`, never a fabricated %). `text` is a glance value —
+ * a directional arrow by sign (`↑` >0 / `↓` <0 / none at 0) + the **integer** magnitude %
+ * (`↑100%` / `↓20%` / `0%`); the precise 1-dp reading stays in {@link trendTooltip}. `type`
+ * drives the cell colour via {@link TREND_TYPE_COLOR}.
+ */
+export function trendInline(
+  volumes: readonly MonthlyVolumePoint[],
+  stableMax: number,
+  surgeMin: number,
+): { readonly text: string; readonly type: TrendType } | null {
+  const classification = classifySeries(volumes, stableMax, surgeMin);
+  if (classification.kind === 'no_data') {
+    return null;
+  }
+  const { percent, type } = classification;
+  const arrow = percent > 0 ? '↑' : percent < 0 ? '↓' : '';
+  return { text: `${arrow}${Math.abs(Math.round(percent))}%`, type };
+}
+
+/**
  * FR-21 hover-tooltip text for a monthly series: `"<型別> <±%>"` (e.g. `成長型
  * +12.5%`), or `null` when the series has no classifiable trend (< 2 non-null /
  * all-null / first non-null is 0). The % is 1-dp with an explicit sign so a flat

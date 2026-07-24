@@ -39,7 +39,8 @@ const COL_WIDTH = {
   volume: 120,
   competition: 150,
   cpc: 170,
-  trend: 128,
+  // Widened for the M7-R2a inline signed-% beside the sparkline (was 128, sparkline-only).
+  trend: 168,
   ai: 72,
 };
 
@@ -136,9 +137,10 @@ function buildColumns(
     },
     {
       id: 'trend',
-      header: '搜尋趨勢',
+      header: '搜尋趨勢TTM',
       size: COL_WIDTH.trend,
-      // 搜尋趨勢 sparkline from each row's monthlyVolumes (FR-4 → FR-21); null months break, never 0.
+      // 搜尋趨勢TTM sparkline + inline signed % from each row's monthlyVolumes (FR-4 → FR-21,
+      // M7-R2a); null months break the line (never 0), an unclassifiable % shows — inline.
       cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
     },
     {

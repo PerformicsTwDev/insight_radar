@@ -1,16 +1,20 @@
 import type { ReactElement } from 'react';
 import { buildSparkline, type MonthlyVolumePoint } from '../../lib/sparkline';
 import { EM_DASH } from '../../lib/keywordsTable';
-import { trendTooltip } from '../../lib/trend';
+import { TREND_TYPE_COLOR, trendInline, trendTooltip } from '../../lib/trend';
 import { config } from '../../config/env';
 
 /**
- * Self-drawn SVG sparkline cell for the 搜尋趨勢 column (T2.2, FR-4). The pure
+ * Self-drawn SVG sparkline cell for the 搜尋趨勢TTM column (T2.2, FR-4; M7-R2a). The pure
  * `buildSparkline` yields polyline segments split across null months; here each
  * segment is drawn as a `<polyline>` (or a `<circle>` dot for an isolated point),
  * so a missing month is a **visible break** — never a dip-to-zero (C12). A series
  * with < 2 non-null points renders an accessible 無趨勢資料 marker (`—`), not a
  * flat 0 line (FR-21). Stroke colour comes from the `--color-brand` token (no hex).
+ *
+ * Beside the sparkline the signed TTM % renders **inline** (M7-R2a): a directional
+ * arrow + integer % coloured by the 4 trend types (`TREND_TYPE_COLOR` SSOT); an
+ * unclassifiable series (÷0 / < 2 points) shows `—` inline rather than a fabricated %.
  */
 
 const NO_DATA_LABEL = '無趨勢資料';
@@ -38,38 +42,56 @@ export function SparklineCell({ volumes }: SparklineCellProps): ReactElement {
   // FR-21: the hover tooltip shows the trend 型別 + %. Null when the series can't be
   // classified (e.g. first non-null is 0) → draw the sparkline without a trend label.
   const tooltip = trendTooltip(volumes, config.trendStableMax, config.trendSurgeMin);
+  // M7-R2a: the signed % renders inline beside the sparkline, coloured by trend type; an
+  // unclassifiable % (÷0) shows — inline (never a fabricated %) while the sparkline still draws.
+  const inline = trendInline(volumes, config.trendStableMax, config.trendSurgeMin);
   return (
-    <svg
-      role="img"
-      aria-label={TREND_LABEL}
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      className="overflow-visible"
-    >
-      {tooltip ? <title>{tooltip}</title> : null}
-      {segments.map((segment, index) =>
-        segment.length === 1 ? (
-          // 斷點兩側的孤立單點以圓點呈現（polyline 需 >=2 點才可見），仍是真實資料而非 0。
-          <circle
-            key={`seg-${index}`}
-            cx={segment[0].x}
-            cy={segment[0].y}
-            r={DOT_RADIUS}
-            className="fill-brand"
-          />
-        ) : (
-          <polyline
-            key={`seg-${index}`}
-            points={segment.map((point) => `${point.x},${point.y}`).join(' ')}
-            fill="none"
-            className="stroke-brand"
-            strokeWidth={STROKE_WIDTH}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ),
+    <span className="flex items-center gap-2">
+      <svg
+        role="img"
+        aria-label={TREND_LABEL}
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        className="shrink-0 overflow-visible"
+      >
+        {tooltip ? <title>{tooltip}</title> : null}
+        {segments.map((segment, index) =>
+          segment.length === 1 ? (
+            // 斷點兩側的孤立單點以圓點呈現（polyline 需 >=2 點才可見），仍是真實資料而非 0。
+            <circle
+              key={`seg-${index}`}
+              cx={segment[0].x}
+              cy={segment[0].y}
+              r={DOT_RADIUS}
+              className="fill-brand"
+            />
+          ) : (
+            <polyline
+              key={`seg-${index}`}
+              points={segment.map((point) => `${point.x},${point.y}`).join(' ')}
+              fill="none"
+              className="stroke-brand"
+              strokeWidth={STROKE_WIDTH}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ),
+        )}
+      </svg>
+      {inline ? (
+        // Colour from the TREND_TYPE_COLOR SSOT (a type→colour lookup can't be JIT-safelisted
+        // into a static Tailwind class without a safelist) — applied inline, like the intent chips.
+        <span
+          className="font-mono text-xs tabular-nums"
+          data-trend-type={inline.type}
+          style={{ color: TREND_TYPE_COLOR[inline.type] }}
+        >
+          {inline.text}
+        </span>
+      ) : (
+        <span className="font-mono text-xs text-white/40">{EM_DASH}</span>
       )}
-    </svg>
+    </span>
   );
 }

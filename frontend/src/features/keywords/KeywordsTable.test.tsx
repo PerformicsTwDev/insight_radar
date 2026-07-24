@@ -103,12 +103,12 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
     expect(missingRowCells()[COL.intent]).toHaveTextContent(EM_DASH);
   });
 
-  it('renders the 搜尋趨勢 sparkline column (FR-4 → FR-21) between CPC and the ✦ column', () => {
+  it('renders the 搜尋趨勢TTM sparkline column (FR-4 → FR-21) between CPC and the ✦ column', () => {
     render(<KeywordsTable rows={rows} />);
-    expect(screen.getByRole('columnheader', { name: '搜尋趨勢' })).toBeInTheDocument();
-    // column order: 搜尋趨勢 sits at index 5, ✦ at 6.
+    expect(screen.getByRole('columnheader', { name: '搜尋趨勢TTM' })).toBeInTheDocument();
+    // column order: 搜尋趨勢TTM sits at index 5, ✦ at 6.
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers[COL.trend]).toBe('搜尋趨勢');
+    expect(headers[COL.trend]).toBe('搜尋趨勢TTM');
     expect(headers[COL.ai]).toBe('✦');
   });
 

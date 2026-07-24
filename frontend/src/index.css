@@ -32,9 +32,11 @@
   /* 導航型（T6.2 對比修正）：原 #9b5de5 於 bg-card 僅 3.4:1（<AA），提亮至 #b088ee = 5.1:1。 */
   --color-intent-navigational: #b088ee;
 
-  /* 趨勢 / 負向 */
-  --color-trend-surge: #f4845f;
-  --color-trend-negative: #ef6f6c;
+  /* 趨勢型別配色（4 型；C2——與 lib/trend.ts TREND_TYPE_COLOR 同值，snapshot 守）：回落/穩定/成長/爆發 */
+  --color-trend-negative: #ef6f6c; /* 回落型 */
+  --color-trend-stable: #9aa0a6; /* 穩定型 */
+  --color-trend-growth: #52b788; /* 成長型（= brand green） */
+  --color-trend-surge: #f4845f; /* 爆發型 */
 
   /* 邊框（頂 bar；主/分隔用 Tailwind white/10、white/5） */
   --color-border-topbar: #1a1a1a;
