@@ -5,6 +5,7 @@ import {
   buildViewRegistry,
   labelForView,
   resolveViewRegistry,
+  viewAppliesFilters,
 } from './viewRegistry';
 
 /**
@@ -163,5 +164,18 @@ describe('TC-37 · FALLBACK_VIEWS (built-in degraded list)', () => {
     expect(keywords).toBeDefined();
     expect(keywords?.responseShape).toBe('table');
     expect(keywords?.allowedSelect.length).toBeGreaterThan(0);
+  });
+});
+
+describe('M7-R22 · viewAppliesFilters (which views consume s.filters, xhigh [3/11])', () => {
+  it('only the 搜尋詞總表 (keywords) view — and the undefined default — apply filters', () => {
+    expect(viewAppliesFilters('keywords')).toBe(true);
+    expect(viewAppliesFilters(undefined)).toBe(true);
+  });
+
+  it('grouping dimension views do NOT apply filters (they ignore s.filters until backend #777)', () => {
+    for (const view of ['intent_topics', 'journey', 'custom:1', 'brand']) {
+      expect(viewAppliesFilters(view)).toBe(false);
+    }
   });
 });

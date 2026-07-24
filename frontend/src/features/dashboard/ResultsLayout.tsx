@@ -5,6 +5,7 @@ import { AiInsightSidebar } from '../insight/AiInsightSidebar';
 import { KeywordsFilters } from '../keywords/filters/KeywordsFilters';
 import { LeftTrackingNav } from '../tracking/LeftTrackingNav';
 import { useViews } from '../views/useViews';
+import { viewAppliesFilters } from '../../lib/viewRegistry';
 
 /**
  * Results dashboard shell (M7-R17, v4 fidelity stage 1). The prototype's
@@ -45,6 +46,10 @@ export function ResultsLayout({
   // The AI 洞察 panel gates on the ACTIVE view's own feature (topics/journey/…), so a
   // not-ready dimension shows its placeholder rather than firing a request (FR-17).
   const requiresFeature = registry.byName.get(activeView)?.requiresFeature ?? 'keyword_metrics';
+  // M7-R22 (xhigh [3/11]): only views that actually apply `filters` show the filter bar and hand
+  // filters to the AI panel — otherwise the chips are inert no-ops and the AI summary is keyed on
+  // filters the view never applied. `keywords` is the only such view today (#777 for the rest).
+  const appliesFilters = viewAppliesFilters(activeView);
 
   // 隱藏/顯示 AI 洞察 (M7-R6): default expanded (v4); the header toggle + in-panel chevron
   // share this one state. Generation itself stays click-gated inside the panel (M7-R14).
@@ -72,10 +77,12 @@ export function ResultsLayout({
           >
             ← 返回搜尋首頁
           </button>
-          {/* Filter chips (stage 2 expands to the 9-chip v4 set); config-driven per view. */}
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <KeywordsFilters />
-          </div>
+          {/* Filter chips — only on views that actually apply filters (M7-R22); the 9-chip v4 set. */}
+          {appliesFilters ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <KeywordsFilters />
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center justify-end gap-2">
           <button
@@ -139,7 +146,7 @@ export function ResultsLayout({
           <AiInsightSidebar
             analysisId={analysisId}
             view={activeView}
-            filters={filters}
+            filters={appliesFilters ? filters : {}}
             requiresFeature={requiresFeature}
             features={features}
             expanded={aiExpanded}

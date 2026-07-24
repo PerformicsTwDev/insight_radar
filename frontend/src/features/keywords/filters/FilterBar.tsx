@@ -8,7 +8,7 @@ import {
   type FilterFieldKey,
   type FilterSpec,
 } from '../../../lib/filterSpec';
-import { FILTER_FIELDS, type FilterFieldDef } from './filterFields';
+import { FILTER_FIELDS, ROADMAP_FILTER_FIELDS, type FilterFieldDef } from './filterFields';
 import { buildChip, parseNum, popoverSeed, toggleValue, valueLabel } from './filterLabels';
 
 /**
@@ -65,11 +65,39 @@ function FilterIcon(): ReactElement {
 export function FilterBar({ allowedFilters, value, onChange }: FilterBarProps): ReactElement {
   return (
     <div role="group" aria-label="篩選" className="flex flex-wrap items-center gap-2">
-      {allowedFilters.map((field) => (
-        <FilterChip key={field} field={field} spec={value} onChange={onChange} />
-      ))}
+      {allowedFilters.map((field) =>
+        ROADMAP_FILTER_FIELDS.has(field) ? (
+          <RoadmapChip key={field} field={field} />
+        ) : (
+          <FilterChip key={field} field={field} spec={value} onChange={onChange} />
+        ),
+      )}
       <button type="button" onClick={() => onChange({})} className={CLEAR_BTN}>
         清除全部
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A disabled display chip (M7-R22 [6]): shown for v4 fidelity but with no backend filter support
+ * yet ({@link ROADMAP_FILTER_FIELDS}), so it can't masquerade as a live filter that silently does
+ * nothing (FR-6). A「即將推出」hint + tooltip communicate the roadmap; re-enabled when #777 lands.
+ */
+function RoadmapChip({ field }: { field: FilterFieldKey }): ReactElement {
+  const def = FILTER_FIELDS[field];
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        title="篩選功能開發中，即將推出"
+        className={`${CHIP_BTN} ${CHIP_INACTIVE} cursor-not-allowed opacity-50`}
+      >
+        <FilterIcon />
+        <span>{def.label}</span>
+        <span className="text-[11px] font-normal text-white/40">即將推出</span>
       </button>
     </div>
   );
