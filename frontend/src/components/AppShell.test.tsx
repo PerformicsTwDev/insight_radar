@@ -186,3 +186,27 @@ describe('TC-72 · nav results-context menu + Search-tab nav + settings (T7.9)',
     expect(screen.getByRole('button', { name: '分析設定' })).toBeInTheDocument();
   });
 });
+
+describe('TC-59 · AppShell fixed-height frame (viewport-fill, independent scroll, M7-R4)', () => {
+  it('is a fixed-height frame whose left menu + main content scroll independently (no page scroll)', () => {
+    const { container } = render(
+      <AppShell dimensions={DIMS} hasAnalysisContext>
+        content
+      </AppShell>,
+    );
+    // Fixed-height viewport frame — h-screen (not min-h-screen), so the whole page never scrolls;
+    // its overflow is clipped and the columns inside manage their own scroll (v4, M7-R4).
+    const frame = container.firstChild as HTMLElement;
+    expect(frame.className).toContain('h-screen');
+    expect(frame.className).not.toContain('min-h-screen');
+    expect(frame.className).toContain('overflow-hidden');
+    // The center content column fills the remaining height (min-h-0) and scrolls on its own.
+    const main = screen.getByRole('main');
+    expect(main.className).toContain('overflow-y-auto');
+    expect(main.className).toContain('min-h-0');
+    // The left dimension column scrolls independently too (long tracking lists don't push the page).
+    const leftColumn = screen.getByRole('navigation', { name: '維度選單' })
+      .parentElement as HTMLElement;
+    expect(leftColumn.className).toContain('overflow-y-auto');
+  });
+});
