@@ -25,12 +25,15 @@ import { KeywordsView } from './KeywordsView';
  */
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEYWORDS_ROUTE = '/api/v1/keyword-analyses/:id/keywords';
+// M7-R1: the table now reads via POST /query {view:keywords} (carries monthlyVolumes), not GET /keywords.
+const QUERY_ROUTE = '/api/v1/keyword-analyses/:id/query';
 
+/** A keywords-VIEW row (raw `intent`, not the list DTO's `intentLabels`) — the backend `pick` shape. */
 function row(text: string) {
   return {
     text,
-    intentLabels: [],
+    normalizedText: text,
+    intent: [],
     avgMonthlySearches: 1000,
     competition: 'HIGH',
     competitionIndex: 80,
@@ -38,6 +41,32 @@ function row(text: string) {
     cpcHigh: 1.5,
     monthlyVolumes: [],
   };
+}
+
+/**
+ * Install a view-aware `POST /query` handler (mirrors the default handler). The co-mounted 趨勢 card
+ * fires its own `view:'trend'` request on mount; give it an empty-but-valid trend axis so it renders
+ * its chart (region 搜尋趨勢) rather than an error card, while any keywords request returns a
+ * table-view carrying `rows`. Tests asserting on filter/error behaviour install their own handler.
+ */
+function stubQuery(
+  rows: ReturnType<typeof row>[],
+  meta?: Partial<{ total: number; page: number; pageSize: number; cursor: string | null }>,
+) {
+  server.use(
+    http.post(QUERY_ROUTE, async ({ request }) => {
+      const { view } = (await request.json()) as { view: string };
+      if (view === 'trend') {
+        return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+      }
+      return HttpResponse.json({
+        view: 'keywords',
+        columns: [],
+        rows,
+        pagination: { total: rows.length, page: 1, pageSize: 25, cursor: null, ...meta },
+      });
+    }),
+  );
 }
 
 function renderKeywords(search = '') {
@@ -61,14 +90,7 @@ function renderKeywords(search = '') {
 
 describe('KeywordsView · keywords table data wiring', () => {
   it('fetches and renders the keyword rows + pagination footer', async () => {
-    server.use(
-      http.get(KEYWORDS_ROUTE, () =>
-        HttpResponse.json({
-          data: [row('running shoes'), row('trail shoes')],
-          meta: { total: 2, page: 1, pageSize: 25, cursor: null },
-        }),
-      ),
-    );
+    stubQuery([row('running shoes'), row('trail shoes')]);
     renderKeywords();
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
     expect(await screen.findByText('running shoes')).toBeInTheDocument();
@@ -77,14 +99,22 @@ describe('KeywordsView · keywords table data wiring', () => {
     expect(screen.getByRole('group', { name: '分頁與排序' })).toBeInTheDocument();
   });
 
-  it('carries the applied filter into the /keywords request query (Design §5)', async () => {
+  it('carries the applied filter into the /query request body (Design §5)', async () => {
     const seenQ: (string | null)[] = [];
     server.use(
-      http.get(KEYWORDS_ROUTE, ({ request }) => {
-        seenQ.push(new URL(request.url).searchParams.get('q'));
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const body = (await request.json()) as { view: string; filters?: { q?: string } };
+        // The co-mounted 趨勢 card's trend request carries no filters — keep it healthy and
+        // only capture the keywords request's applied 搜尋詞 filter.
+        if (body.view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        seenQ.push(body.filters?.q ?? null);
         return HttpResponse.json({
-          data: [row('running shoes')],
-          meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+          view: 'keywords',
+          columns: [],
+          rows: [row('running shoes')],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
         });
       }),
     );
@@ -102,11 +132,7 @@ describe('KeywordsView · keywords table data wiring', () => {
   });
 
   it('shows an empty state when the snapshot has no matching keywords', async () => {
-    server.use(
-      http.get(KEYWORDS_ROUTE, () =>
-        HttpResponse.json({ data: [], meta: { total: 0, page: 1, pageSize: 25, cursor: null } }),
-      ),
-    );
+    stubQuery([]);
     renderKeywords();
     // Specific to the keywords empty state — the co-mounted 趨勢 card (T7.4) has its own
     // "尚無趨勢資料" empty text, so a broad /尚無/ would now over-match.
@@ -116,13 +142,30 @@ describe('KeywordsView · keywords table data wiring', () => {
   it('shows an error + retry when the keywords request fails, and recovers on retry', async () => {
     let calls = 0;
     server.use(
-      http.get(KEYWORDS_ROUTE, () => {
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const body = (await request.json()) as { view: string; select?: string[] };
+        // Keep the co-mounted 趨勢 card healthy: its trend request + its top-N series request
+        // (select = [text, monthlyVolumes]) always succeed, so the error/retry is isolated to
+        // the main 搜尋詞總表 query (which selects the full volume-bearing column set).
+        if (body.view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        if ((body.select?.length ?? 0) <= 2) {
+          return HttpResponse.json({
+            view: 'keywords',
+            columns: [],
+            rows: [],
+            pagination: { total: 0, page: 1, pageSize: 25, cursor: null },
+          });
+        }
         calls += 1;
         return calls === 1
           ? new HttpResponse(null, { status: 500 })
           : HttpResponse.json({
-              data: [row('running shoes')],
-              meta: { total: 1, page: 1, pageSize: 25, cursor: null },
+              view: 'keywords',
+              columns: [],
+              rows: [row('running shoes')],
+              pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
             });
       }),
     );
@@ -147,14 +190,7 @@ describe('KeywordsView · TSV copy (FR-13) + per-row selection (FR-19) mount', (
   });
 
   function stubRows() {
-    server.use(
-      http.get(KEYWORDS_ROUTE, () =>
-        HttpResponse.json({
-          data: [row('running shoes'), row('trail shoes')],
-          meta: { total: 2, page: 1, pageSize: 25, cursor: null },
-        }),
-      ),
-    );
+    stubQuery([row('running shoes'), row('trail shoes')]);
   }
 
   it('copies the visible rows as TSV via 複製表格', async () => {
@@ -197,14 +233,7 @@ describe('KeywordsView · TSV copy (FR-13) + per-row selection (FR-19) mount', (
 
 describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
   it('lays out filter bar + 趨勢 card + table + collapsible AI 洞察 panel', async () => {
-    server.use(
-      http.get(KEYWORDS_ROUTE, () =>
-        HttpResponse.json({
-          data: [row('running shoes')],
-          meta: { total: 1, page: 1, pageSize: 25, cursor: null },
-        }),
-      ),
-    );
+    stubQuery([row('running shoes')]);
     renderKeywords();
 
     // Core results grid (with its ✦ AI column + sparklines).
@@ -219,14 +248,7 @@ describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
   });
 
   it('the header 隱藏/顯示 AI 洞察 toggle collapses and re-expands the panel (M7-R6)', async () => {
-    server.use(
-      http.get(KEYWORDS_ROUTE, () =>
-        HttpResponse.json({
-          data: [row('running shoes')],
-          meta: { total: 1, page: 1, pageSize: 25, cursor: null },
-        }),
-      ),
-    );
+    stubQuery([row('running shoes')]);
     renderKeywords();
     await screen.findByRole('table', { name: '搜尋詞總表' });
 

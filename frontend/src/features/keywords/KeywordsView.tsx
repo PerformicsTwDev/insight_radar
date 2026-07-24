@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { useMemo, useState, type ReactElement } from 'react';
-import { getKeywords } from '../../api/keywords';
+import { getKeywordsView } from '../../api/keywords';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 import { deserializeFiltersFromUrl } from '../../lib/filterSpec';
@@ -67,8 +67,11 @@ export function KeywordsView({
       search.sortBy ?? null,
       search.sortDir ?? null,
     ],
+    // M7-R1: read via the view-router (POST /query {view:keywords}) so rows carry
+    // monthlyVolumes + normalizedText (the lean GET /keywords omits them, AC-6.1). Same
+    // { ok, rows, meta } shape — filters / pagination / sort / selection are unchanged.
     queryFn: () =>
-      getKeywords(analysisId, {
+      getKeywordsView(analysisId, {
         ...filters,
         page: search.page,
         pageSize: search.pageSize,

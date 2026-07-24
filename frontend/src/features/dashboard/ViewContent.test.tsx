@@ -35,25 +35,38 @@ vi.mock('chart.js', () => {
  */
 
 const ANALYSIS_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEYWORDS_ROUTE = '/api/v1/keyword-analyses/:id/keywords';
 const QUERY_ROUTE = '/api/v1/keyword-analyses/:id/query';
 
-function keywordsBody() {
-  return {
-    data: [
-      {
-        text: 'running shoes',
-        intentLabels: ['commercial'],
-        avgMonthlySearches: 1000,
-        competition: 'HIGH',
-        competitionIndex: 80,
-        cpcLow: 0.5,
-        cpcHigh: 1.5,
-        monthlyVolumes: [],
-      },
-    ],
-    meta: { total: 1, page: 1, pageSize: 25, cursor: null },
-  };
+/**
+ * View-aware `POST /query` handler (M7-R1): the 搜尋詞總表 now reads via the view-router, and the
+ * keywords view co-mounts a 趨勢 card firing its own `view:'trend'` request — keep it healthy (empty
+ * axis) while the keywords view returns one row (raw `intent`, mapped to `intentLabels` by the egress).
+ */
+function keywordsHandler() {
+  return http.post(QUERY_ROUTE, async ({ request }) => {
+    const { view } = (await request.json()) as { view: string };
+    if (view === 'trend') {
+      return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+    }
+    return HttpResponse.json({
+      view: 'keywords',
+      columns: [],
+      rows: [
+        {
+          text: 'running shoes',
+          normalizedText: 'running shoes',
+          intent: ['commercial'],
+          avgMonthlySearches: 1000,
+          competition: 'HIGH',
+          competitionIndex: 80,
+          cpcLow: 0.5,
+          cpcHigh: 1.5,
+          monthlyVolumes: [],
+        },
+      ],
+      pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+    });
+  });
 }
 
 function renderView(props: Partial<ViewContentProps> = {}) {
@@ -83,14 +96,14 @@ function renderView(props: Partial<ViewContentProps> = {}) {
 
 describe('ViewContent · registry-driven view resolution (FR-1 / AC-1.2)', () => {
   it('renders the keywords grand table for the default (no) view', async () => {
-    server.use(http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())));
+    server.use(keywordsHandler());
     renderView({ view: undefined });
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
     expect(await screen.findByText('running shoes')).toBeInTheDocument();
   });
 
   it('renders the keywords table for view=keywords (known registry view)', async () => {
-    server.use(http.get(KEYWORDS_ROUTE, () => HttpResponse.json(keywordsBody())));
+    server.use(keywordsHandler());
     renderView({ view: 'keywords' });
     expect(await screen.findByRole('table', { name: '搜尋詞總表' })).toBeInTheDocument();
   });
