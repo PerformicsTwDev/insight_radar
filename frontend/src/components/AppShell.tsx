@@ -99,7 +99,10 @@ export function AppShell({
     // their own inside the remaining height (independent-scroll 三欄).
     <div className="flex h-screen flex-col overflow-hidden bg-bg-body text-white">
       <header className="shrink-0 border-b border-border-topbar bg-bg-card">
-        <div className="flex items-center gap-6 px-6">
+        {/* M7-R13: wrap on narrow viewports so the right-side NavSettings / 登入·登出 controls drop to a
+            second line and stay reachable — the fixed-height frame's overflow-hidden would otherwise
+            clip them off-screen with no page scroll. No effect at desktop widths (nothing wraps). */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-6">
           <h1 className="py-4 text-lg font-semibold text-brand">Insight Radar</h1>
           <nav aria-label="主要分頁" className="flex items-center gap-1">
             {TABS.map((tab) =>
