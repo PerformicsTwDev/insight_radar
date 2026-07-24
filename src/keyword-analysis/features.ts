@@ -85,18 +85,43 @@ export function aiSearchFeatureStatus(runStatus: string | undefined): FeatureSta
   }
 }
 
+/**
+ * 由最新 `TopicRun.status` 推導 `topics` feature 狀態（M7-R7a，AC-14.7）：completed/partial→`ready`
+ * （clusters/assignments 已物化、`GET :id/topics` 可讀、意圖主題表可顯示）；queued/running→`running`；
+ * failed→`failed`；無 run / canceled→`not_generated`。鏡射 `journeyFeatureStatus`/`aiSearchFeatureStatus`
+ * （「有物化結果即 ready」判準一致）。**取代**原 M7/M8 期 topics 恆 `not_generated` 之 stale 佔位——M8 topics
+ * 已交付，feature 目錄須如實回報（否則 意圖主題 view 重訪永遠停在 CTA、非 AC-14.7 語意）。
+ */
+export function topicsFeatureStatus(runStatus: string | undefined): FeatureStatus {
+  switch (runStatus) {
+    case 'completed':
+    case 'partial':
+      return 'ready';
+    case 'queued':
+    case 'running':
+      return 'running';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'not_generated'; // undefined（無 run）/ canceled
+  }
+}
+
 /** computeFeatures 的可選外部狀態（由呼叫端查各 job/durable 資料帶入；省略→保守預設）。 */
 export interface FeatureExtras {
   /** 最新 `JourneyRun.status`（AC-33.6）；省略 → journey 視為 `not_generated`（view 被 gate）。 */
   journeyStatus?: string;
   /** 最新 linked `AiSearchRun.status`（AC-44.2/S25）；省略 → ai_search 視為 `not_generated`。 */
   aiSearchStatus?: string;
+  /** 最新 `TopicRun.status`（AC-14.7/M7-R7a）；省略 → topics 視為 `not_generated`（view 被 gate）。 */
+  topicsStatus?: string;
 }
 
 /**
- * 聚合各 feature 對外狀態（AC-14.7 / AC-33.6 / AC-44.2）。`serp`/`topics` 之 compute 尚未接線（M7/M8）→ 一律
- * `not_generated`；`journey` 由 `extras.journeyStatus`（最新 JourneyRun）推導（T12.6）；`ai_search` 由
- * `extras.aiSearchStatus`（該 analysis 最新 linked `AiSearchRun`，owner-scoped）推導（T15.8a/#678 G1）。
+ * 聚合各 feature 對外狀態（AC-14.7 / AC-33.6 / AC-44.2）。`serp` 之 compute 尚未接線→ `not_generated`；
+ * `topics` 由 `extras.topicsStatus`（最新 `TopicRun`）推導（M7-R7a，取代原 M8 期 stale 佔位）；`journey` 由
+ * `extras.journeyStatus`（最新 JourneyRun）推導（T12.6）；`ai_search` 由 `extras.aiSearchStatus`（該 analysis
+ * 最新 linked `AiSearchRun`，owner-scoped）推導（T15.8a/#678 G1）。
  */
 export function computeFeatures(
   analysis: AnalysisFeatureInput,
@@ -105,7 +130,7 @@ export function computeFeatures(
   return {
     keyword_metrics: { status: keywordMetricsStatus(analysis) },
     serp: { status: 'not_generated' },
-    topics: { status: 'not_generated' },
+    topics: { status: topicsFeatureStatus(extras.topicsStatus) },
     journey: { status: journeyFeatureStatus(extras.journeyStatus) },
     ai_search: { status: aiSearchFeatureStatus(extras.aiSearchStatus) },
   };

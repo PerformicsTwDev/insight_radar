@@ -351,6 +351,13 @@ export class KeywordAnalysisService {
       orderBy: { createdAt: 'desc' },
       select: { status: true },
     });
+    // topics feature 由最新 TopicRun 推導（M7-R7a，AC-14.7；取代原 stale 佔位 not_generated，鏡射 journey）——
+    // 讓意圖主題 view 重訪時如實回報 ready、不再永遠停在 CTA；無 run → not_generated。
+    const topicRun = await this.prisma.topicRun.findFirst({
+      where: { keywordAnalysisId: analysisId },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    });
     // ai_search feature 由最新 linked AiSearchRun 推導（AC-44.2/T15.8a #678 G1）；**owner-scoped**（Option A link
     // 下 shared analysis 可能被他 session 掛 run → `ownerWhere(actor)` 過濾，只見自己 + 共享，S8）；無 run → not_generated。
     const aiSearchRun = await this.prisma.aiSearchRun.findFirst({
@@ -360,7 +367,11 @@ export class KeywordAnalysisService {
     });
     const features = computeFeatures(
       { status: row.status, resultSnapshotId: row.resultSnapshotId },
-      { journeyStatus: journeyRun?.status, aiSearchStatus: aiSearchRun?.status },
+      {
+        journeyStatus: journeyRun?.status,
+        aiSearchStatus: aiSearchRun?.status,
+        topicsStatus: topicRun?.status,
+      },
     );
 
     // AC-8.5：row 已含 seeds（findUnique 全欄），直接回；`as string[]` 鏡射 toListRow（存為 string[] 的 Json）。
