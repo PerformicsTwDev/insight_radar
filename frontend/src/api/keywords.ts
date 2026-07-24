@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { api } from './client';
 import type { FilterSpec } from '../lib/filterSpec';
 import { ErrorResponseSchema, type ErrorResponse } from './keywordAnalyses';
+import { postQuery, type QueryRequest } from './query';
 
 /**
  * Typed egress for `GET /api/v1/keyword-analyses/:id/keywords` (T2.1, FR-4).
@@ -172,4 +173,85 @@ export async function getKeywords(
     status: response.status,
     error: parsedError.success ? parsedError.data : undefined,
   };
+}
+
+/**
+ * The keywords-VIEW columns always selected (M7-R1). Beyond the lean `GET /keywords` fields it
+ * adds `normalizedText` (the C7 selection / tracking-member key) and `monthlyVolumes` (the
+ * 搜尋趨勢TTM sparkline series) — which the list DTO deliberately omits (AC-6.1) but the view
+ * carries (AC-5.1). `intent` is the raw label array the list renames to `intentLabels`.
+ */
+const KEYWORDS_VIEW_SELECT = [
+  'text',
+  'normalizedText',
+  'intent',
+  'avgMonthlySearches',
+  'competition',
+  'competitionIndex',
+  'cpcLow',
+  'cpcHigh',
+  'monthlyVolumes',
+] as const;
+
+/**
+ * One `keywords`-view row (backend `pick(SnapshotRowData, select)`): raw `intent` (array), not the
+ * list DTO's renamed `intentLabels`, plus `normalizedText` + `monthlyVolumes`. Transformed to the
+ * {@link KeywordRow} the table consumes so the presentational table needs no change.
+ */
+const KeywordViewRowSchema = z
+  .object({
+    text: z.string(),
+    normalizedText: z.string().optional(),
+    intent: z.array(z.string()).default([]),
+    avgMonthlySearches: z.number().nullable().default(null),
+    competition: z.string().default(''),
+    competitionIndex: z.number().nullable().default(null),
+    cpcLow: z.number().nullable().default(null),
+    cpcHigh: z.number().nullable().default(null),
+    monthlyVolumes: z.array(MonthlyVolumeSchema).default([]),
+  })
+  .transform((r): KeywordRow => ({
+    text: r.text,
+    normalizedText: r.normalizedText,
+    intentLabels: r.intent,
+    avgMonthlySearches: r.avgMonthlySearches,
+    competition: r.competition,
+    competitionIndex: r.competitionIndex,
+    cpcLow: r.cpcLow,
+    cpcHigh: r.cpcHigh,
+    monthlyVolumes: r.monthlyVolumes,
+  }));
+
+/**
+ * List a snapshot's keywords via the view-router (`POST :id/query {view:'keywords'}`) rather than
+ * the lean `GET :id/keywords` (M7-R1). The view carries `monthlyVolumes` + `normalizedText`
+ * (AC-5.1/AC-6.1), so the table's 搜尋趨勢TTM sparkline and FR-19 selection have their data. Same
+ * `{ ok, rows: KeywordRow[], meta }` shape as {@link getKeywords} — a drop-in. The generic view
+ * rows are mapped to `KeywordRow` (`intent`→`intentLabels`); an unparseable row is dropped rather
+ * than failing the whole page. Never throws.
+ */
+export async function getKeywordsView(
+  id: string,
+  params: GetKeywordsParams = {},
+): Promise<GetKeywordsResult> {
+  const { page, pageSize, cursor, sortBy, sortDir, ...filters } = params;
+  const request: QueryRequest = {
+    view: 'keywords',
+    select: [...KEYWORDS_VIEW_SELECT],
+    filters,
+    sort: sortBy && sortDir ? [{ field: sortBy, direction: sortDir }] : undefined,
+    pagination: { page, pageSize, cursor },
+  };
+  const res = await postQuery(id, request);
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: res.error };
+  }
+  if (res.view.kind !== 'table') {
+    return { ok: false, status: 200 };
+  }
+  const rows = res.view.rows.flatMap((row) => {
+    const parsed = KeywordViewRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return { ok: true, rows, meta: res.view.pagination };
 }

@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { buildKeywordsQuery, getKeywords } from './keywords';
+import { buildKeywordsQuery, getKeywords, getKeywordsView } from './keywords';
 import { server } from './msw/server';
 
 const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
@@ -223,5 +223,112 @@ describe('TC-33 · getKeywords (GET :id/keywords egress + contract)', () => {
       expect(result.status).toBe(500);
       expect(result.error).toBeUndefined();
     }
+  });
+});
+
+describe('M7-R1 · getKeywordsView (POST /query {view:keywords} → KeywordRow[])', () => {
+  const QUERY_PATH = '/api/v1/keyword-analyses/:id/query';
+
+  it('maps a keywords-view row to KeywordRow (intent→intentLabels, keeps monthlyVolumes + normalizedText)', async () => {
+    server.use(
+      http.post(QUERY_PATH, () =>
+        HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [
+            {
+              text: 'running shoes',
+              normalizedText: 'running shoes',
+              intent: ['commercial'],
+              avgMonthlySearches: 12000,
+              competition: '高',
+              competitionIndex: 80,
+              cpcLow: 1.2,
+              cpcHigh: 3.4,
+              monthlyVolumes: [{ year: 2026, month: 1, searches: 100 }],
+            },
+          ],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
+    const result = await getKeywordsView(ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.rows[0]).toEqual({
+      text: 'running shoes',
+      normalizedText: 'running shoes',
+      intentLabels: ['commercial'],
+      avgMonthlySearches: 12000,
+      competition: '高',
+      competitionIndex: 80,
+      cpcLow: 1.2,
+      cpcHigh: 3.4,
+      monthlyVolumes: [{ year: 2026, month: 1, searches: 100 }],
+    });
+    expect(result.meta).toEqual({ total: 1, page: 1, pageSize: 25, cursor: null });
+  });
+
+  it('sends view=keywords + the volume-bearing select + filters/sort/pagination', async () => {
+    let body: unknown;
+    server.use(
+      http.post(QUERY_PATH, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [],
+          pagination: { total: 0, page: 2, pageSize: 25, cursor: null },
+        });
+      }),
+    );
+    await getKeywordsView(ID, {
+      q: '吸塵器',
+      page: 2,
+      pageSize: 25,
+      sortBy: 'avgMonthlySearches',
+      sortDir: 'desc',
+    });
+    expect(body).toMatchObject({
+      view: 'keywords',
+      filters: { q: '吸塵器' },
+      sort: [{ field: 'avgMonthlySearches', direction: 'desc' }],
+      pagination: { page: 2, pageSize: 25 },
+    });
+    const select = (body as { select: string[] }).select;
+    expect(select).toContain('monthlyVolumes');
+    expect(select).toContain('normalizedText');
+  });
+
+  it('degrades to ok:false on a non-2xx', async () => {
+    server.use(http.post(QUERY_PATH, () => new HttpResponse(null, { status: 500 })));
+    expect(await getKeywordsView(ID)).toEqual({ ok: false, status: 500, error: undefined });
+  });
+
+  it('degrades to ok:false when the response is not a table view (defensive)', async () => {
+    server.use(
+      http.post(QUERY_PATH, () =>
+        HttpResponse.json({ view: 'keywords', axis: ['2026-01'], total: [10], series: [] }),
+      ),
+    );
+    expect(await getKeywordsView(ID)).toEqual({ ok: false, status: 200 });
+  });
+
+  it('drops an unparseable row rather than failing the whole page', async () => {
+    server.use(
+      http.post(QUERY_PATH, () =>
+        HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [{ text: 'ok', intent: [], monthlyVolumes: [] }, { notText: 'bad' }],
+          pagination: { total: 2, page: 1, pageSize: 25, cursor: null },
+        }),
+      ),
+    );
+    const result = await getKeywordsView(ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].text).toBe('ok');
   });
 });
