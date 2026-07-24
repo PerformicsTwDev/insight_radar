@@ -13,6 +13,13 @@ import {
 } from '../../lib/keywordsTable';
 import { AiIntentBatchHeader, AiIntentCell } from './AiIntentCell';
 import { SparklineCell } from './SparklineCell';
+import {
+  DimensionCell,
+  DimensionHeader,
+  type DimensionAccent,
+  type DimensionCellState,
+  type DimensionHeaderPhase,
+} from './DimensionColumn';
 import { AiIntentBatchContext } from './aiIntentBatchContext';
 import { useAiIntentBatch } from './useAiIntentBatch';
 import type { EventSourceFactory } from '../job/useJobTracking';
@@ -36,12 +43,29 @@ const SELECT_WIDTH = 44;
 const COL_WIDTH = {
   text: 220,
   intent: 200,
+  // On-demand dimension columns (搜尋意圖主題 / 購買歷程主題), M7-R2b/c.
+  dimension: 132,
   volume: 120,
   competition: 150,
   cpc: 170,
-  trend: 128,
+  // Widened for the M7-R2a inline signed-% beside the sparkline (was 128, sparkline-only).
+  trend: 168,
   ai: 72,
 };
+
+/**
+ * One on-demand dimension column (M7-R2b/c, FR-18): 搜尋意圖主題 / 購買歷程主題. The container
+ * (KeywordsView) supplies the header phase + generate handler (from useTopics / useJourney) and a
+ * per-row cell state (from the `normalizedText` client-join); the table just renders it after 意圖.
+ */
+export interface DimensionColumnConfig {
+  readonly id: string;
+  readonly label: string;
+  readonly accent: DimensionAccent;
+  readonly phase: DimensionHeaderPhase;
+  readonly onGenerate: () => void;
+  readonly cellState: (row: KeywordRow) => DimensionCellState;
+}
 
 /**
  * Per-row selection wiring (T6.4, FR-19) — supplied by the route-mounted container
@@ -67,7 +91,16 @@ export interface KeywordsTableSelection {
 function buildColumns(
   analysisId?: string,
   selection?: KeywordsTableSelection,
+  dimensionColumns: readonly DimensionColumnConfig[] = [],
 ): ColumnDef<KeywordRow>[] {
+  // The on-demand 搜尋意圖主題 / 購買歷程主題 columns sit right after 意圖 (v4 grouping); each binds
+  // its container-supplied header phase + generate handler and per-row client-joined cell state.
+  const dimensionCols: ColumnDef<KeywordRow>[] = dimensionColumns.map((dc) => ({
+    id: dc.id,
+    header: () => <DimensionHeader label={dc.label} phase={dc.phase} onGenerate={dc.onGenerate} />,
+    size: COL_WIDTH.dimension,
+    cell: ({ row }) => <DimensionCell state={dc.cellState(row.original)} accent={dc.accent} />,
+  }));
   const selectColumn: ColumnDef<KeywordRow>[] = selection
     ? [
         {
@@ -105,6 +138,7 @@ function buildColumns(
       size: COL_WIDTH.intent,
       cell: ({ row }) => <IntentCell labels={row.original.intentLabels} />,
     },
+    ...dimensionCols,
     {
       id: 'avgMonthlySearches',
       header: '搜尋量',
@@ -115,6 +149,15 @@ function buildColumns(
           {formatVolume(row.original.avgMonthlySearches)}
         </span>
       ),
+    },
+    {
+      id: 'trend',
+      header: '搜尋趨勢TTM',
+      size: COL_WIDTH.trend,
+      // v4 order: 搜尋趨勢TTM sits right after 搜尋量 (before 競爭度/CPC), M7-R2. sparkline + inline
+      // signed % from each row's monthlyVolumes (FR-4 → FR-21, M7-R2a); null months break the line
+      // (never 0), an unclassifiable % shows — inline.
+      cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
     },
     {
       id: 'competition',
@@ -133,13 +176,6 @@ function buildColumns(
           {formatCpcRange(row.original.cpcLow, row.original.cpcHigh)}
         </span>
       ),
-    },
-    {
-      id: 'trend',
-      header: '搜尋趨勢',
-      size: COL_WIDTH.trend,
-      // 搜尋趨勢 sparkline from each row's monthlyVolumes (FR-4 → FR-21); null months break, never 0.
-      cell: ({ row }) => <SparklineCell volumes={row.original.monthlyVolumes} />,
     },
     {
       id: 'ai',
@@ -186,6 +222,7 @@ export function KeywordsTable({
   rows,
   analysisId,
   selection,
+  dimensionColumns,
   eventSourceFactory,
 }: {
   rows: KeywordRow[];
@@ -193,11 +230,16 @@ export function KeywordsTable({
   analysisId?: string;
   /** Per-row selection wiring (T6.4, FR-19); omit → no selection column (pre-T6.4 shape). */
   selection?: KeywordsTableSelection;
+  /** On-demand 搜尋意圖主題 / 購買歷程主題 columns (M7-R2b/c, FR-18); omit → none. */
+  dimensionColumns?: readonly DimensionColumnConfig[];
   /** Injected SSE factory for the ✦ column-header batch (T4.2); prod uses the default. */
   eventSourceFactory?: EventSourceFactory;
 }): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const columns = useMemo(() => buildColumns(analysisId, selection), [analysisId, selection]);
+  const columns = useMemo(
+    () => buildColumns(analysisId, selection, dimensionColumns),
+    [analysisId, selection, dimensionColumns],
+  );
   // Freeze the selection column (when present) plus 搜尋詞 (Design §6 C1 sticky lead).
   const frozenCount = selection ? 2 : 1;
 

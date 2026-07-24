@@ -74,3 +74,33 @@ describe('TC-7+21 · SparklineCell FR-21 trend hover tooltip (型別 + %)', () =
     expect(container.querySelector('title')).toBeNull();
   });
 });
+
+describe('TC-7 · SparklineCell FR-21 inline signed % (↑/↓ + type colour, M7-R2a)', () => {
+  it('shows the signed % inline next to the sparkline, tagged with its trend type', () => {
+    // 100 → 200 = +100% → surge; inline glance = ↑100%, coloured by the surge type.
+    render(<SparklineCell volumes={[vol(100), vol(200)]} />);
+    const pct = screen.getByText('↑100%');
+    expect(pct).toHaveAttribute('data-trend-type', 'surge');
+    // the sparkline svg still renders alongside the inline %.
+    expect(screen.getByRole('img', { name: '搜尋趨勢走勢' })).toBeInTheDocument();
+  });
+
+  it('prefixes ↓ and colours a declining series by the decline type', () => {
+    render(<SparklineCell volumes={[vol(200), vol(100)]} />);
+    expect(screen.getByText('↓50%')).toHaveAttribute('data-trend-type', 'decline');
+  });
+
+  it('shows — (never a fabricated %) inline when the % is unclassifiable but a sparkline draws', () => {
+    // [0, 100]: the sparkline draws, but first non-null 0 → no %, so the inline slot is —.
+    render(<SparklineCell volumes={[vol(0), vol(100)]} />);
+    expect(screen.getByRole('img', { name: '搜尋趨勢走勢' })).toBeInTheDocument();
+    expect(screen.queryByText(/[↑↓]/)).not.toBeInTheDocument();
+    expect(screen.getByText(EM_DASH)).toBeInTheDocument();
+  });
+
+  it('renders no inline % arrow at all for a no-sparkline no-data series (just the — marker)', () => {
+    render(<SparklineCell volumes={[vol(42)]} />);
+    expect(screen.getByRole('img', { name: '無趨勢資料' })).toBeInTheDocument();
+    expect(screen.queryByText(/[↑↓]/)).not.toBeInTheDocument();
+  });
+});

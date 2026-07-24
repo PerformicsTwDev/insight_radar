@@ -69,12 +69,12 @@ function stubQuery(
   );
 }
 
-function renderKeywords(search = '') {
+function renderKeywords(search = '', features?: unknown) {
   const rootRoute = createRootRoute({ validateSearch: deserialize, component: Outlet });
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
-    component: () => <KeywordsView analysisId={ANALYSIS_ID} />,
+    component: () => <KeywordsView analysisId={ANALYSIS_ID} features={features} />,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -259,5 +259,138 @@ describe('TC-59 · results dashboard v4 structure (T7.4)', () => {
       'aria-expanded',
       'false',
     );
+  });
+});
+
+describe('TC-28 · KeywordsView 搜尋意圖主題 on-demand column (M7-R2b, FR-18)', () => {
+  const TOPICS_ROUTE = '/api/v1/keyword-analyses/:id/topics';
+
+  /** A `GET :id/topics` body carrying the given classified keywords (rest of the shape is inert). */
+  const topicsBody = (
+    keywords: {
+      text: string;
+      normalizedText: string;
+      topicName: string | null;
+      isNoise?: boolean;
+    }[],
+  ) => ({
+    status: 'completed',
+    progress: null,
+    clusters: [],
+    keywords: keywords.map((k) => ({
+      parentTopic: null,
+      intentLabel: null,
+      confidence: 1,
+      isNoise: false,
+      ...k,
+    })),
+    meta: { runId: 'r', snapshotId: 's', clusterCount: 1, noiseCount: 0 },
+  });
+
+  it('shows the client-joined topic pill for a ready analysis (join by normalizedText, D2)', async () => {
+    stubQuery([row('running shoes'), row('trail shoes')]);
+    server.use(
+      http.get(TOPICS_ROUTE, () =>
+        HttpResponse.json(
+          topicsBody([
+            { text: 'running shoes', normalizedText: 'running shoes', topicName: '規格探究' },
+          ]),
+        ),
+      ),
+    );
+    renderKeywords('', { topics: { status: 'ready' } });
+
+    // The classified keyword renders its topic pill; the header is a plain label (ready phase).
+    expect(await screen.findByText('規格探究')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '搜尋意圖主題' })).toBeInTheDocument();
+  });
+
+  it('masks the column behind a ✦ generate-all trigger when topics are not generated (C13 decoupled)', async () => {
+    stubQuery([row('running shoes')]);
+    // No GET :id/topics is stubbed — a not_generated gate must NOT fetch topics (query disabled).
+    renderKeywords('', { topics: { status: 'not_generated' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // Header offers the 「generate all」 ✦ trigger (generatable); the cells stay masked.
+    expect(screen.getByRole('button', { name: /搜尋意圖主題/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: '尚未生成' }).length).toBeGreaterThan(0);
+  });
+
+  it('runs the topics job (POST :id/topics) when the ✦ generate-all trigger is clicked (M7-R2b)', async () => {
+    stubQuery([row('running shoes')]);
+    let started = false;
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/topics', () => {
+        started = true;
+        return HttpResponse.json({ topicJobId: 'tj-1' }, { status: 202 });
+      }),
+    );
+    renderKeywords('', { topics: { status: 'not_generated' } });
+
+    // Clicking the column-header ✦ starts the topics run via useTopics.start (the wiring the
+    // coverage ratchet flagged) — it does NOT unlock the left 意圖主題 view (C13, verified in review).
+    fireEvent.click(await screen.findByRole('button', { name: /搜尋意圖主題/ }));
+    await waitFor(() => expect(started).toBe(true));
+  });
+});
+
+describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18)', () => {
+  it('shows the client-joined journey stage pill for a ready analysis (join by normalizedText, D2)', async () => {
+    server.use(
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const { view } = (await request.json()) as { view: string };
+        if (view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        if (view === 'journey') {
+          // The journey view carries `stage` + `normalizedText` (default select) per keyword.
+          return HttpResponse.json({
+            view: 'journey',
+            columns: [],
+            rows: [
+              { text: 'running shoes', normalizedText: 'running shoes', stage: 'spec_comparison' },
+            ],
+            pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+          });
+        }
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [row('running shoes')],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        });
+      }),
+      // useJourney also probes the run status (partial notice) once ready — completed here.
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'j-1',
+          status: 'completed',
+          progress: null,
+          keywordCount: 1,
+        }),
+      ),
+    );
+    renderKeywords('', { journey: { status: 'ready' } });
+
+    // The stage enum is resolved to its zh label (規格比較) via the SSOT and shown as a blue pill.
+    expect(await screen.findByText('規格比較')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '購買歷程主題' })).toBeInTheDocument();
+  });
+
+  it('runs the journey job (POST :id/journey) when the ✦ generate-all trigger is clicked (M7-R2c)', async () => {
+    stubQuery([row('running shoes')]);
+    let started = false;
+    server.use(
+      http.post('/api/v1/keyword-analyses/:id/journey', () => {
+        started = true;
+        return HttpResponse.json({ journeyJobId: 'jj-1' }, { status: 202 });
+      }),
+    );
+    renderKeywords('', { journey: { status: 'not_generated' } });
+
+    // Clicking the column-header ✦ starts the journey run via useJourney.start (the wiring the
+    // coverage ratchet flagged) — gate-decoupled from the left 購買歷程 view (C13).
+    fireEvent.click(await screen.findByRole('button', { name: /購買歷程主題/ }));
+    await waitFor(() => expect(started).toBe(true));
   });
 });

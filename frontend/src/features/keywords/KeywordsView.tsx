@@ -5,15 +5,28 @@ import { getKeywordsView } from '../../api/keywords';
 import { CopyTsvButton } from '../../components/CopyTsvButton';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
 import { deserializeFiltersFromUrl } from '../../lib/filterSpec';
+import { featureStatusOf } from '../../lib/featureGate';
 import { keywordsToTsv } from '../../lib/keywordsTsv';
 import { selectionKey } from '../../lib/selection';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useJourney } from '../journey/useJourney';
+import { useTopics } from '../topics/useTopics';
 import { AiInsightSidebar } from '../insight/AiInsightSidebar';
 import { TrendView } from '../trend/TrendView';
 import { BulkSelectBar } from '../tracking/BulkSelectBar';
+import {
+  cellStateForRow,
+  dimensionHeaderPhase,
+  journeyStageByKey,
+  topicLabelByKey,
+} from './keywordDimensions';
 import { KeywordsFilters } from './filters/KeywordsFilters';
 import { KeywordsPagination } from './KeywordsPagination';
-import { KeywordsTable, type KeywordsTableSelection } from './KeywordsTable';
+import {
+  KeywordsTable,
+  type DimensionColumnConfig,
+  type KeywordsTableSelection,
+} from './KeywordsTable';
 
 /**
  * Keywords grand-table container (T6.0, FR-4 / FR-1). The data hook the T2.1 table
@@ -99,6 +112,40 @@ export function KeywordsView({
 
   const result = query.data;
   const rows = result?.ok ? result.rows : [];
+
+  // 搜尋意圖主題 on-demand column (M7-R2b, FR-18): each keyword's topic comes from the topics job,
+  // client-joined by normalizedText (D2). Its gate status is read off the GET :id features; the
+  // header ✦「generate all」runs the topics analysis but — per C13 — does NOT unlock the left
+  // 意圖主題 view (useTopics.start only enqueues + tracks the run).
+  const topics = useTopics(analysisId, featureStatusOf(features, 'topics'));
+  const topicMap = useMemo(() => topicLabelByKey(topics.topics), [topics.topics]);
+  // 購買歷程主題 on-demand column (M7-R2c, FR-15/FR-18): each keyword's stage comes from the journey
+  // job's stage 表 (`POST /query {view:journey}`, default select carries normalizedText), client-joined
+  // by normalizedText (D2). Same C13 gate-decoupling — generating runs the journey run, no view unlock.
+  const journey = useJourney(analysisId, featureStatusOf(features, 'journey'));
+  const journeyMap = useMemo(() => journeyStageByKey(journey.rows), [journey.rows]);
+  const dimensionColumns = useMemo<DimensionColumnConfig[]>(
+    () => [
+      {
+        id: 'intentTopic',
+        label: '搜尋意圖主題',
+        accent: 'topic',
+        phase: dimensionHeaderPhase(topics.status),
+        onGenerate: () => void topics.start(),
+        cellState: (row) => cellStateForRow(topics.status, row.normalizedText, topicMap),
+      },
+      {
+        id: 'journeyStage',
+        label: '購買歷程主題',
+        accent: 'journey',
+        phase: dimensionHeaderPhase(journey.status),
+        onGenerate: () => void journey.start(),
+        cellState: (row) => cellStateForRow(journey.status, row.normalizedText, journeyMap),
+      },
+    ],
+    [topics, topicMap, journey, journeyMap],
+  );
+
   // AI 洞察面板 open state (M7-R6) — default EXPANDED (v4). One handler drives both the header
   // 隱藏/顯示 button and the in-panel chevron.
   const [aiExpanded, setAiExpanded] = useState(true);
@@ -140,7 +187,12 @@ export function KeywordsView({
             <EmptyState message="沒有符合條件的搜尋詞。" />
           ) : (
             <>
-              <KeywordsTable rows={result.rows} analysisId={analysisId} selection={selection} />
+              <KeywordsTable
+                rows={result.rows}
+                analysisId={analysisId}
+                selection={selection}
+                dimensionColumns={dimensionColumns}
+              />
               <KeywordsPagination meta={result.meta} />
             </>
           )}

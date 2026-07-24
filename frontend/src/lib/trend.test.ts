@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { classifySeries, classifyTrend, trendPercent, trendTooltip, type TrendType } from './trend';
+import {
+  classifySeries,
+  classifyTrend,
+  TREND_TYPE_COLOR,
+  trendInline,
+  trendPercent,
+  trendTooltip,
+  type TrendType,
+} from './trend';
 import type { MonthlyVolumePoint } from './sparkline';
 
 /**
@@ -109,5 +117,61 @@ describe('TC-1+21 · trendTooltip (FR-21 sparkline hover text: 型別 + %)', () 
   it('returns null for a < 2-point / all-null series', () => {
     expect(trendTooltip(vol([100]), STABLE_MAX, SURGE_MIN)).toBeNull();
     expect(trendTooltip(vol([null, null]), STABLE_MAX, SURGE_MIN)).toBeNull();
+  });
+});
+
+describe('TC-7 · TREND_TYPE_COLOR (SSOT; mirrors @theme --color-trend-*, M7-R2a)', () => {
+  it('maps each of the 4 types to its token value (change here ⇒ change index.css @theme)', () => {
+    expect(TREND_TYPE_COLOR).toEqual({
+      decline: '#ef6f6c', // --color-trend-negative
+      stable: '#9aa0a6', // --color-trend-stable
+      growth: '#52b788', // --color-trend-growth (= brand green)
+      surge: '#f4845f', // --color-trend-surge
+    });
+  });
+});
+
+describe('TC-7 · trendInline (FR-21 inline signed % + type; ↑/↓ by sign, M7-R2a)', () => {
+  it('prefixes ↑ for a positive % (surge) and reports the type for colouring', () => {
+    expect(trendInline(vol([100, 200]), STABLE_MAX, SURGE_MIN)).toEqual({
+      text: '↑100%',
+      type: 'surge',
+    });
+  });
+
+  it('prefixes ↓ for a negative % (decline), showing the magnitude only', () => {
+    expect(trendInline(vol([100, 80]), STABLE_MAX, SURGE_MIN)).toEqual({
+      text: '↓20%',
+      type: 'decline',
+    });
+  });
+
+  it('classifies a mid growth (5 ≤ % < 20) with an ↑', () => {
+    expect(trendInline(vol([100, 110]), STABLE_MAX, SURGE_MIN)).toEqual({
+      text: '↑10%',
+      type: 'growth',
+    });
+  });
+
+  it('rounds to an integer % (glance value; the precise 1-dp stays in the hover tooltip)', () => {
+    // (1125-1000)/1000 = 12.5% → rounds to 13 for the inline glance, type growth.
+    expect(trendInline(vol([1000, 1125]), STABLE_MAX, SURGE_MIN)).toEqual({
+      text: '↑13%',
+      type: 'growth',
+    });
+  });
+
+  it('shows 0% with no arrow for a flat series (stable)', () => {
+    expect(trendInline(vol([100, 100]), STABLE_MAX, SURGE_MIN)).toEqual({
+      text: '0%',
+      type: 'stable',
+    });
+  });
+
+  it('returns null (→ cell shows —, never a fabricated %) for an unclassifiable series', () => {
+    expect(trendInline(vol([0, 100]), STABLE_MAX, SURGE_MIN)).toBeNull(); // first non-null 0 (÷0)
+    expect(trendInline(vol([42]), STABLE_MAX, SURGE_MIN)).toBeNull(); // < 2 non-null
+    expect(trendInline(vol([null, null]), STABLE_MAX, SURGE_MIN)).toBeNull(); // all null
+    expect(trendInline(vol([]), STABLE_MAX, SURGE_MIN)).toBeNull(); // empty
   });
 });

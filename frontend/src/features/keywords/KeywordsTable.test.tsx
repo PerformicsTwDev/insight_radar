@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { KeywordsTable } from './KeywordsTable';
+import { KeywordsTable, type DimensionColumnConfig } from './KeywordsTable';
 import { EM_DASH } from '../../lib/keywordsTable';
 import type { KeywordRow } from '../../api/keywords';
 
@@ -46,8 +46,8 @@ const rows: KeywordRow[] = [
   },
 ];
 
-/** Column order in the DOM (search 詞 frozen first, 搜尋趨勢 sparkline, ✦ on-demand last). */
-const COL = { text: 0, intent: 1, volume: 2, competition: 3, cpc: 4, trend: 5, ai: 6 } as const;
+/** Column order in the DOM (v4, no dimension columns): 搜尋詞 frozen, 趨勢TTM after 搜尋量, ✦ last. */
+const COL = { text: 0, intent: 1, volume: 2, trend: 3, competition: 4, cpc: 5, ai: 6 } as const;
 
 function missingRowCells() {
   const missingRow = screen.getByRole('row', { name: /缺值列/ });
@@ -103,12 +103,14 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
     expect(missingRowCells()[COL.intent]).toHaveTextContent(EM_DASH);
   });
 
-  it('renders the 搜尋趨勢 sparkline column (FR-4 → FR-21) between CPC and the ✦ column', () => {
+  it('renders the 搜尋趨勢TTM sparkline column (FR-4 → FR-21) right after 搜尋量 (v4 order)', () => {
     render(<KeywordsTable rows={rows} />);
-    expect(screen.getByRole('columnheader', { name: '搜尋趨勢' })).toBeInTheDocument();
-    // column order: 搜尋趨勢 sits at index 5, ✦ at 6.
+    expect(screen.getByRole('columnheader', { name: '搜尋趨勢TTM' })).toBeInTheDocument();
+    // v4 column order: 搜尋量(2) 搜尋趨勢TTM(3) 競爭度(4) CPC(5) ✦(6).
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers[COL.trend]).toBe('搜尋趨勢');
+    expect(headers[COL.volume]).toBe('搜尋量');
+    expect(headers[COL.trend]).toBe('搜尋趨勢TTM');
+    expect(headers[COL.competition]).toBe('競爭度');
     expect(headers[COL.ai]).toBe('✦');
   });
 
@@ -120,6 +122,47 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
     const trendCell = missingRowCells()[COL.trend];
     expect(within(trendCell).getByRole('img', { name: '無趨勢資料' })).toBeInTheDocument();
     expect(trendCell.querySelector('polyline')).toBeNull();
+  });
+});
+
+describe('TC-28 · KeywordsTable on-demand dimension columns (搜尋意圖主題 / 購買歷程主題, M7-R2b/c)', () => {
+  const topicColumn: DimensionColumnConfig = {
+    id: 'intentTopic',
+    label: '搜尋意圖主題',
+    accent: 'topic',
+    phase: 'ready',
+    onGenerate: () => {},
+    cellState: (row) =>
+      row.text === 'running shoes' ? { kind: 'value', label: '規格探究' } : { kind: 'empty' },
+  };
+
+  it('inserts the dimension column right after 意圖 with its header + per-row client-joined pills', () => {
+    render(<KeywordsTable rows={rows} dimensionColumns={[topicColumn]} />);
+    // Column order: 搜尋詞(0) 意圖(1) 搜尋意圖主題(2) 搜尋量(3) …
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers[2]).toBe('搜尋意圖主題');
+    expect(headers[3]).toBe('搜尋量');
+    // the classified row shows its pill; an unclassified row shows — (never a fabricated topic).
+    expect(screen.getByText('規格探究')).toBeInTheDocument();
+  });
+
+  it('fires the container generate handler from the header ✦ trigger when generatable', () => {
+    let generateCalls = 0;
+    render(
+      <KeywordsTable
+        rows={rows}
+        dimensionColumns={[
+          { ...topicColumn, phase: 'generatable', onGenerate: () => (generateCalls += 1) },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /搜尋意圖主題/ }));
+    expect(generateCalls).toBe(1);
+  });
+
+  it('renders no dimension column when none is supplied (unchanged base shape)', () => {
+    render(<KeywordsTable rows={rows} />);
+    expect(screen.queryByRole('columnheader', { name: '搜尋意圖主題' })).not.toBeInTheDocument();
   });
 });
 
