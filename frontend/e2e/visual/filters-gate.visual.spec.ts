@@ -35,9 +35,12 @@ test('意圖主題 feature-gate CTA matches visual baseline (TC-54)', async ({ p
 
   await page.goto(`/?analysisId=${ANALYSIS_ID}&view=intent_topics`);
 
-  // The gate CTA is the only content in the main pane (no nav) → screenshot the pane.
-  const pane = page.getByRole('main');
-  await expect(pane.getByRole('button', { name: '✦ 開始分析' })).toBeVisible();
+  // Screenshot the FeatureGate CTA pane itself (the button's container), NOT `getByRole('main')` —
+  // since M7-R17 `main` is the whole 2000px results page, so the old target captured the entire
+  // dashboard. The pane is a tight, stable element (the ✦ 開始分析 button's parent).
+  const gateButton = page.getByRole('button', { name: '✦ 開始分析' });
+  await expect(gateButton).toBeVisible();
+  const pane = gateButton.locator('..');
 
   await expect(pane).toHaveScreenshot('feature-gate.png');
 });
