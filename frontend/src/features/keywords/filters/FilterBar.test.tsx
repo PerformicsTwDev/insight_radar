@@ -45,14 +45,24 @@ function openChip(label: string) {
 }
 
 describe('TC-17 · FilterBar (chips popover → FilterSpec + URL)', () => {
-  it('offers only the allowed filters as chips', () => {
+  it('offers the v4 default 9-chip filter bar (M7-R17)', () => {
     render(<Harness />);
-    for (const label of ['搜尋詞', '意圖類別', '競爭度', '搜尋量', 'CPC']) {
+    for (const label of [
+      '搜尋詞',
+      '意圖類別',
+      '意圖主題',
+      '購買歷程主題',
+      '搜尋趨勢',
+      '搜尋量',
+      '競爭度',
+      'CPC',
+      'AI 歸納搜尋意圖',
+    ]) {
       expect(screen.getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
     }
-    // competitionIndex + topic dimensions are not offered on the base view.
+    // competitionIndex + 自訂分類 are not on the base 搜尋詞總表 bar (custom is its own view).
     expect(screen.queryByRole('button', { name: /競爭度指數/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /意圖主題/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /自訂分類/ })).not.toBeInTheDocument();
   });
 
   it('renders only the single explicitly-allowed filter', () => {

@@ -1,5 +1,6 @@
 import { intentMap } from '../../../lib/intentMap';
 import { COMPETITION_ZH } from '../../../lib/keywordsTable';
+import { TREND_TYPE_ZH } from '../../../lib/trend';
 import type { FilterFieldKey } from '../../../lib/filterSpec';
 
 /**
@@ -60,6 +61,11 @@ const COMPETITION_OPTIONS: readonly FilterOption[] = (['HIGH', 'MEDIUM', 'LOW'] 
   (value) => ({ value, label: COMPETITION_ZH[value] }),
 );
 
+// 搜尋趨勢 options reuse the TREND_TYPE_ZH SSOT (回落/穩定/成長/爆發). Prototype order: 穩定→回落.
+const TREND_OPTIONS: readonly FilterOption[] = (
+  ['stable', 'growth', 'surge', 'decline'] as const
+).map((value) => ({ value, label: TREND_TYPE_ZH[value] }));
+
 export const FILTER_FIELDS: Readonly<Record<FilterFieldKey, FilterFieldDef>> = {
   keyword: {
     type: 'inex',
@@ -71,6 +77,10 @@ export const FILTER_FIELDS: Readonly<Record<FilterFieldKey, FilterFieldDef>> = {
   volume: { type: 'range', label: '搜尋量' },
   competitionIndex: { type: 'range', label: '競爭度指數' },
   cpc: { type: 'range', label: 'CPC', money: true },
+  // v4 display chips (M7-R17): trend = 搜尋趨勢型別 options; aiIntent = 包含字 inex. Neither is a
+  // base FilterSpec field (chipsToSpec ignores them) — visual until backend filter support (#777).
+  trend: { type: 'options', label: '搜尋趨勢', options: TREND_OPTIONS },
+  aiIntent: { type: 'inex', label: 'AI 歸納搜尋意圖', includePlaceholder: '包含字，例如：推薦' },
   // menukw (主題+關鍵字) — view-router grouping dimensions (M3+); no base FilterSpec field.
   intentTopic: { type: 'menukw', label: '意圖主題', options: [] },
   journeyTopic: { type: 'menukw', label: '購買歷程主題', options: [] },
@@ -78,14 +88,23 @@ export const FILTER_FIELDS: Readonly<Record<FilterFieldKey, FilterFieldDef>> = {
 };
 
 /**
- * Filters offered on the base 搜尋詞總表 view — the backend-representable FilterSpec
- * fields (`competitionIndex` is codec-complete for shared URLs but not offered by
- * default, matching the mockup, which exposes competition as an enum options chip).
+ * Filters offered on the base 搜尋詞總表 view (M7-R17 v4 fidelity) — the prototype's
+ * `VIEW_FILTERS.all` chip set, in order. `keyword / intent / volume / competition / cpc`
+ * are backend-representable (feed the `FilterSpec`); `intentTopic / journeyTopic` are
+ * view-router grouping dimensions (menukw display chips, no base `FilterSpec` field).
+ * `trend` + `aiIntent` (the remaining two prototype chips) need new non-`FilterSpec`
+ * display-chip infra + backend filter support (see #777) and are added next.
+ * `competitionIndex` stays codec-complete for shared URLs but off the default bar
+ * (the prototype exposes 競爭度 as an enum chip, not a competitionIndex range).
  */
 export const DEFAULT_ALLOWED_FILTERS: readonly FilterFieldKey[] = [
   'keyword',
   'intent',
-  'competition',
+  'intentTopic',
+  'journeyTopic',
+  'trend',
   'volume',
+  'competition',
   'cpc',
+  'aiIntent',
 ];

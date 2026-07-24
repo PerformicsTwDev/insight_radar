@@ -26,16 +26,41 @@ export interface FilterBarProps {
   readonly onChange: (next: FilterSpec) => void;
 }
 
+// v4 `.filter-chip` (design-context/results-v4-spec.md): 36px pill, 7/12 padding, 999 radius,
+// 12.5px/600, the ⚑ bars icon + a brand `filter-value`. Active = brand-tinted (bg .08 / border .34).
 const CHIP_BTN =
-  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition';
+  'inline-flex min-h-[36px] items-center gap-2 whitespace-nowrap rounded-full border px-3 py-[7px] text-[12.5px] font-semibold transition';
+const CHIP_INACTIVE =
+  'border-white/10 bg-white/[0.035] text-white/[0.66] hover:border-white/[0.18] hover:bg-white/[0.06] hover:text-white/90';
+const CHIP_ACTIVE = 'border-brand/[0.34] bg-brand/[0.08] text-white/90';
+// v4 `.filter-popover`: 280px, 14 radius, translucent bg-body + 14px blur, deep shadow.
 const POPOVER =
-  'absolute left-0 z-30 mt-2 w-72 rounded-xl bg-bg-raised p-3 shadow-lg ring-1 ring-white/10';
+  'absolute left-0 z-[70] mt-2 w-[280px] rounded-[14px] border border-white/10 bg-bg-body/[0.98] p-3 shadow-[0_18px_45px_rgba(0,0,0,0.45)] backdrop-blur-[14px]';
 const INPUT =
   'w-full rounded-lg bg-bg-input px-2.5 py-1.5 text-sm text-white outline-none ring-1 ring-white/10 focus:ring-brand';
+// v4 popover actions: 套用 = `.primary-btn`, 清除 = `.sec-btn` (small).
 const APPLY_BTN =
   'rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-bg-body enabled:hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40';
 const CLEAR_BTN =
-  'rounded-lg px-2.5 py-1.5 text-xs text-white/70 ring-1 ring-white/10 hover:bg-white/5';
+  'rounded-lg border border-white/20 px-2.5 py-1.5 text-xs font-semibold text-white/70 transition hover:border-white/40 hover:bg-white/5 hover:text-white';
+
+/** The ⚑ bars icon that prefixes every v4 filter chip (prototype `FILTER_ICONS.bars`). */
+function FilterIcon(): ReactElement {
+  return (
+    <svg
+      className="h-3.5 w-3.5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M7 12h10" />
+      <path d="M10 18h4" />
+    </svg>
+  );
+}
 
 export function FilterBar({ allowedFilters, value, onChange }: FilterBarProps): ReactElement {
   return (
@@ -133,14 +158,11 @@ function FilterChip({
         onClick={toggle}
         aria-haspopup="true"
         aria-expanded={open}
-        className={`${CHIP_BTN} ${
-          active
-            ? 'bg-brand/10 text-white ring-brand/40'
-            : 'bg-white/5 text-white/70 ring-white/10 hover:bg-white/10'
-        }`}
+        className={`${CHIP_BTN} ${active ? CHIP_ACTIVE : CHIP_INACTIVE}`}
       >
+        <FilterIcon />
         <span>{def.label}</span>
-        <span className={active ? 'text-brand' : 'text-white/40'}>{valueLabel(current, def)}</span>
+        <span className="max-w-[150px] truncate text-brand">{valueLabel(current, def)}</span>
       </button>
 
       {open ? (
