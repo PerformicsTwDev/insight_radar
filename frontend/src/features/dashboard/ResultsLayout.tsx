@@ -94,9 +94,14 @@ export function ResultsLayout({
           >
             {aiExpanded ? '✕ 隱藏 AI 洞察' : '💡 顯示 AI 洞察'}
           </button>
+          {/* 輸出簡報 is a roadmap feature — disabled + 即將推出 tooltip (M7-R24), not a dead control
+              that looks live but does nothing on click (NG4: use 複製表格 TSV meanwhile). */}
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-[13px] font-semibold text-white/70 transition hover:border-white/40 hover:bg-white/5 hover:text-white"
+            disabled
+            aria-disabled="true"
+            title="簡報輸出功能開發中，即將推出"
+            className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/20 px-3 py-2 text-[13px] font-semibold text-white/70 opacity-50"
           >
             輸出簡報
           </button>

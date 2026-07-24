@@ -133,7 +133,8 @@ describe('TC-59 / M7-R6 · action row + AI 洞察 panel toggle', () => {
   it('renders the action row (返回搜尋首頁 + 輸出簡報) and the AI 洞察 side-panel', async () => {
     renderLayout();
     expect(await screen.findByRole('button', { name: /返回搜尋首頁/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '輸出簡報' })).toBeInTheDocument();
+    // 輸出簡報 is a roadmap feature — present but disabled (M7-R24), not a live-looking dead control.
+    expect(screen.getByRole('button', { name: '輸出簡報' })).toBeDisabled();
     expect(screen.getByRole('complementary', { name: 'AI 洞察側欄' })).toBeInTheDocument();
   });
 

@@ -464,6 +464,50 @@ describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-
     expect(seenPageSizes.every((s) => s > 0)).toBe(true);
   });
 
+  it('does not fire the discarded first-50 journey content query (gate-only useJourney, M7-R24 [c1])', async () => {
+    const journeySelects: (string[] | undefined)[] = [];
+    server.use(
+      http.post(QUERY_ROUTE, async ({ request }) => {
+        const body = (await request.json()) as { view: string; select?: string[] };
+        if (body.view === 'trend') {
+          return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
+        }
+        if (body.view === 'journey') {
+          journeySelects.push(body.select);
+          return HttpResponse.json({
+            view: 'journey',
+            columns: [],
+            rows: [],
+            pagination: { total: 0, page: 1, pageSize: 200, cursor: null },
+          });
+        }
+        return HttpResponse.json({
+          view: 'keywords',
+          columns: [],
+          rows: [row('running shoes')],
+          pagination: { total: 1, page: 1, pageSize: 25, cursor: null },
+        });
+      }),
+      http.get('/api/v1/keyword-analyses/:id/journey', () =>
+        HttpResponse.json({
+          journeyJobId: 'j',
+          status: 'completed',
+          progress: null,
+          keywordCount: 0,
+        }),
+      ),
+    );
+    renderKeywords('', { journey: { status: 'ready' } });
+    await screen.findByRole('table', { name: '搜尋詞總表' });
+
+    // Every journey /query the grand table fires is the all-stages column join (select
+    // normalizedText+stage). The gate-only useJourney must NOT fire the discarded first-50 content
+    // query — a bare `view:journey` with no select (whose rows KeywordsView never reads).
+    await waitFor(() => expect(journeySelects.length).toBeGreaterThan(0));
+    expect(journeySelects).not.toContain(undefined);
+    expect(journeySelects.every((s) => s?.length === 2)).toBe(true);
+  });
+
   it('runs the journey job (POST :id/journey) when the ✦ generate-all trigger is clicked (M7-R2c)', async () => {
     stubQuery([row('running shoes')]);
     let started = false;
