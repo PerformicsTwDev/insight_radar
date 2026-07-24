@@ -152,6 +152,24 @@ describe('TC-16 · TrendChart (aggregate line + axis-aligned multi-line)', () =>
     expect(screen.queryByRole('checkbox', { name: 'running shoes' })).not.toBeInTheDocument();
   });
 
+  it('全選 unions the filtered list into the existing selection — keeps off-search selections (M7-R21 [4/5])', () => {
+    render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
+    fireEvent.click(screen.getByRole('button', { name: /篩選搜尋詞/ }));
+
+    // Select trail shoes, then narrow the list to 'running' so trail shoes is off-search.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'trail shoes' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '搜尋關鍵字' }), {
+      target: { value: 'running' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '全選' }));
+
+    // 全選 must UNION (add the filtered running shoes) not REPLACE — trail shoes must stay drawn.
+    const labels = lastConfig().data.datasets.map((d) => d.label);
+    expect(labels).toContain('running shoes');
+    expect(labels).toContain('trail shoes');
+    expect(lastConfig().data.datasets).toHaveLength(3);
+  });
+
   it('closes the 篩選搜尋詞 popover on an outside pointer-down (M7-R3)', () => {
     render(<TrendChart axis={AXIS} total={TOTAL} keywords={KEYWORDS} />);
     fireEvent.click(screen.getByRole('button', { name: /篩選搜尋詞/ }));
