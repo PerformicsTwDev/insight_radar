@@ -387,31 +387,53 @@ describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-
     expect(screen.getByRole('columnheader', { name: '購買歷程主題' })).toBeInTheDocument();
   });
 
-  it('fetches ALL journey stages (large pageSize, light select) for the column join, not the default first-50 page (M7-R12)', async () => {
-    let stagesBody: { select?: string[]; pagination?: { pageSize?: number } } | undefined;
+  it('paginates the all-stages journey query within the backend 200 cap, joining a keyword whose stage is only on a later page (M7-R12/R20 [0])', async () => {
+    const seenPageSizes: number[] = [];
+    const seenCursors: (string | undefined)[] = [];
     server.use(
       http.post(QUERY_ROUTE, async ({ request }) => {
         const body = (await request.json()) as {
           view: string;
           select?: string[];
-          pagination?: { pageSize?: number };
+          pagination?: { pageSize?: number; cursor?: string };
         };
         if (body.view === 'trend') {
           return HttpResponse.json({ view: 'trend', axis: [], total: [], series: [] });
         }
         if (body.view === 'journey') {
-          // Capture the column's dedicated all-stages query (the one selecting normalizedText+stage).
-          if (body.select?.length === 2) stagesBody = body;
+          // The column's dedicated all-stages query selects normalizedText+stage; distinguish it from
+          // useJourney's own first-50 probe (no select) and serve it across two cursor-linked pages.
+          if (body.select?.length === 2) {
+            seenPageSizes.push(body.pagination?.pageSize ?? -1);
+            seenCursors.push(body.pagination?.cursor);
+            if (body.pagination?.cursor === undefined) {
+              return HttpResponse.json({
+                view: 'journey',
+                columns: [],
+                rows: [{ text: 'other', normalizedText: 'other kw', stage: 'awareness' }],
+                pagination: { total: 2, page: 1, pageSize: 200, cursor: 'c1' },
+              });
+            }
+            // Page 2 (cursor c1): the grand-table keyword's stage lives only here — a single 100k-page
+            // request (the [0] bug, > the 200 cap) would 400 and never reach it.
+            return HttpResponse.json({
+              view: 'journey',
+              columns: [],
+              rows: [
+                {
+                  text: 'running shoes',
+                  normalizedText: 'running shoes',
+                  stage: 'spec_comparison',
+                },
+              ],
+              pagination: { total: 2, page: 2, pageSize: 200, cursor: null },
+            });
+          }
           return HttpResponse.json({
             view: 'journey',
             columns: [],
             rows: [],
-            pagination: {
-              total: 0,
-              page: 1,
-              pageSize: body.pagination?.pageSize ?? 50,
-              cursor: null,
-            },
+            pagination: { total: 0, page: 1, pageSize: 50, cursor: null },
           });
         }
         return HttpResponse.json({
@@ -426,18 +448,20 @@ describe('TC-28 · KeywordsView 購買歷程主題 on-demand column (M7-R2c, FR-
           journeyJobId: 'j',
           status: 'completed',
           progress: null,
-          keywordCount: 0,
+          keywordCount: 2,
         }),
       ),
     );
     renderKeywords('', { journey: { status: 'ready' } });
     await screen.findByRole('table', { name: '搜尋詞總表' });
 
-    // The join must cover every keyword (a keyword surfaced on a later table page/sort must not show
-    // — as if unclassified) → a large pageSize + a normalizedText/stage-only select (Map, no render).
-    await waitFor(() => expect(stagesBody).toBeDefined());
-    expect(stagesBody?.select).toEqual(['normalizedText', 'stage']);
-    expect(stagesBody?.pagination?.pageSize ?? 50).toBeGreaterThan(1000);
+    // A keyword whose stage is only on the 2nd page is still joined → shows its label (規格比較), not —.
+    expect(await screen.findByText('規格比較')).toBeInTheDocument();
+    // The [0] fix: the all-stages query never exceeds the backend 200 cap (was 100_000) and follows the
+    // cursor across pages (select stays the light normalizedText+stage projection).
+    await waitFor(() => expect(seenCursors).toContain('c1'));
+    expect(Math.max(...seenPageSizes)).toBeLessThanOrEqual(200);
+    expect(seenPageSizes.every((s) => s > 0)).toBe(true);
   });
 
   it('runs the journey job (POST :id/journey) when the ✦ generate-all trigger is clicked (M7-R2c)', async () => {
