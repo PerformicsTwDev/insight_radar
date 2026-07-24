@@ -134,7 +134,7 @@ export function KeywordsPagination({ meta }: { readonly meta: KeywordsMeta }): R
     <div
       role="group"
       aria-label="分頁與排序"
-      className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-3 py-2 text-sm text-white/70"
+      className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-bg-card px-4 py-3 text-sm text-white/70"
     >
       <SortControls
         sortBy={state.sortBy}
@@ -167,7 +167,7 @@ export function KeywordsPagination({ meta }: { readonly meta: KeywordsMeta }): R
           <div className="flex items-center gap-1">
             {window.map((p, i) =>
               p === 'ellipsis' ? (
-                <span key={`ellipsis-${i}`} aria-hidden="true" className="px-1 text-white/40">
+                <span key={`ellipsis-${i}`} aria-hidden="true" className="px-1.5 text-white/40">
                   …
                 </span>
               ) : (
@@ -213,12 +213,14 @@ const PAGE_SIZES = [25, 50, 100].filter((s) => s <= config.maxPageSize);
 
 const SELECT =
   'rounded-lg bg-bg-input px-2 py-1 text-xs text-white outline-none ring-1 ring-white/10 focus:ring-brand';
+// v4 `.pg-btn`: 32px tall, 32px min-width, 10px padding, 6 radius, 12.5px/600, hairline border.
+// `.pg-on` fills brand. (design-context/results-v4-spec.md)
 const NAV_BTN =
-  'rounded-lg px-2.5 py-1 text-xs text-white/70 ring-1 ring-white/10 enabled:hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40';
+  'inline-flex h-8 min-w-[32px] items-center justify-center rounded-md border border-white/[0.12] px-2.5 text-[12.5px] font-semibold text-white/[0.66] transition enabled:hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40';
 const PAGE_BTN =
-  'rounded-lg px-2 py-1 text-xs tabular-nums text-white/60 ring-1 ring-white/10 hover:bg-white/5';
+  'inline-flex h-8 min-w-[32px] items-center justify-center rounded-md border border-white/[0.12] px-2.5 text-[12.5px] font-semibold tabular-nums text-white/[0.66] transition hover:bg-white/5';
 const PAGE_BTN_ACTIVE =
-  'rounded-lg bg-brand/15 px-2 py-1 text-xs tabular-nums text-white ring-1 ring-brand/40';
+  'inline-flex h-8 min-w-[32px] items-center justify-center rounded-md border border-brand bg-brand px-2.5 text-[12.5px] font-semibold tabular-nums text-white';
 
 function SortControls({
   sortBy,
