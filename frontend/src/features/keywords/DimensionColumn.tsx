@@ -88,7 +88,14 @@ export function DimensionHeader({
   onGenerate: () => void;
 }): ReactElement {
   if (phase === 'ready') {
-    return <span>{label}</span>;
+    // v4 (M7-R17): a generated AI dimension keeps its green ✦ marker in the header, so the
+    // 搜尋意圖類別 / 搜尋意圖主題 / 購買歷程主題 columns read as one green ✦ group.
+    return (
+      <span className="flex items-center gap-1 text-brand">
+        {label}
+        <span aria-hidden="true">✦</span>
+      </span>
+    );
   }
   if (phase === 'generating') {
     return (

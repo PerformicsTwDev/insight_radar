@@ -58,7 +58,9 @@ describe('TC-15 · KeywordsTable (frozen col + sticky header + null → —, C12
   it('renders the five columns plus the ✦ on-demand placeholder header', () => {
     render(<KeywordsTable rows={rows} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(expect.arrayContaining(['搜尋詞', '意圖', '搜尋量', '競爭度', 'CPC']));
+    expect(headers).toEqual(expect.arrayContaining(['搜尋詞', '搜尋量', '競爭度', 'CPC']));
+    // v4 (M7-R17): 搜尋意圖類別 is the first green ✦ column — its header carries the ✦ marker.
+    expect(headers.some((h) => h?.includes('搜尋意圖類別'))).toBe(true);
     // ✦ on-demand generation column — placeholder only; real wiring is M4.
     expect(screen.getByRole('columnheader', { name: '✦' })).toBeInTheDocument();
   });
@@ -138,9 +140,9 @@ describe('TC-28 · KeywordsTable on-demand dimension columns (搜尋意圖主題
 
   it('inserts the dimension column right after 意圖 with its header + per-row client-joined pills', () => {
     render(<KeywordsTable rows={rows} dimensionColumns={[topicColumn]} />);
-    // Column order: 搜尋詞(0) 意圖(1) 搜尋意圖主題(2) 搜尋量(3) …
+    // Column order: 搜尋詞(0) 搜尋意圖類別(1) 搜尋意圖主題(2) 搜尋量(3) … (dimension headers carry ✦).
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers[2]).toBe('搜尋意圖主題');
+    expect(headers[2]).toContain('搜尋意圖主題');
     expect(headers[3]).toBe('搜尋量');
     // the classified row shows its pill; an unclassified row shows — (never a fabricated topic).
     expect(screen.getByText('規格探究')).toBeInTheDocument();
