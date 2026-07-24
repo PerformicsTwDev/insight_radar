@@ -40,17 +40,21 @@ import type { EventSourceFactory } from '../job/useJobTracking';
 
 const ROW_HEIGHT = 44;
 const SELECT_WIDTH = 44;
+// Per-column widths tuned to the v4 prototype's proportions (M7-R18, #4): 搜尋詞 widest, the 3
+// green ✦ intent/topic/journey pill columns equal, then the numeric/sparkline/CPC columns and a
+// narrow ✦ column. The grid overflows its container → horizontal scroll with 搜尋詞 frozen-left.
 const COL_WIDTH = {
-  text: 220,
-  intent: 200,
-  // On-demand dimension columns (搜尋意圖主題 / 購買歷程主題), M7-R2b/c.
-  dimension: 132,
-  volume: 120,
-  competition: 150,
-  cpc: 170,
-  // Widened for the M7-R2a inline signed-% beside the sparkline (was 128, sparkline-only).
-  trend: 168,
-  ai: 72,
+  text: 200,
+  // 搜尋意圖類別 — intent pills (can carry two labels), slightly wider than the single-pill dims.
+  intent: 160,
+  // On-demand dimension columns (搜尋意圖主題 / 購買歷程主題), M7-R2b/c — one pill each.
+  dimension: 144,
+  volume: 100,
+  competition: 96,
+  cpc: 140,
+  // 搜尋趨勢TTM — sparkline + inline signed % (M7-R2a).
+  trend: 152,
+  ai: 60,
 };
 
 /**
